@@ -1,5 +1,3 @@
 mod engine;
 
-fn main()
-{
-}
+fn main() {}
