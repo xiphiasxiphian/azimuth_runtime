@@ -37,9 +37,11 @@ fn unimplemented_handler(input: HandlerInputInfo) -> Option<usize>
 
 macro_rules! handlers {
     ($({$i:expr, $p:expr, $h:expr}),+) => {
-        [$(
-           HandlerInfo { opcode: $i, param_count: $p, handler: $h },
-        )+]
+        [
+            $(
+                HandlerInfo { opcode: $i, param_count: $p, handler: $h }
+            ),+
+        ]
     };
 }
 
