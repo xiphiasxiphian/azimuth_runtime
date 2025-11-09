@@ -31,7 +31,20 @@ pub fn exec_instruction(bytecode: &[u8], pc: usize) -> usize
     .unwrap_or(new_pc)
 }
 
-fn debug_handler(input: HandlerInputInfo) -> Option<usize>
+fn push_single(input: HandlerInputInfo, value: u32) -> Option<usize>
+{
+    todo!()
+}
+
+fn push_double(input: HandlerInputInfo, value: u64) -> Option<usize>
+{
+    todo!()
+}
+
+
+// Debugging Handlers. Not for actual use
+
+fn simple_print_handler(input: HandlerInputInfo) -> Option<usize>
 {
     dbg!(input);
     None
@@ -53,15 +66,15 @@ macro_rules! handlers {
 }
 
 const HANDLERS: [HandlerInfo; 256] = handlers!(
-    { 0, 0, &unimplemented_handler },
-    { 1, 0, &unimplemented_handler },
-    { 2, 0, &unimplemented_handler },
-    { 3, 0, &unimplemented_handler },
-    { 4, 0, &unimplemented_handler },
-    { 5, 0, &unimplemented_handler },
-    { 6, 0, &unimplemented_handler },
-    { 7, 0, &unimplemented_handler },
-    { 8, 0, &unimplemented_handler },
+    { 0, 0, &(|_| None) }, // nop: Do nothing. [No Change]
+    { 1, 0, &(|x| push_single(x, 0)) }, // i4.const.0: Push 0 onto the stack. -> 0
+    { 2, 0, &(|x| push_single(x, 1)) }, // i4.const.1: Push 1 onto the stack. -> 1
+    { 3, 0, &(|x| push_single(x, 2)) }, // i4.const.2: Push 2 onto the stack. -> 2
+    { 4, 0, &(|x| push_single(x, 3)) }, // i4.const.3: Push 3 onto the stack. -> 3
+    { 5, 0, &unimplemented_handler }, // i8.const.0: Push 0_i64 onto the stack. -> 0
+    { 6, 0, &unimplemented_handler }, // i8.const.1: Push 1_i64 onto the stack. -> 1
+    { 7, 0, &unimplemented_handler }, // i8.const.2: Push 2_i64 onto the stack. -> 2
+    { 8, 0, &unimplemented_handler }, // i8.const.3: Push 3_i64 onto the stack. -> 3
     { 9, 0, &unimplemented_handler },
     { 10, 0, &unimplemented_handler },
     { 11, 0, &unimplemented_handler },
