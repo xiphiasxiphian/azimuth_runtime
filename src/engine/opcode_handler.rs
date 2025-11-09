@@ -71,10 +71,10 @@ const HANDLERS: [HandlerInfo; 256] = handlers!(
     { 2, 0, &(|x| push_single(x, 1)) }, // i4.const.1: Push 1 onto the stack. -> 1
     { 3, 0, &(|x| push_single(x, 2)) }, // i4.const.2: Push 2 onto the stack. -> 2
     { 4, 0, &(|x| push_single(x, 3)) }, // i4.const.3: Push 3 onto the stack. -> 3
-    { 5, 0, &unimplemented_handler }, // i8.const.0: Push 0_i64 onto the stack. -> 0
-    { 6, 0, &unimplemented_handler }, // i8.const.1: Push 1_i64 onto the stack. -> 1
-    { 7, 0, &unimplemented_handler }, // i8.const.2: Push 2_i64 onto the stack. -> 2
-    { 8, 0, &unimplemented_handler }, // i8.const.3: Push 3_i64 onto the stack. -> 3
+    { 5, 0, &(|x| push_double(x, 0)) }, // i8.const.0: Push 0_i64 onto the stack. -> 0
+    { 6, 0, &(|x| push_double(x, 1)) }, // i8.const.1: Push 1_i64 onto the stack. -> 1
+    { 7, 0, &(|x| push_double(x, 2)) }, // i8.const.2: Push 2_i64 onto the stack. -> 2
+    { 8, 0, &(|x| push_double(x, 3)) }, // i8.const.3: Push 3_i64 onto the stack. -> 3
     { 9, 0, &unimplemented_handler },
     { 10, 0, &unimplemented_handler },
     { 11, 0, &unimplemented_handler },
