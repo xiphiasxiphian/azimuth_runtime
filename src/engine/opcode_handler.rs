@@ -10,7 +10,7 @@ struct HandlerInfo<'a>
 {
     opcode: u8,
     param_count: u8,
-    handler: &'a dyn Fn(HandlerInputInfo),
+    handler: &'a dyn Fn(HandlerInputInfo) -> Option<usize>,
 }
 
 const HANDLERS: [HandlerInfo; 256] = [HandlerInfo { opcode: 0, param_count: 0, handler: &unimplemented_handler }; 256];
@@ -23,16 +23,16 @@ pub fn exec_instruction(bytecode: &[u8], pc: usize) -> usize
     assert!(opcode == handler_info.opcode, "HANDLERS Array invalid: misaligned opcode");
     let new_pc = pc + handler_info.param_count as usize + 1;
 
-    (handler_info.handler)(HandlerInputInfo { opcode, params: &bytecode[(pc + 1)..new_pc]});
-    return new_pc;
+    (handler_info.handler)(HandlerInputInfo { opcode, params: &bytecode[(pc + 1)..new_pc] }).unwrap_or(new_pc)
 }
 
-fn debug_handler(input: HandlerInputInfo)
+fn debug_handler(input: HandlerInputInfo) -> Option<usize>
 {
     dbg!(input);
+    None
 }
 
-fn unimplemented_handler(input: HandlerInputInfo)
+fn unimplemented_handler(input: HandlerInputInfo) -> Option<usize>
 {
-    panic!("Opcode not implemented");
+    panic!("Opcode not implemented")
 }
