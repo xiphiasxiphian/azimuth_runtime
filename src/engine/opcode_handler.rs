@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct HandlerInputInfo<'a>
 {
     opcode: u8,
@@ -19,6 +19,8 @@ pub fn exec_instruction(bytecode: &[u8], pc: usize) -> usize
 {
     let opcode = bytecode[pc];
     let handler_info = &HANDLERS[opcode as usize];
+
+    assert!(opcode == handler_info.opcode, "HANDLERS Array invalid: misaligned opcode");
     let new_pc = pc + handler_info.param_count as usize + 1;
 
     (handler_info.handler)(HandlerInputInfo { opcode, params: &bytecode[(pc + 1)..new_pc]});
