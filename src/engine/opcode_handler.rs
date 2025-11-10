@@ -1,8 +1,11 @@
-#[derive(Debug, Clone, Copy)]
+use crate::engine::stack::StackFrame;
+
+#[derive(Debug)]
 struct HandlerInputInfo<'a>
 {
     opcode: u8,
     params: &'a [u8],
+    frame: &'a mut StackFrame,
 }
 
 #[derive(Clone, Copy)]
@@ -13,7 +16,7 @@ struct HandlerInfo<'a>
     handler: &'a dyn Fn(HandlerInputInfo) -> Option<usize>,
 }
 
-pub fn exec_instruction(bytecode: &[u8], pc: usize) -> usize
+pub fn exec_instruction(bytecode: &[u8], pc: usize, frame: &mut StackFrame) -> usize
 {
     let opcode = bytecode[pc];
     let handler_info = &HANDLERS[opcode as usize];
@@ -27,20 +30,22 @@ pub fn exec_instruction(bytecode: &[u8], pc: usize) -> usize
     (handler_info.handler)(HandlerInputInfo {
         opcode,
         params: &bytecode[(pc + 1)..new_pc],
+        frame
     })
     .unwrap_or(new_pc)
 }
 
 fn push_single(input: HandlerInputInfo, value: u32) -> Option<usize>
 {
-    todo!()
+    input.frame.push_single(value);
+    None
 }
 
 fn push_double(input: HandlerInputInfo, value: u64) -> Option<usize>
 {
-    todo!()
+    input.frame.push_double(value);
+    None
 }
-
 
 // Debugging Handlers. Not for actual use
 

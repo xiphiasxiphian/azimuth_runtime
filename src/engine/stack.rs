@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 
 // At some point I might revisit this and make it all work slightly more inline.
 // But for now this is a very basic implementation
-struct StackFrame
+#[derive(Debug, Clone)]
+pub struct StackFrame
 {
     locals: Vec<u32>,
     stack: VecDeque<u32>,
