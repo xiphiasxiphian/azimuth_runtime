@@ -1,22 +1,22 @@
 use crate::engine::stack::StackFrame;
 
-#[derive(Debug)]
-struct HandlerInputInfo<'a>
+#[derive(Debug,)]
+struct HandlerInputInfo<'a,>
 {
     opcode: u8,
     params: &'a [u8],
-    frame: &'a mut StackFrame<'a>,
+    frame: &'a mut StackFrame<'a,>,
 }
 
-#[derive(Clone, Copy)]
-struct HandlerInfo<'a>
+#[derive(Clone, Copy,)]
+struct HandlerInfo<'a,>
 {
     opcode: u8,
     param_count: u8,
-    handler: &'a dyn Fn(HandlerInputInfo) -> Option<usize>,
+    handler: &'a dyn Fn(HandlerInputInfo,) -> Option<usize,>,
 }
 
-pub fn exec_instruction(bytecode: &[u8], pc: usize, frame: &mut StackFrame) -> usize
+pub fn exec_instruction(bytecode: &[u8], pc: usize, frame: &mut StackFrame,) -> usize
 {
     let opcode = bytecode[pc];
     let handler_info = &HANDLERS[opcode as usize];
@@ -31,31 +31,31 @@ pub fn exec_instruction(bytecode: &[u8], pc: usize, frame: &mut StackFrame) -> u
         opcode,
         params: &bytecode[(pc + 1)..new_pc],
         frame,
-    })
-    .unwrap_or(new_pc)
+    },)
+    .unwrap_or(new_pc,)
 }
 
-fn push_single(input: HandlerInputInfo, value: u32) -> Option<usize>
+fn push_single(input: HandlerInputInfo, value: u32,) -> Option<usize,>
 {
-    input.frame.push_single(value);
+    input.frame.push_single(value,);
     None
 }
 
-fn push_double(input: HandlerInputInfo, value: u64) -> Option<usize>
+fn push_double(input: HandlerInputInfo, value: u64,) -> Option<usize,>
 {
-    input.frame.push_double(value);
+    input.frame.push_double(value,);
     None
 }
 
 // Debugging Handlers. Not for actual use
 
-fn simple_print_handler(input: HandlerInputInfo) -> Option<usize>
+fn simple_print_handler(input: HandlerInputInfo,) -> Option<usize,>
 {
     dbg!(input);
     None
 }
 
-fn unimplemented_handler(input: HandlerInputInfo) -> Option<usize>
+fn unimplemented_handler(input: HandlerInputInfo,) -> Option<usize,>
 {
     panic!("Opcode not implemented")
 }
