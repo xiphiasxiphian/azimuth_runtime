@@ -92,10 +92,10 @@ const HANDLERS: [HandlerInfo; 256] = handlers!(
     { 6, 0, push_double, 1 }, // i8.const.1: Push 1_i64 onto the stack. -> 1
     { 7, 0, push_double, 2 }, // i8.const.2: Push 2_i64 onto the stack. -> 2
     { 8, 0, push_double, 3 }, // i8.const.3: Push 3_i64 onto the stack. -> 3
-    { 9, 0, unimplemented_handler },
-    { 10, 0, unimplemented_handler },
-    { 11, 0, unimplemented_handler },
-    { 12, 0, unimplemented_handler },
+    { 9, 0, push_single, (0.0_f32).to_bits() }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
+    { 10, 0, push_single, (1.0_f32).to_bits() }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
+    { 11, 0, push_double, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
+    { 12, 0, push_double, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
     { 13, 0, unimplemented_handler },
     { 14, 0, unimplemented_handler },
     { 15, 0, unimplemented_handler },

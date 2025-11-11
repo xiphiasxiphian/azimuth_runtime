@@ -29,7 +29,7 @@ impl StackFrame
         let lower: u32 = (value & Self::LOWER_MASK).try_into().expect("Failed to convert lower to u32");
         let upper: u32 = ((value & Self::UPPER_MASK) >> 32).try_into().expect("Failed to convert upper to u32");
 
-        // The upper half is stored first in the stack than the lower half.
+        // The upper half is stored first in the stack compared with the lower half.
         // This means that the first thing popped off the stack will be the lower half
         self.stack.push_front(upper);
         self.stack.push_front(lower);
