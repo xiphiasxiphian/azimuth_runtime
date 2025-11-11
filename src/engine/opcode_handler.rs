@@ -5,7 +5,7 @@ struct HandlerInputInfo<'a>
 {
     opcode: u8,
     params: &'a [u8],
-    frame: &'a mut StackFrame,
+    frame: &'a mut StackFrame<'a>,
 }
 
 #[derive(Clone, Copy)]

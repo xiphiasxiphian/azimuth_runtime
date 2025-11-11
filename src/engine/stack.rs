@@ -5,7 +5,7 @@ use std::ops::Rem;
 struct Stack<const N: usize>
 {
     stack: [u32; N],
-    head: usize
+    head: usize,
 }
 
 impl<const N: usize> Stack<N>
