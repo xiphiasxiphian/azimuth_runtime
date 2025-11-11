@@ -1,3 +1,46 @@
+use std::ops::Rem;
+
+// Stack size is set at initiation and is hard coded somewhere.
+// Theoretically this could become a config value at some point in the future
+struct Stack<const N: usize>
+{
+    stack: [u32; N],
+    head: usize
+}
+
+impl<const N: usize> Stack<N>
+{
+    pub fn new() -> Self
+    {
+        Stack { stack: [0; N], head: 0 }
+    }
+
+    pub fn push_frame<'a>(&'a mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'a>>
+    {
+        let new_head = self.head + locals_size + stack_size;
+
+        let (_, rem) = self.stack.split_at_mut(self.head);
+        let (new, _) = rem.split_at_mut(locals_size + stack_size);
+
+        let (locals, stack) = new.split_at_mut(locals_size);
+
+        if new_head > N { return None; }
+        self.head = new_head;
+
+        Some(
+            StackFrame::new(
+                locals,
+                stack
+            )
+        )
+    }
+
+    pub fn pop_stack(&mut self)
+    {
+        todo!()
+    }
+}
+
 // At some point I might revisit this and make it all work slightly more inline.
 // But for now this is a very basic implementation
 #[derive(Debug)]
