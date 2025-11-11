@@ -23,9 +23,7 @@ impl<const N: usize> Stack<N>
     ) -> Option<StackFrame<'a>>
     {
         let new_head = self.head + locals_size + stack_size;
-
-        let (_, rem) = self.stack.split_at_mut(self.head);
-        let (new, _) = rem.split_at_mut(locals_size + stack_size);
+        let (new, _) = (&mut self.stack[self.head..]).split_at_mut(locals_size + stack_size);
 
         let (locals, stack) = new.split_at_mut(locals_size);
 
