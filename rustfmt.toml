@@ -1,4 +1,4 @@
 brace_style = "AlwaysNextLine"
 control_brace_style = "AlwaysNextLine"
 group_imports = "StdExternalCrate"
-trailing_comma = "Always"
+trailing_comma = "Vertical"
