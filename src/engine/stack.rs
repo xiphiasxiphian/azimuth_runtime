@@ -16,7 +16,10 @@ impl StackFrame
 
     pub fn new(local_size: usize) -> Self
     {
-        StackFrame { locals: Vec::with_capacity(local_size), stack: VecDeque::new() }
+        StackFrame {
+            locals: Vec::with_capacity(local_size),
+            stack: VecDeque::new(),
+        }
     }
 
     pub fn push_single(&mut self, value: u32)
@@ -26,8 +29,12 @@ impl StackFrame
 
     pub fn push_double(&mut self, value: u64)
     {
-        let lower: u32 = (value & Self::LOWER_MASK).try_into().expect("Failed to convert lower to u32");
-        let upper: u32 = ((value & Self::UPPER_MASK) >> 32).try_into().expect("Failed to convert upper to u32");
+        let lower: u32 = (value & Self::LOWER_MASK)
+            .try_into()
+            .expect("Failed to convert lower to u32");
+        let upper: u32 = ((value & Self::UPPER_MASK) >> 32)
+            .try_into()
+            .expect("Failed to convert upper to u32");
 
         // The upper half is stored first in the stack compared with the lower half.
         // This means that the first thing popped off the stack will be the lower half
@@ -70,8 +77,12 @@ impl StackFrame
 
     pub fn set_local_double(&mut self, index: usize, value: u64)
     {
-        let lower: u32 = (value & Self::LOWER_MASK).try_into().expect("Failed to convert lower to u32");
-        let upper: u32 = ((value & Self::UPPER_MASK) >> 32).try_into().expect("Failed to convert upper to u32");
+        let lower: u32 = (value & Self::LOWER_MASK)
+            .try_into()
+            .expect("Failed to convert lower to u32");
+        let upper: u32 = ((value & Self::UPPER_MASK) >> 32)
+            .try_into()
+            .expect("Failed to convert upper to u32");
 
         self.locals[index] = lower;
         self.locals[index + 1] = upper;

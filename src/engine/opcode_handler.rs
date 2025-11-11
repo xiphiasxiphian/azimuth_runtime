@@ -30,7 +30,7 @@ pub fn exec_instruction(bytecode: &[u8], pc: usize, frame: &mut StackFrame) -> u
     (handler_info.handler)(HandlerInputInfo {
         opcode,
         params: &bytecode[(pc + 1)..new_pc],
-        frame
+        frame,
     })
     .unwrap_or(new_pc)
 }
