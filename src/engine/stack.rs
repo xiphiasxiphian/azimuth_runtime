@@ -1,7 +1,7 @@
 // Stack size is set at initiation and is hard coded somewhere.
 // Theoretically this could become a config value at some point in the future
 #[derive(Debug)]
-struct Stack
+pub struct Stack
 {
     stack: Vec<u32>,
 }
@@ -11,11 +11,15 @@ impl Stack
     pub fn new(capacity: usize) -> Self
     {
         Stack {
-            stack: vec![0; capacity]
+            stack: vec![0; capacity],
         }
     }
 
-    pub fn initial_frame<'a>(&'a mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'a>>
+    pub fn initial_frame<'a>(
+        &'a mut self,
+        locals_size: usize,
+        stack_size: usize,
+    ) -> Option<StackFrame<'a>>
     {
         (locals_size + stack_size <= self.stack.len())
             .then(|| StackFrame::new(self, 0, locals_size, locals_size + stack_size))
@@ -52,10 +56,17 @@ impl<'a> StackFrame<'a>
 
     pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, f: F) -> bool
     where
-        F: FnOnce(StackFrame<'a>)
+        F: FnOnce(StackFrame<'a>),
     {
         (self.size + locals_size + stack_size <= self.origin.stack.len())
-            .then(|| StackFrame::new(self.origin, self.size, self.size + locals_size, locals_size + stack_size))
+            .then(|| {
+                StackFrame::new(
+                    self.origin,
+                    self.size,
+                    self.size + locals_size,
+                    locals_size + stack_size,
+                )
+            })
             .map(|x| f(x))
             .is_some()
     }
