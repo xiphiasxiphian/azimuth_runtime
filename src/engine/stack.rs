@@ -1,25 +1,23 @@
-use crate::engine::stack;
-
 // Stack size is set at initiation and is hard coded somewhere.
 // Theoretically this could become a config value at some point in the future
 #[derive(Debug)]
-struct Stack<const N: usize>
+struct Stack
 {
-    stack: [u32; N],
+    stack: Vec<u32>,
 }
 
-impl<const N: usize> Stack<N>
+impl Stack
 {
-    pub fn new() -> Self
+    pub fn new(capacity: usize) -> Self
     {
         Stack {
-            stack: [0; N],
+            stack: vec![0; capacity]
         }
     }
 
-    pub fn initial_frame<'a>(&'a mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'a, N>>
+    pub fn initial_frame<'a>(&'a mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'a>>
     {
-        (locals_size + stack_size <= N)
+        (locals_size + stack_size <= self.stack.len())
             .then(|| StackFrame::new(self, 0, locals_size, locals_size + stack_size))
     }
 }
@@ -27,21 +25,21 @@ impl<const N: usize> Stack<N>
 // At some point I might revisit this and make it all work slightly more inline.
 // But for now this is a very basic implementation
 #[derive(Debug)]
-pub struct StackFrame<'a, const N: usize>
+pub struct StackFrame<'a>
 {
-    origin: &'a mut Stack<N>,
+    origin: &'a mut Stack,
     locals_base: usize,
     stack_base: usize,
     stack_pointer: usize,
     size: usize,
 }
 
-impl<'a, const N: usize> StackFrame<'a, N>
+impl<'a> StackFrame<'a>
 {
     const LOWER_MASK: u64 = 0x00000000FFFFFFFF;
     const UPPER_MASK: u64 = 0xFFFFFFFF00000000;
 
-    pub fn new(origin: &'a mut Stack<N>, locals_base: usize, stack_base: usize, size: usize) -> Self
+    pub fn new(origin: &'a mut Stack, locals_base: usize, stack_base: usize, size: usize) -> Self
     {
         StackFrame {
             origin,
@@ -52,10 +50,14 @@ impl<'a, const N: usize> StackFrame<'a, N>
         }
     }
 
-    pub fn next_frame(&'a mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'a, N>>
+    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, f: F) -> bool
+    where
+        F: FnOnce(StackFrame<'a>)
     {
-        (self.size + locals_size + stack_size <= N)
+        (self.size + locals_size + stack_size <= self.origin.stack.len())
             .then(|| StackFrame::new(self.origin, self.size, self.size + locals_size, locals_size + stack_size))
+            .map(|x| f(x))
+            .is_some()
     }
 
     pub fn push_single(&mut self, value: u32)
@@ -142,14 +144,14 @@ mod stack_tests
     #[test]
     fn stack_init_works()
     {
-        let stack: Stack<1024> = Stack::new();
+        let stack: Stack = Stack::new(1024);
         assert_eq!(stack.stack.len(), 1024);
     }
 
     #[test]
     fn new_stack_frame_correct_info()
     {
-        let mut stack: Stack<1024> = Stack::new();
+        let mut stack: Stack = Stack::new(1024);
         let frame = stack.initial_frame(4, 4).unwrap();
 
         assert_eq!(frame.locals_base, 0);
@@ -158,9 +160,14 @@ mod stack_tests
     }
 
     #[test]
-    fn stack_frame_popping()
+    fn stack_frame_nesting()
     {
-        let mut stack: Stack<1024> = Stack::new();
-        let frame = stack.initial_frame(4, 4).unwrap();
+        let mut stack: Stack = Stack::new(1024);
+        let mut frame1 = stack.initial_frame(4, 4).unwrap();
+        assert!(frame1.with_next_frame(4, 4, |f| {
+            assert_eq!(f.locals_base, 8);
+            assert_eq!(f.stack_base, 12);
+            assert_eq!(f.stack_pointer, 0);
+        }));
     }
 }
