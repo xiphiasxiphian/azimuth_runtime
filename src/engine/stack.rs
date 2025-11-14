@@ -116,8 +116,9 @@ impl<'a> StackFrame<'a>
 
     pub fn get_local_double(&self, index: usize) -> u64
     {
-        let lower = self.origin.stack[self.locals_base + index] as u64;
-        let upper = self.origin.stack[self.locals_base + index + 1] as u64;
+        // The conversions between u32 and u64 cannot fail
+        let lower = self.get_local_single(index) as u64;
+        let upper = self.get_local_single(index + 1) as u64;
 
         (upper << 32) | lower
     }
@@ -136,8 +137,8 @@ impl<'a> StackFrame<'a>
             .try_into()
             .expect("Failed to convert upper to u32");
 
-        self.origin.stack[self.locals_base + index] = lower;
-        self.origin.stack[self.locals_base + index + 1] = upper;
+        self.set_local_single(index, lower);
+        self.set_local_single(index + 1, upper);
     }
 }
 
