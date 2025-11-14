@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 datatest-stable = "0.3.3"
+
+[[test]]
+name = "runner"
+harness = false
