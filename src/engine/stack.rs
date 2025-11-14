@@ -181,4 +181,16 @@ mod stack_tests
             assert_eq!(f.stack_pointer, 0);
         }));
     }
+
+    #[test]
+    fn stack_overflow_detected()
+    {
+        let mut stack: Stack = Stack::new(1024);
+        let frame1 = stack.initial_frame(513, 513);
+
+        assert!(frame1.is_none());
+        let mut frame2 = stack.initial_frame(512, 512).unwrap();
+
+        assert!(!frame2.with_next_frame(20, 20, |f| {}));
+    }
 }
