@@ -18,7 +18,7 @@ impl Stack
     pub fn initial_frame<'a>(
         &'a mut self,
         locals_size: usize,
-        stack_size: usize,
+        stack_size: usize
     ) -> Option<StackFrame<'a>>
     {
         (locals_size + stack_size <= self.stack.len())
@@ -60,14 +60,13 @@ impl<'a> StackFrame<'a>
     {
         (self.size + locals_size + stack_size <= self.origin.stack.len())
             .then(|| {
-                StackFrame::new(
+                f(StackFrame::new(
                     self.origin,
                     self.size,
                     self.size + locals_size,
                     locals_size + stack_size,
-                )
+                ))
             })
-            .map(|x| f(x))
             .is_some()
     }
 
@@ -94,13 +93,11 @@ impl<'a> StackFrame<'a>
 
     pub fn pop_single(&mut self) -> Option<u32>
     {
-        if self.stack_pointer == 0
-        {
-            return None;
-        }
-
-        self.stack_pointer -= 1;
-        Some(self.origin.stack[self.stack_base + self.stack_pointer])
+        (self.stack_pointer > 0)
+            .then(|| {
+                self.stack_pointer -= 1;
+                self.origin.stack[self.stack_base + self.stack_pointer]
+            })
     }
 
     pub fn pop_double(&mut self) -> Option<u64>
