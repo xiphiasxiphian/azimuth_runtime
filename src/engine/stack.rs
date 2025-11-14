@@ -88,10 +88,8 @@ impl<'a> StackFrame<'a>
 
         // The upper half is stored first in the stack compared with the lower half.
         // This means that the first thing popped off the stack will be the lower half
-        self.origin.stack[self.stack_base + self.stack_pointer] = upper;
-        self.origin.stack[self.stack_base + self.stack_pointer + 1] = lower;
-
-        self.stack_pointer += 2;
+        self.push_single(upper);
+        self.push_single(lower);
     }
 
     pub fn pop_single(&mut self) -> Option<u32>
@@ -112,7 +110,7 @@ impl<'a> StackFrame<'a>
         let lower: u64 = self.pop_single()? as u64;
         let upper: u64 = self.pop_single()? as u64;
 
-        return Some((upper << 32) & lower);
+        return Some((upper << 32) | lower);
     }
 
     pub fn get_local_single(&self, index: usize) -> u32
@@ -125,7 +123,7 @@ impl<'a> StackFrame<'a>
         let lower = self.origin.stack[self.locals_base + index] as u64;
         let upper = self.origin.stack[self.locals_base + index + 1] as u64;
 
-        return (upper << 32) & lower;
+        return (upper << 32) | lower;
     }
 
     pub fn set_local_single(&mut self, index: usize, value: u32)
@@ -191,6 +189,32 @@ mod stack_tests
         assert!(frame1.is_none());
         let mut frame2 = stack.initial_frame(512, 512).unwrap();
 
-        assert!(!frame2.with_next_frame(20, 20, |f| {}));
+        assert!(!frame2.with_next_frame(20, 20, |_| {}));
+    }
+
+    #[test]
+    fn stack_frame_singles()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        frame.push_single(10);
+        frame.push_single(20);
+
+        assert_eq!(frame.pop_single().unwrap(), 20);
+        assert_eq!(frame.pop_single().unwrap(), 10);
+        assert!(frame.pop_single().is_none());
+    }
+
+    #[test]
+    fn stack_frame_doubles()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        frame.push_double(1 << 33);
+
+        assert_eq!(frame.pop_double().unwrap(), 1 << 33);
+        assert!(frame.pop_double().is_none());
     }
 }
