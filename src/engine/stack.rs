@@ -3,6 +3,8 @@
 #[derive(Debug)]
 pub struct Stack
 {
+    // The entire data for the stack. This is just a static vector initially set
+    // to a specific capacity
     stack: Vec<u32>,
 }
 
@@ -40,8 +42,10 @@ pub struct StackFrame<'a>
 
 impl<'a> StackFrame<'a>
 {
-    const LOWER_MASK: u64 = 0x00000000FFFFFFFF;
-    const UPPER_MASK: u64 = 0xFFFFFFFF00000000;
+    const UPPER_LOWER_OFFSET: u64 = 32;
+
+    const LOWER_MASK: u64 = 0xFFFFFFFF;
+    const UPPER_MASK: u64 = Self::LOWER_MASK << Self::UPPER_LOWER_OFFSET;
 
     pub fn new(origin: &'a mut Stack, locals_base: usize, stack_base: usize, size: usize) -> Self
     {
@@ -81,7 +85,7 @@ impl<'a> StackFrame<'a>
         let lower: u32 = (value & Self::LOWER_MASK)
             .try_into()
             .expect("Failed to convert lower to u32");
-        let upper: u32 = ((value & Self::UPPER_MASK) >> 32)
+        let upper: u32 = ((value & Self::UPPER_MASK) >> Self::UPPER_LOWER_OFFSET)
             .try_into()
             .expect("Failed to convert upper to u32");
 
@@ -106,7 +110,7 @@ impl<'a> StackFrame<'a>
         let lower: u64 = self.pop_single()? as u64;
         let upper: u64 = self.pop_single()? as u64;
 
-        Some((upper << 32) | lower)
+        Some((upper << Self::UPPER_LOWER_OFFSET) | lower)
     }
 
     pub fn get_local_single(&self, index: usize) -> u32
@@ -120,7 +124,7 @@ impl<'a> StackFrame<'a>
         let lower = self.get_local_single(index) as u64;
         let upper = self.get_local_single(index + 1) as u64;
 
-        (upper << 32) | lower
+        (upper << Self::UPPER_LOWER_OFFSET) | lower
     }
 
     pub fn set_local_single(&mut self, index: usize, value: u32)
