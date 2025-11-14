@@ -217,4 +217,17 @@ mod stack_tests
         assert_eq!(frame.pop_double().unwrap(), 1 << 33);
         assert!(frame.pop_double().is_none());
     }
+
+    #[test]
+    fn stack_frame_locals()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        frame.set_local_single(0, 10);
+        frame.set_local_double(1, 1 << 33);
+
+        assert_eq!(frame.get_local_single(0), 10);
+        assert_eq!(frame.get_local_double(1), 1 << 33);
+    }
 }
