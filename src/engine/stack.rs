@@ -18,7 +18,7 @@ impl Stack
     pub fn initial_frame<'a>(
         &'a mut self,
         locals_size: usize,
-        stack_size: usize
+        stack_size: usize,
     ) -> Option<StackFrame<'a>>
     {
         (locals_size + stack_size <= self.stack.len())
@@ -93,11 +93,10 @@ impl<'a> StackFrame<'a>
 
     pub fn pop_single(&mut self) -> Option<u32>
     {
-        (self.stack_pointer > 0)
-            .then(|| {
-                self.stack_pointer -= 1;
-                self.origin.stack[self.stack_base + self.stack_pointer]
-            })
+        (self.stack_pointer > 0).then(|| {
+            self.stack_pointer -= 1;
+            self.origin.stack[self.stack_base + self.stack_pointer]
+        })
     }
 
     pub fn pop_double(&mut self) -> Option<u64>
@@ -107,7 +106,7 @@ impl<'a> StackFrame<'a>
         let lower: u64 = self.pop_single()? as u64;
         let upper: u64 = self.pop_single()? as u64;
 
-        return Some((upper << 32) | lower);
+        Some((upper << 32) | lower)
     }
 
     pub fn get_local_single(&self, index: usize) -> u32
@@ -120,7 +119,7 @@ impl<'a> StackFrame<'a>
         let lower = self.origin.stack[self.locals_base + index] as u64;
         let upper = self.origin.stack[self.locals_base + index + 1] as u64;
 
-        return (upper << 32) | lower;
+        (upper << 32) | lower
     }
 
     pub fn set_local_single(&mut self, index: usize, value: u32)
