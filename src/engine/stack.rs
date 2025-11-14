@@ -115,7 +115,7 @@ impl<'a> StackFrame<'a>
     {
         Self::combine_double(
             self.get_local_single(index),
-            self.get_local_single(index + 1)
+            self.get_local_single(index + 1),
         )
     }
 
