@@ -136,11 +136,10 @@ impl<'a> StackFrame<'a>
     {
         let lower: u32 = (value & Self::LOWER_MASK)
             .try_into()
-            .expect("Failed to convert lower to u32");
+            .expect("Failed to convert lower to u32. This result should be impossible");
         let upper: u32 = ((value & Self::UPPER_MASK) >> Self::UPPER_LOWER_OFFSET)
             .try_into()
-            .expect("Failed to convert upper to u32");
-
+            .expect("Failed to convert upper to u32. This result should be impossible");
         (lower, upper)
     }
 
