@@ -82,12 +82,7 @@ impl<'a> StackFrame<'a>
 
     pub fn push_double(&mut self, value: u64)
     {
-        let lower: u32 = (value & Self::LOWER_MASK)
-            .try_into()
-            .expect("Failed to convert lower to u32");
-        let upper: u32 = ((value & Self::UPPER_MASK) >> Self::UPPER_LOWER_OFFSET)
-            .try_into()
-            .expect("Failed to convert upper to u32");
+        let (lower, upper) = Self::split_double(value);
 
         // The upper half is stored first in the stack compared with the lower half.
         // This means that the first thing popped off the stack will be the lower half
@@ -105,12 +100,10 @@ impl<'a> StackFrame<'a>
 
     pub fn pop_double(&mut self) -> Option<u64>
     {
-        // Get the lower and upper half.
-        // The cast from u32 to u64 cannot fail.
-        let lower: u64 = self.pop_single()? as u64;
-        let upper: u64 = self.pop_single()? as u64;
+        let lower = self.pop_single()?;
+        let upper = self.pop_single()?;
 
-        Some((upper << Self::UPPER_LOWER_OFFSET) | lower)
+        Some(Self::combine_double(lower, upper))
     }
 
     pub fn get_local_single(&self, index: usize) -> u32
@@ -120,11 +113,10 @@ impl<'a> StackFrame<'a>
 
     pub fn get_local_double(&self, index: usize) -> u64
     {
-        // The conversions between u32 and u64 cannot fail
-        let lower = self.get_local_single(index) as u64;
-        let upper = self.get_local_single(index + 1) as u64;
-
-        (upper << Self::UPPER_LOWER_OFFSET) | lower
+        Self::combine_double(
+            self.get_local_single(index),
+            self.get_local_single(index + 1)
+        )
     }
 
     pub fn set_local_single(&mut self, index: usize, value: u32)
@@ -134,15 +126,30 @@ impl<'a> StackFrame<'a>
 
     pub fn set_local_double(&mut self, index: usize, value: u64)
     {
-        let lower: u32 = (value & Self::LOWER_MASK)
-            .try_into()
-            .expect("Failed to convert lower to u32");
-        let upper: u32 = ((value & Self::UPPER_MASK) >> 32)
-            .try_into()
-            .expect("Failed to convert upper to u32");
+        let (lower, upper) = Self::split_double(value);
 
         self.set_local_single(index, lower);
         self.set_local_single(index + 1, upper);
+    }
+
+    fn split_double(value: u64) -> (u32, u32)
+    {
+        let lower: u32 = (value & Self::LOWER_MASK)
+            .try_into()
+            .expect("Failed to convert lower to u32");
+        let upper: u32 = ((value & Self::UPPER_MASK) >> Self::UPPER_LOWER_OFFSET)
+            .try_into()
+            .expect("Failed to convert upper to u32");
+
+        (lower, upper)
+    }
+
+    fn combine_double(lower: u32, upper: u32) -> u64
+    {
+        let low = lower as u64;
+        let high = upper as u64;
+
+        (high << Self::UPPER_LOWER_OFFSET) | low
     }
 }
 
