@@ -10,7 +10,14 @@ enum OperandType
 static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
     HashMap::from([
         ("nop", (0, [].as_slice())),
-        ("i4.const.0", (1, [].as_slice()))
+        ("i4.const.0", (1, [].as_slice())),
+        ("i4.const.1", (2, [].as_slice())),
+        ("i4.const.2", (3, [].as_slice())),
+        ("i4.const.3", (4, [].as_slice())),
+        ("i8.const.0", (5, [].as_slice())),
+        ("i8.const.1", (6, [].as_slice())),
+        ("i8.const.2", (7, [].as_slice())),
+        ("i8.const.3", (8, [].as_slice())),
     ])
 });
 
