@@ -1,4 +1,4 @@
-use std::{fs::File, io::{Write}, path::Path};
+use std::{fs::File, io::Write, path::Path};
 
 mod assembler;
 
@@ -11,7 +11,8 @@ fn test(path: &Path) -> datatest_stable::Result<()>
     bytecode_path.set_extension("azc");
 
     // Check whether to (re)compile
-    if !bytecode_path.exists() || bytecode_path.metadata()?.modified()? < path.metadata()?.modified()?
+    if !bytecode_path.exists()
+        || bytecode_path.metadata()?.modified()? < path.metadata()?.modified()?
     {
         let string = std::fs::read_to_string(path)?;
 
