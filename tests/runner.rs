@@ -1,14 +1,22 @@
 use std::{fs::File, io::Write, path::Path};
 
+use constcat::concat;
+
 mod assembler;
 
 const FILE_PATTERN: &str = r"^.*\.test$";
 
+const TEST_BASE: &str = "./tests";
+const PROGRAM_PATH: &str = concat!(TEST_BASE, "/programs");
+const COMPILED_PATH: &str = concat!(TEST_BASE, "/compiled");
+
+const COMPILED_FILE_EXTENSION: &str = "azc";
+
 fn test(path: &Path) -> datatest_stable::Result<()>
 {
-    let suffix = path.strip_prefix(Path::new("./tests/programs"))?;
-    let mut bytecode_path = Path::new("./tests/compiled").join(suffix);
-    bytecode_path.set_extension("azc");
+    let suffix = path.strip_prefix(Path::new(PROGRAM_PATH))?;
+    let mut bytecode_path = Path::new(COMPILED_PATH).join(suffix);
+    bytecode_path.set_extension(COMPILED_FILE_EXTENSION);
 
     // Check whether to (re)compile
     if !bytecode_path.exists()
@@ -28,5 +36,5 @@ fn test(path: &Path) -> datatest_stable::Result<()>
 }
 
 datatest_stable::harness! {
-    { test = test, root = "./tests/programs", pattern = FILE_PATTERN },
+    { test = test, root = PROGRAM_PATH, pattern = FILE_PATTERN },
 }
