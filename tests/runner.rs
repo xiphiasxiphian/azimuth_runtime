@@ -27,7 +27,7 @@ fn test(path: &Path) -> datatest_stable::Result<()>
         let mut bytes: Vec<u8> = vec![];
         assembler::assemble(string.as_str(), &mut bytes)?;
 
-        _ = std::fs::create_dir_all(&(bytecode_path.parent().unwrap()));
+        _ = std::fs::create_dir_all(bytecode_path.parent().unwrap());
         let mut file = File::create(&bytecode_path)?;
         file.write_all(&bytes)?;
     }
