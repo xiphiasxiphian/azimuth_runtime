@@ -1,4 +1,20 @@
-use std::{error::Error, fmt::Display, io::Write, iter::repeat_n};
+use std::{collections::HashMap, error::Error, fmt::Display, io::Write, sync::LazyLock};
+
+static OPCODES: LazyLock<HashMap<&str, (u8, usize)>> = LazyLock::new(|| {
+    HashMap::from([
+        ("nop", (0, 0)),
+        ("i4.const.0", (1, 0))
+    ])
+});
+
+static DIRECTIVES: LazyLock<HashMap<&str, (u8, usize)>> = LazyLock::new(|| {
+    HashMap::from([
+        (".start", (0, 0)),
+        (".symbol", (1, 0)),
+        (".maxstack", (2, 0)),
+        (".maxlocal", (3, 0)),
+    ])
+});
 
 #[derive(Debug)]
 pub enum AssemblerError
@@ -55,15 +71,20 @@ fn get_opcode_data<'a>(operation: &mut impl Iterator<Item = &'a str>, bytes: &mu
     const DIRECTIVE_CODE: u8 = 254;
 
     let opcode = operation.next().ok_or(AssemblerError::BadFormat)?;
-    match opcode {
-        "nop" => Ok(([1, 0], 0)),
-        "i4.const.0" => Ok(([2, 0], 0)),
-        x if x.starts_with('.') => parse_directive(x).map(|(c, p)| ([DIRECTIVE_CODE, c], p)),
-        _ => Err(AssemblerError::UnknownOpcode)
-    }.map(|(a @ [op, _], y)| {
-        bytes[0..2].copy_from_slice(&a);
-        (y, if op == DIRECTIVE_CODE { 2 } else { 1 })
-    })
+    if opcode.starts_with('.')
+    {
+        DIRECTIVES.get(opcode).map(|(x, y)| {
+            bytes[0..2].copy_from_slice(&[DIRECTIVE_CODE, *x]);
+            (*y, 2)
+        }).ok_or(AssemblerError::UnknownDirective)
+    }
+    else
+    {
+        OPCODES.get(opcode).map(|(x, y)| {
+            bytes[0] = *x;
+            (*y, 1)
+        }).ok_or(AssemblerError::UnknownOpcode)
+    }
 }
 
 fn parse_directive(directive: &str) -> AssemblerResult<(u8, usize)>
