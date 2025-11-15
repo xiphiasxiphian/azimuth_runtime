@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+assert_cmd = "2.1.1"
 datatest-stable = "0.3.3"
 
 [[test]]
