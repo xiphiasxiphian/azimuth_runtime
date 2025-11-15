@@ -10,7 +10,7 @@ fn test(path: &Path) -> datatest_stable::Result<()>
     let mut bytecode_path = Path::new("./tests/compiled").join(suffix);
     bytecode_path.set_extension("azc");
 
-    // Check whether to (re)compiles
+    // Check whether to (re)compile
     if !bytecode_path.exists() || bytecode_path.metadata()?.modified()? < path.metadata()?.modified()?
     {
         let string = std::fs::read_to_string(path)?;
