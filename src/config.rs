@@ -1,12 +1,13 @@
 use std::env::args;
 
 #[derive(Debug, Clone, Copy)]
-enum ConfigError
+pub enum ConfigError
 {
     NoFileProvided,
+    FileReadError,
 }
 
-struct Config
+pub struct Config
 {
     filename: String,
 }
@@ -21,5 +22,16 @@ impl Config
         Ok(Self {
             filename
         })
+    }
+
+    pub fn execute(&self) -> Result<(), ConfigError>
+    {
+        // Load file
+        let contents = std::fs::read(&self.filename).map_err(|_| ConfigError::FileReadError)?;
+
+        // Init Required systems
+
+
+        Ok(())
     }
 }
