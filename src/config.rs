@@ -31,6 +31,11 @@ impl Config
 
         // Init Required systems
 
+        // Init Class Loader (name WIP)
+        // Init Stack
+        // Init Heap
+
+        // Pass information to runner
 
         Ok(())
     }
