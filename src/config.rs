@@ -53,7 +53,9 @@ impl Config
             {
                 a @ "--maxstack" => {
                     let operand = args.next().ok_or(ConfigError::MissingOperand(a.into()))?;
-                    let max_size = operand.parse::<usize>().map_err(|_| ConfigError::InvalidOperand);
+                    let max_size = operand.parse::<usize>().map_err(|_| ConfigError::InvalidOperand(operand))?;
+
+                    flags.stack_size = max_size;
                 }
                 _file => {
                     filename
