@@ -1,6 +1,6 @@
 use std::env::args;
 
-use crate::engine::stack::Stack;
+use crate::{engine::stack::Stack, loader::Loader};
 
 #[derive(Debug, Clone)]
 pub enum ConfigError
@@ -78,7 +78,8 @@ impl Config
 
         // -- Init Required systems --
 
-        // Init Class Loader (name WIP)
+        // Init Loader (WIP)
+        let loader = Loader::from_file(&self.filename);
 
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);
