@@ -75,7 +75,6 @@ impl Config
     pub fn execute(&self) -> Result<(), ConfigError>
     {
         // Load file
-        let contents = std::fs::read(&self.filename).map_err(|_| ConfigError::FileReadError)?;
 
         // -- Init Required systems --
 
