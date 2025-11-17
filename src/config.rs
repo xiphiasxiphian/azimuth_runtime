@@ -24,9 +24,10 @@ impl Flags
 
 impl Default for Flags
 {
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
-            stack_size: Self::DEFAULT_STACK_SIZE
+            stack_size: Self::DEFAULT_STACK_SIZE,
         }
     }
 }
@@ -39,8 +40,6 @@ pub struct Config
 
 impl Config
 {
-    const DEFAULT_STACK_SIZE: usize = 1024;
-
     pub fn new() -> Result<Self, ConfigError>
     {
         let mut args = args().skip(1); // Skip the executable name itself
@@ -51,24 +50,25 @@ impl Config
         {
             match arg.as_str()
             {
-                a @ "--maxstack" => {
+                a @ "--maxstack" =>
+                {
                     let operand = args.next().ok_or(ConfigError::MissingOperand(a.into()))?;
-                    let max_size = operand.parse::<usize>().map_err(|_| ConfigError::InvalidOperand(operand))?;
-
-                    flags.stack_size = max_size;
+                    flags.stack_size = operand
+                        .parse()
+                        .map_err(|_| ConfigError::InvalidOperand(operand))?;
                 }
-                _file => {
+                _file =>
+                {
                     filename
                         .replace(arg)
-                        .map(|x| Err::<(), ConfigError>(ConfigError::UnknownFlag(x)))
-                        .transpose()?;
+                        .map_or(Ok(()), |x| Err(ConfigError::UnknownFlag(x)))?;
                 }
             }
         }
 
         Ok(Self {
             filename: filename.ok_or(ConfigError::NoFileProvided)?,
-            flags
+            flags,
         })
     }
 

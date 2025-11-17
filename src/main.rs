@@ -5,6 +5,5 @@ mod engine;
 
 fn main() -> Result<(), ConfigError>
 {
-    Config::new()?
-        .execute()
+    Config::new()?.execute()
 }
