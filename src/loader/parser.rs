@@ -1,12 +1,38 @@
-const MAGIC_NUMBER: u32 = 0xABBA5EDA;
+const MAGIC_STRING: &str = "azimuth\0";
+const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING.as_bytes().first_chunk().unwrap());
+
+macro_rules! split_off {
+    ($t:ty, $input:ident) => {
+        $input
+            .split_at_checked(size_of::<$t>())
+            .and_then(|(x, y)| Some((<$t>::from_le_bytes(x.try_into().ok()?), y)))
+    };
+}
 
 struct FileLayout
 {
-    magic: u32,
+    magic: u64,
     version: u8,
-    const_pool_count: u16,
+    constant_count: u16,
     constant_pool: Table,
+}
 
+impl FileLayout
+{
+    pub fn from_bytes(input: &[u8]) -> Option<Self>
+    {
+        let (magic, rem) = split_off!(u64, input)?;
+        let (version, rem) = rem.split_first()?;
+        let (constant_count, rem) = split_off!(u16, rem)?;
+        let (constant_pool, rem) = Table::new(constant_count as usize, rem)?;
+
+        Some(Self {
+            magic,
+            version: *version,
+            constant_count,
+            constant_pool
+        })
+    }
 }
 
 #[derive(Clone, Copy)]
