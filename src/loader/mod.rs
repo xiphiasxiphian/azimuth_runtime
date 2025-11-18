@@ -1,10 +1,11 @@
-pub mod runnable;
+use crate::loader::runnable::Runnable;
 
-use crate::loader::runnable::{Directive, Runnable};
+pub mod runnable;
+mod parser;
 
 pub struct Loader
 {
-    runnables: Vec<Runnable>,
+
 }
 
 // This is a temporary solution that just statically loads the
@@ -14,30 +15,11 @@ impl Loader
 {
     pub fn from_file(filename: &str) -> Option<Self>
     {
-        // Again there is definitely a better way of doing this that doesn't
-        // involve spamming mutable variables everywhere
-        // But this entire system is going to get rewritten as some point
-        // and I just want it working right now.
-
-        let contents = std::fs::read(filename).ok()?;
-        let mut runnables: Vec<Runnable> = vec![];
-
-        let mut remaining: &[u8] = &contents;
-        while let [_, ..] = remaining
-        {
-            let (runnable, rem) = Runnable::from_bytes(remaining)?;
-            runnables.push(runnable);
-            remaining = rem;
-        }
-
-
-        Some(Self {
-            runnables
-        })
+        todo!()
     }
 
-    pub fn get_entry_point(&self) -> Option<&Runnable>
+    pub fn get_entry_point(&self) -> Option<Runnable>
     {
-        self.runnables.iter().find(|x| x.directives().contains(&Directive::Start))
+        todo!()
     }
 }
