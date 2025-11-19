@@ -17,11 +17,11 @@ impl Stack
         }
     }
 
-    pub fn initial_frame<'a>(
-        &'a mut self,
+    pub fn initial_frame(
+        &mut self,
         locals_size: usize,
         stack_size: usize,
-    ) -> Option<StackFrame<'a>>
+    ) -> Option<StackFrame<'_>>
     {
         (locals_size + stack_size <= self.stack.len())
             .then(|| StackFrame::new(self, 0, locals_size, locals_size + stack_size))
@@ -69,7 +69,7 @@ impl<'a> StackFrame<'a>
                     self.size,
                     self.size + locals_size,
                     locals_size + stack_size,
-                ))
+                ));
             })
             .is_some()
     }

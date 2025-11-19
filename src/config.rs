@@ -82,7 +82,7 @@ impl Config
         let loader = Loader::from_file(&self.filename);
 
         // Init Stack
-        let mut stack = Stack::new(self.flags.stack_size);
+        let stack = Stack::new(self.flags.stack_size);
 
         // Init Heap
 

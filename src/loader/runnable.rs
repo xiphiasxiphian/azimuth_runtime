@@ -40,7 +40,7 @@ impl Runnable
             maxstack: max_stack?,
             maxlocals: max_locals?,
             directives,
-            bytecode: bytecode,
+            bytecode,
         })
     }
 
