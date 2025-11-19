@@ -20,19 +20,23 @@ impl Runnable
         let mut max_locals: Option<usize> = None;
 
         // This is all just soo bad
-        let (required, directives) = directives.iter().partition(|x| matches!(x, Directive::MaxStack(_) | Directive::MaxLocals(_)));
+        let (required, directives) = directives
+            .iter()
+            .partition(|x| matches!(x, Directive::MaxStack(_) | Directive::MaxLocals(_)));
 
         for directive in required
         {
             match directive
             {
-                Directive::MaxStack(x) => {
+                Directive::MaxStack(x) =>
+                {
                     max_stack.replace(x.into()).map_or(Some(()), |_| None)?;
                 }
-                Directive::MaxLocals(x) => {
+                Directive::MaxLocals(x) =>
+                {
                     max_locals.replace(x.into()).map_or(Some(()), |_| None)?;
                 }
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
 

@@ -1,8 +1,8 @@
 use crate::config::{Config, ConfigError};
 
 mod config;
-mod loader;
 mod engine;
+mod loader;
 
 fn main() -> Result<(), ConfigError>
 {
