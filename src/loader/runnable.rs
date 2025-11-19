@@ -1,12 +1,4 @@
-use crate::engine::opcodes::Opcode;
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum Directive
-{
-    Start,
-    MaxStack(u16),
-    MaxLocals(u16),
-}
+use crate::{engine::opcodes::Opcode, loader::parser::Directive};
 
 pub struct Runnable
 {

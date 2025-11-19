@@ -145,8 +145,8 @@ impl<'a> StackFrame<'a>
 
     fn combine_double(lower: u32, upper: u32) -> u64
     {
-        let low = lower as u64;
-        let high = upper as u64;
+        let low: u64 = lower.into();
+        let high: u64 = upper.into();
 
         (high << Self::UPPER_LOWER_OFFSET) | low
     }

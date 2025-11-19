@@ -51,7 +51,7 @@ fn push_double(input: HandlerInputInfo, value: u64) -> Option<usize>
 
 fn simple_print_handler(input: HandlerInputInfo) -> Option<usize>
 {
-    dbg!(input);
+    println!("{input:?}");
     None
 }
 
