@@ -114,7 +114,7 @@ impl Directive
 
     const HANDLERS: [(usize, &'static dyn Fn(&[u8]) -> Option<Directive>); 3] = [
         (0, &|_| Some(Directive::Start)),
-        (2, &|x| {
+        (1, &|x| {
             Some(Directive::MaxStack(u16::from_le_bytes(x.try_into().ok()?)))
         }),
         (2, &|x| {

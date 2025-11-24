@@ -24,8 +24,10 @@ impl Runnable
             .iter()
             .partition(|x| matches!(x, Directive::MaxStack(_) | Directive::MaxLocals(_)));
 
+
         for directive in required
         {
+            #[expect(clippy::match_wildcard_for_single_variants)]
             match directive
             {
                 Directive::MaxStack(x) =>
