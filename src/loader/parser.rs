@@ -143,6 +143,8 @@ impl Directive
     const OPCODE: u8 = Opcode::Directive as u8;
     const SYMBOL: u8 = 0;
 
+    const HEADER_SIZE: usize = 2; // Opcode (1 byte) + Directive Type (1 byte)
+
     const HANDLERS: [(usize, DirectiveHandler); 4] = [
         (4, &|x| {
             Some(Directive::Symbol(
@@ -179,7 +181,8 @@ impl FunctionInfo
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
         let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
-        let (symbol_operands, rem_dirs) = input.split_at_checked(symbol_operand_count)?;
+        let (symbol_directive, rem_dirs) = input.split_at_checked(symbol_operand_count + Directive::HEADER_SIZE)?;
+        let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..(symbol_operand_count + Directive::HEADER_SIZE))?;
 
         let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
@@ -209,6 +212,8 @@ impl FunctionInfo
             }
         })?;
 
+        println!("Parsed symbol directive as {descriptor}");
+
         let mut directives: Vec<Directive> = vec![];
         let mut remaining = rem_dirs;
 
@@ -223,8 +228,6 @@ impl FunctionInfo
 
             remaining = rem;
         }
-
-        // post condition:
 
         #[expect(
             clippy::expect_used,
@@ -308,4 +311,41 @@ mod table_tests
         assert!(matches!(table.get(3), Some(TableEntry::Double(d)) if (d - 1.0).abs() < f64::EPSILON));
         assert!(rem.is_empty());
     }
+}
+
+#[cfg(test)]
+mod function_info_tests
+{
+    use super::*;
+
+    #[test]
+    fn basic_function()
+    {
+        // Function with symbol directive and no other directives
+        let data: [u8; 10] = [
+            Directive::OPCODE,
+            Directive::SYMBOL,
+            0, 0, // name index
+            1, 0, // descriptor index
+            // Code (4 bytes)
+            0x01, 0x02, 0x03, 0x04,
+        ];
+        let table = Table {
+            entries: vec![
+                TableEntry::Integer(0), // name index
+                TableEntry::Integer(4), // descriptor index
+            ],
+        };
+
+        let (function, rem) = FunctionInfo::new(&data, &table).expect("Failed to parse simple function");
+        assert_eq!(function.directives.len(), 0); // Doesn't include symbol directive
+        assert_eq!(function.code, vec![0x01, 0x02, 0x03, 0x04]);
+        assert!(rem.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod parser_tests
+{
+
 }
