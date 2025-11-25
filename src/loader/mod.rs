@@ -3,7 +3,7 @@ use crate::loader::runnable::Runnable;
 mod parser;
 pub mod runnable;
 
-pub struct Loader {}
+pub struct Loader;
 
 // This is a temporary solution that just statically loads the
 // entire file at once.

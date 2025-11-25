@@ -11,6 +11,9 @@ macro_rules! split_off {
     };
 }
 
+type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>;
+type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<TableEntry>;
+
 struct FileLayout
 {
     magic: u64,
@@ -27,7 +30,7 @@ impl FileLayout
         let (magic, rem) = split_off!(u64, input)?;
         let (version, rem) = rem.split_first()?;
         let (constant_count, rem) = split_off!(u16, rem)?;
-        let (constant_pool, rem) = Table::new(constant_count as usize, rem)?;
+        let (constant_pool, rem) = Table::new(constant_count.into(), rem)?;
         let (function_count, rem) = split_off!(u16, rem)?;
 
         Some(Self {
@@ -51,7 +54,7 @@ enum TableEntry
 
 impl TableEntry
 {
-    pub const HANDLERS: [(usize, &'static dyn Fn(&[u8]) -> Option<TableEntry>); 4] = [
+    pub const HANDLERS: [(usize, TableTypeHandler); 4] = [
         (4, &|x| {
             Some(TableEntry::Integer(u32::from_le_bytes(x.try_into().ok()?)))
         }),
@@ -81,14 +84,14 @@ impl Table
         let mut remaining: &[u8] = from;
         for _ in 0..count
         {
-            match remaining
+            match *remaining
             {
                 [] => return None,
-                [tag, a @ ..] =>
+                [tag, ref res @ ..] =>
                 {
-                    let (operand, handler) = TableEntry::HANDLERS[*tag as usize];
+                    let &(operand, handler) = TableEntry::HANDLERS.get(usize::from(tag))?;
 
-                    let (operands, rem) = a.split_at_checked(operand)?;
+                    let (operands, rem) = res.split_at_checked(operand)?;
                     entries.push(handler(operands)?);
 
                     remaining = rem;
@@ -110,9 +113,11 @@ pub enum Directive
 
 impl Directive
 {
+
+
     const OPCODE: u8 = Opcode::Directive as u8;
 
-    const HANDLERS: [(usize, &'static dyn Fn(&[u8]) -> Option<Directive>); 3] = [
+    const HANDLERS: [(usize, DirectiveHandler); 3] = [
         (0, &|_| Some(Directive::Start)),
         (1, &|x| {
             Some(Directive::MaxStack(u16::from_le_bytes(x.try_into().ok()?)))
@@ -143,12 +148,12 @@ impl FunctionInfo
         let mut remaining = input;
         loop
         {
-            match remaining
+            match *remaining
             {
-                [Directive::OPCODE, x, a @ ..] =>
+                [Directive::OPCODE, x, ref res @ ..] =>
                 {
-                    let (operand_count, handler) = Directive::HANDLERS[*x as usize];
-                    let (operands, rem) = a.split_at_checked(operand_count)?;
+                    let &(operand_count, handler) = Directive::HANDLERS.get(usize::from(x))?;
+                    let (operands, rem) = res.split_at_checked(operand_count)?;
 
                     directives.push(handler(operands)?);
 

@@ -13,7 +13,7 @@ struct HandlerInfo<'a>
 {
     opcode: Opcode,
     param_count: u8,
-    handler: &'a dyn Fn(HandlerInputInfo) -> Option<usize>,
+    handler: &'a dyn Fn(&mut HandlerInputInfo) -> Option<usize>,
 }
 
 pub fn exec_instruction<'a>(bytecode: &'a [u8], pc: usize, frame: &'a mut StackFrame<'a>) -> usize
@@ -27,7 +27,7 @@ pub fn exec_instruction<'a>(bytecode: &'a [u8], pc: usize, frame: &'a mut StackF
     );
     let new_pc = pc + handler_info.param_count as usize + 1;
 
-    (handler_info.handler)(HandlerInputInfo {
+    (handler_info.handler)(&mut HandlerInputInfo {
         opcode,
         params: &bytecode[(pc + 1)..new_pc],
         frame,
@@ -35,13 +35,13 @@ pub fn exec_instruction<'a>(bytecode: &'a [u8], pc: usize, frame: &'a mut StackF
     .unwrap_or(new_pc)
 }
 
-fn push_single(input: HandlerInputInfo, value: u32) -> Option<usize>
+fn push_single(input: &mut HandlerInputInfo, value: u32) -> Option<usize>
 {
     input.frame.push_single(value);
     None
 }
 
-fn push_double(input: HandlerInputInfo, value: u64) -> Option<usize>
+fn push_double(input: &mut HandlerInputInfo, value: u64) -> Option<usize>
 {
     input.frame.push_double(value);
     None
@@ -49,13 +49,14 @@ fn push_double(input: HandlerInputInfo, value: u64) -> Option<usize>
 
 // Debugging Handlers. Not for actual use
 
-fn simple_print_handler(input: HandlerInputInfo) -> Option<usize>
+fn simple_print_handler(input: &mut HandlerInputInfo) -> Option<usize>
 {
     println!("{input:?}");
     None
 }
 
-fn unimplemented_handler(input: HandlerInputInfo) -> Option<usize>
+#[expect(clippy::panic, reason = "This is a debug handler that should never make it to a finished version")]
+fn unimplemented_handler(_: &mut HandlerInputInfo) -> Option<usize>
 {
     panic!("Opcode not implemented")
 }

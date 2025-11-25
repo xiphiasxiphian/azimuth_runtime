@@ -1,4 +1,4 @@
-use crate::{engine::opcodes::Opcode, loader::parser::Directive};
+use crate::loader::parser::Directive;
 
 pub struct Runnable
 {
@@ -10,44 +10,36 @@ pub struct Runnable
 
 impl Runnable
 {
-    const DIRECTIVE_OPCODE: u8 = Opcode::Directive as u8;
 
-    pub fn from_parsed_data(directives: Vec<Directive>, bytecode: Vec<u8>) -> Option<Self>
+    pub fn from_parsed_data(directives: &[Directive], bytecode: Vec<u8>) -> Option<Self>
     {
-        // This right now is fairly shit but I just want it working
-        // The entire loader is going to be changed at some point down the line anyway
-        let mut max_stack: Option<usize> = None;
-        let mut max_locals: Option<usize> = None;
-
-        // This is all just soo bad
-        let (required, directives) = directives
-            .iter()
-            .partition(|x| matches!(x, Directive::MaxStack(_) | Directive::MaxLocals(_)));
-
-
-        for directive in required
-        {
-            #[expect(clippy::match_wildcard_for_single_variants)]
-            match directive
-            {
-                Directive::MaxStack(x) =>
+        directives.iter()
+            .try_fold((None, None, vec![]), |(max_stack, max_locals, mut optionals), directive| {
+                match (max_stack, max_locals, *directive)
                 {
-                    max_stack.replace(x.into()).map_or(Some(()), |_| None)?;
+                    (Some(_), _, Directive::MaxStack(_)) | (_, Some(_), Directive::MaxLocals(_)) => None,
+                    (None, ml, Directive::MaxStack(x)) =>
+                    {
+                        Some((Some(x.into()), ml, optionals))
+                    }
+                    (ms, None, Directive::MaxLocals(x)) =>
+                    {
+                        Some((ms, Some(x.into()), optionals))
+                    }
+                    (ms, ml, x) => {
+                        optionals.push(x);
+                        Some((ms, ml, optionals))
+                    },
+
                 }
-                Directive::MaxLocals(x) =>
-                {
-                    max_locals.replace(x.into()).map_or(Some(()), |_| None)?;
-                }
-                _ => unreachable!(),
             }
-        }
-
-        Some(Self {
+        )
+        .and_then(|(max_stack, max_locals, optionals)| Some(Self {
             maxstack: max_stack?,
             maxlocals: max_locals?,
-            directives,
+            directives: optionals,
             bytecode,
-        })
+        }))
     }
 
     pub fn directives(&self) -> &[Directive]

@@ -10,6 +10,9 @@ pub enum ConfigError
     UnknownFlag(String),
     MissingOperand(String),
     InvalidOperand(String),
+    LoaderInitError,
+    StackInitError,
+
 }
 
 struct Flags
@@ -50,9 +53,9 @@ impl Config
         {
             match arg.as_str()
             {
-                a @ "--maxstack" =>
+                arg_ @ "--maxstack" =>
                 {
-                    let operand = args.next().ok_or(ConfigError::MissingOperand(a.into()))?;
+                    let operand = args.next().ok_or(ConfigError::MissingOperand(arg_.into()))?;
                     flags.stack_size = operand
                         .parse()
                         .map_err(|_| ConfigError::InvalidOperand(operand))?;
@@ -79,7 +82,7 @@ impl Config
         // -- Init Required systems --
 
         // Init Loader (WIP)
-        let loader = Loader::from_file(&self.filename);
+        let loader = Loader::from_file(&self.filename).ok_or(ConfigError::LoaderInitError)?;
 
         // Init Stack
         let stack = Stack::new(self.flags.stack_size);
@@ -88,7 +91,6 @@ impl Config
 
         // Pass information to runner
 
-        todo!();
         Ok(())
     }
 }

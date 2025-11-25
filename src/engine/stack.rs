@@ -41,7 +41,7 @@ impl<'a> StackFrame<'a>
 {
     const UPPER_LOWER_OFFSET: u64 = 32;
 
-    const LOWER_MASK: u64 = 0xFFFFFFFF;
+    const LOWER_MASK: u64 = 0xFFFF_FFFF;
     const UPPER_MASK: u64 = Self::LOWER_MASK << Self::UPPER_LOWER_OFFSET;
 
     pub fn new(origin: &'a mut Stack, locals_base: usize, stack_base: usize, size: usize) -> Self
@@ -55,13 +55,13 @@ impl<'a> StackFrame<'a>
         }
     }
 
-    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, f: F) -> bool
+    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, action: F) -> bool
     where
         F: FnOnce(StackFrame<'a>),
     {
         (self.size + locals_size + stack_size <= self.origin.stack.len())
             .then(|| {
-                f(StackFrame::new(
+                action(StackFrame::new(
                     self.origin,
                     self.size,
                     self.size + locals_size,
@@ -129,6 +129,7 @@ impl<'a> StackFrame<'a>
         self.set_local_single(index + 1, upper);
     }
 
+    #[expect(clippy::expect_used, reason = "This conversion should be impossible to fail. If it somehow does this should be a good reason to fail")]
     fn split_double(value: u64) -> (u32, u32)
     {
         let lower: u32 = (value & Self::LOWER_MASK)
