@@ -120,6 +120,7 @@ pub enum Directive
 impl Directive
 {
     const OPCODE: u8 = Opcode::Directive as u8;
+    const SYMBOL: u8 = 0;
 
     const HANDLERS: [(usize, DirectiveHandler); 4] = [
         (4, &|x| {
@@ -156,7 +157,7 @@ impl FunctionInfo
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
-        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(0)?;
+        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(usize::from(Directive::SYMBOL))?;
         let (symbol_operands, rem_dirs) = input.split_at_checked(symbol_operand_count)?;
 
         let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
@@ -193,7 +194,7 @@ impl FunctionInfo
         {
             match *remaining
             {
-                [Directive::OPCODE, 0, ..] => return None, // Duplicate symbol directive
+                [Directive::OPCODE, Directive::SYMBOL, ..] => return None, // Duplicate symbol directive
                 [Directive::OPCODE, x, ref res @ ..] =>
                 {
                     let &(operand_count, handler) = Directive::HANDLERS.get(usize::from(x))?;
@@ -224,7 +225,7 @@ impl FunctionInfo
     {
         let mut functions = vec![];
         let mut remaining = input;
-        while let [Directive::OPCODE, 0, ..] = remaining // There is another function to read
+        while let [Directive::OPCODE, Directive::SYMBOL, ..] = remaining // There is another function to read
         {
             let (function, rem) = Self::new(remaining, table)?;
             functions.push(function);
