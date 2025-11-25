@@ -42,7 +42,6 @@ struct FileLayout
     version: u8,
     constant_count: u16,
     constant_pool: Table,
-    function_count: u16,
     functions: Vec<FunctionInfo>,
 }
 
@@ -56,7 +55,6 @@ impl FileLayout
         let &version = parser.parse_off(|x| x.split_first())?;
         let constant_count = parser.parse_off(|x| split_off!(u16, x))?;
         let constant_pool = parser.parse_off(|x| Table::new(constant_count.into(), x))?;
-        let function_count = parser.parse_off(|x| split_off!(u16, x))?;
         let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?;
 
         Some(Self {
@@ -64,7 +62,6 @@ impl FileLayout
             version,
             constant_count,
             constant_pool,
-            function_count,
             functions,
         })
     }
@@ -211,8 +208,6 @@ impl FunctionInfo
                 _ => None, // Something has gone really wrong if this triggers
             }
         })?;
-
-        println!("Parsed symbol directive as {descriptor}");
 
         let mut directives: Vec<Directive> = vec![];
         let mut remaining = rem_dirs;
