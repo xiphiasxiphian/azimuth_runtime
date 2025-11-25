@@ -1,3 +1,5 @@
+use std::arch::x86_64;
+
 use crate::engine::opcodes::Opcode;
 
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
@@ -106,6 +108,7 @@ impl Table
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Directive
 {
+    Symbol(u16, u16), // (name_index, descriptor_index)
     Start,
     MaxStack(u16),
     MaxLocals(u16),
@@ -113,13 +116,17 @@ pub enum Directive
 
 impl Directive
 {
-
-
     const OPCODE: u8 = Opcode::Directive as u8;
 
-    const HANDLERS: [(usize, DirectiveHandler); 3] = [
+    const HANDLERS: [(usize, DirectiveHandler); 4] = [
+        (4, &|x| {
+            Some(Directive::Symbol(
+                u16::from_le_bytes(x[0..2].try_into().ok()?),
+                u16::from_le_bytes(x[2..4].try_into().ok()?),
+            ))
+        }),
         (0, &|_| Some(Directive::Start)),
-        (1, &|x| {
+        (2, &|x| {
             Some(Directive::MaxStack(u16::from_le_bytes(x.try_into().ok()?)))
         }),
         (2, &|x| {
@@ -142,14 +149,48 @@ struct FunctionInfo
 
 impl FunctionInfo
 {
-    pub fn new(input: &[u8]) -> Option<(Self, &[u8])>
+    pub fn new<'a, 'b>(input: &'a [u8], table: &'b Table) -> Option<(Self, &'a [u8])>
     {
+        // Get symbol directive. The symbol directive
+        // should be Directive 0, so get its entry in the handler array
+        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(0)?;
+        let (symbol_operands, rem_dirs) = input.split_at_checked(symbol_operand_count)?;
+
+        let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
+            match x
+            {
+                Directive::Symbol(name_index, descriptor_index) =>
+                {
+                    // Even thought the name is not needed here, it is
+                    // important still to verify that it is a valid constant pool entry,
+                    // and does in fact refer to a string entry
+
+                    let name_idx = usize::from(name_index);
+                    let descriptor_idx = usize::from(descriptor_index);
+
+                    let name = table.entries.get(name_idx)?;
+                    let descriptor = table.entries.get(descriptor_idx)?;
+
+                    match (name, descriptor)
+                    {
+                        // The name should refer to a String, and the descriptor should refer to an Integer
+                        (&_, &TableEntry::Integer(x)) => Some((name, x)),
+                        _ => None,
+                    }
+
+                }
+                _ => return None, // Something has gone really wrong if this triggers
+            }
+        })?;
+
+
         let mut directives: Vec<Directive> = vec![];
-        let mut remaining = input;
+        let mut remaining = rem_dirs;
         loop
         {
             match *remaining
             {
+                [Directive::OPCODE, 0, ..] => return None, // Duplicate symbol directive
                 [Directive::OPCODE, x, ref res @ ..] =>
                 {
                     let &(operand_count, handler) = Directive::HANDLERS.get(usize::from(x))?;
@@ -159,22 +200,20 @@ impl FunctionInfo
 
                     remaining = rem;
                 }
-                [_, ..] => break,
-                [] => return None,
+                [..] => break,
             }
         }
+
+        let (code_slice, remaining) = remaining.split_at_checked(
+            descriptor.try_into().expect("Running on a none 32-bit or 64-bit architecture. How? Why?")
+        )?;
 
         Some((
             Self {
                 directives,
-                code: todo!(),
+                code: code_slice.to_vec(),
             },
             remaining,
         ))
-    }
-
-    pub fn find_functions_to_end(input: &[u8]) -> Option<Vec<FunctionInfo>>
-    {
-        todo!()
     }
 }
