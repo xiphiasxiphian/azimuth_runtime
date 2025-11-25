@@ -70,7 +70,7 @@ impl FileLayout
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum TableEntry
 {
     Integer(u32),
@@ -121,6 +121,11 @@ impl Table
         }
 
         Some((Self { entries }, remaining))
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&TableEntry>
+    {
+        self.entries.get(idx)
     }
 }
 
@@ -190,8 +195,8 @@ impl FunctionInfo
 
                     // Get the name and descriptor from the constant pool.
                     // This will also check whether the given indices are in fact valid.
-                    let name = table.entries.get(name_idx)?;
-                    let descriptor = table.entries.get(descriptor_idx)?;
+                    let name = table.get(name_idx)?;
+                    let descriptor = table.get(descriptor_idx)?;
 
                     match (name, descriptor)
                     {
@@ -253,5 +258,54 @@ impl FunctionInfo
         }
 
         Some((functions, remaining))
+    }
+}
+
+#[cfg(test)]
+mod table_tests
+{
+    use super::*;
+
+    #[test]
+    fn empty_table()
+    {
+        let data: [u8; 0] = [];
+        let (table, rem) = Table::new(0, &data).expect("Failed to parse empty table");
+        assert!(table.entries.is_empty());
+        assert!(rem.is_empty());
+    }
+
+    #[test]
+    fn homogeneous_table()
+    {
+        let data: [u8; 15] = [
+            0, 10, 0, 0, 0, // Integer 10
+            0, 20, 0, 0, 0, // Integer 20
+            0, 30, 0, 0, 0, // Integer 30
+        ];
+        let (table, rem) = Table::new(3, &data).expect("Failed to parse homogeneous table");
+        assert_eq!(table.entries.len(), 3);
+        assert!(matches!(table.get(0), Some(TableEntry::Integer(10))));
+        assert!(matches!(table.get(1), Some(TableEntry::Integer(20))));
+        assert!(matches!(table.get(2), Some(TableEntry::Integer(30))));
+        assert!(rem.is_empty());
+    }
+
+    #[test]
+    fn heterogeneous_table()
+    {
+        let data: [u8; 28] = [
+            0, 10, 0, 0, 0,  // Integer 10
+            1, 100, 0, 0, 0, 0, 0, 0, 0, // Long 100
+            2, 0, 0, 128, 63, // Float 1.0
+            3, 0, 0, 0, 0, 0, 0, 240, 63, // Double 1.0
+        ];
+        let (table, rem) = Table::new(4, &data).expect("Failed to parse heterogeneous table");
+        assert_eq!(table.entries.len(), 4);
+        assert!(matches!(table.get(0), Some(TableEntry::Integer(10))));
+        assert!(matches!(table.get(1), Some(TableEntry::Long(100))));
+        assert!(matches!(table.get(2), Some(TableEntry::Float(f)) if (f - 1.0).abs() < f32::EPSILON));
+        assert!(matches!(table.get(3), Some(TableEntry::Double(d)) if (d - 1.0).abs() < f64::EPSILON));
+        assert!(rem.is_empty());
     }
 }
