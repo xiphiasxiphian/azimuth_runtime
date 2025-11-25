@@ -55,7 +55,10 @@ fn simple_print_handler(input: &mut HandlerInputInfo) -> Option<usize>
     None
 }
 
-#[expect(clippy::panic, reason = "This is a debug handler that should never make it to a finished version")]
+#[expect(
+    clippy::panic,
+    reason = "This is a debug handler that should never make it to a finished version"
+)]
 fn unimplemented_handler(_: &mut HandlerInputInfo) -> Option<usize>
 {
     panic!("Opcode not implemented")

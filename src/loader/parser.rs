@@ -1,5 +1,3 @@
-use std::arch::x86_64;
-
 use crate::engine::opcodes::Opcode;
 
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
@@ -94,7 +92,7 @@ impl Table
                 [] => return None,
                 [tag, ref res @ ..] =>
                 {
-                    let &(operand, handler) = TableEntry::HANDLERS.get(usize::from(tag))?;
+                    let &(operand, handler) = TableEntry::HANDLERS.get(<usize>::from(tag))?;
 
                     let (operands, rem) = res.split_at_checked(operand)?;
                     entries.push(handler(operands)?);
@@ -153,11 +151,12 @@ struct FunctionInfo
 
 impl FunctionInfo
 {
-    pub fn new<'a, 'b>(input: &'a [u8], table: &'b Table) -> Option<(Self, &'a [u8])>
+    pub fn new<'a>(input: &'a [u8], table: &Table) -> Option<(Self, &'a [u8])>
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
-        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(usize::from(Directive::SYMBOL))?;
+        let &(symbol_operand_count, symbol_handler) =
+            Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
         let (symbol_operands, rem_dirs) = input.split_at_checked(symbol_operand_count)?;
 
         let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
@@ -169,8 +168,8 @@ impl FunctionInfo
                     // important still to verify that it is a valid constant pool entry,
                     // and does in fact refer to a string entry
 
-                    let name_idx = usize::from(name_index);
-                    let descriptor_idx = usize::from(descriptor_index);
+                    let name_idx = <usize>::from(name_index);
+                    let descriptor_idx = <usize>::from(descriptor_index);
 
                     let name = table.entries.get(name_idx)?;
                     let descriptor = table.entries.get(descriptor_idx)?;
@@ -181,12 +180,10 @@ impl FunctionInfo
                         (&_, &TableEntry::Integer(x)) => Some((name, x)),
                         _ => None,
                     }
-
                 }
-                _ => return None, // Something has gone really wrong if this triggers
+                _ => None, // Something has gone really wrong if this triggers
             }
         })?;
-
 
         let mut directives: Vec<Directive> = vec![];
         let mut remaining = rem_dirs;
@@ -197,7 +194,7 @@ impl FunctionInfo
                 [Directive::OPCODE, Directive::SYMBOL, ..] => return None, // Duplicate symbol directive
                 [Directive::OPCODE, x, ref res @ ..] =>
                 {
-                    let &(operand_count, handler) = Directive::HANDLERS.get(usize::from(x))?;
+                    let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
                     let (operands, rem) = res.split_at_checked(operand_count)?;
 
                     directives.push(handler(operands)?);
@@ -208,8 +205,14 @@ impl FunctionInfo
             }
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "Running this program on a less than 32-bit architecture isn't supported"
+        )]
         let (code_slice, remaining) = remaining.split_at_checked(
-            descriptor.try_into().expect("Running on a none 32-bit or 64-bit architecture. How? Why?")
+            descriptor
+                .try_into()
+                .expect("Running on a none 32-bit or 64-bit architecture. How? Why?"),
         )?;
 
         Some((
@@ -221,11 +224,12 @@ impl FunctionInfo
         ))
     }
 
-    pub fn get_all_functions<'a, 'b>(input: &'a [u8], table: &'b Table) -> Option<(Vec<Self>, &'a [u8])>
+    pub fn get_all_functions<'a>(input: &'a [u8], table: &Table) -> Option<(Vec<Self>, &'a [u8])>
     {
         let mut functions = vec![];
         let mut remaining = input;
-        while let [Directive::OPCODE, Directive::SYMBOL, ..] = remaining // There is another function to read
+        while let &[Directive::OPCODE, Directive::SYMBOL, ..] = remaining
+        // There is another function to read
         {
             let (function, rem) = Self::new(remaining, table)?;
             functions.push(function);

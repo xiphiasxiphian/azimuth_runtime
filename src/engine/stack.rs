@@ -55,7 +55,12 @@ impl<'a> StackFrame<'a>
         }
     }
 
-    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, action: F) -> bool
+    pub fn with_next_frame<F>(
+        &'a mut self,
+        locals_size: usize,
+        stack_size: usize,
+        action: F,
+    ) -> bool
     where
         F: FnOnce(StackFrame<'a>),
     {
@@ -129,7 +134,10 @@ impl<'a> StackFrame<'a>
         self.set_local_single(index + 1, upper);
     }
 
-    #[expect(clippy::expect_used, reason = "This conversion should be impossible to fail. If it somehow does this should be a good reason to fail")]
+    #[expect(
+        clippy::expect_used,
+        reason = "This conversion should be impossible to fail. If it somehow does this should be a good reason to fail"
+    )]
     fn split_double(value: u64) -> (u32, u32)
     {
         let lower: u32 = (value & Self::LOWER_MASK)

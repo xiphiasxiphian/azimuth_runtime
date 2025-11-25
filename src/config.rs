@@ -12,7 +12,6 @@ pub enum ConfigError
     InvalidOperand(String),
     LoaderInitError,
     StackInitError,
-
 }
 
 struct Flags
@@ -55,7 +54,9 @@ impl Config
             {
                 arg_ @ "--maxstack" =>
                 {
-                    let operand = args.next().ok_or(ConfigError::MissingOperand(arg_.into()))?;
+                    let operand = args
+                        .next()
+                        .ok_or(ConfigError::MissingOperand(arg_.into()))?;
                     flags.stack_size = operand
                         .parse()
                         .map_err(|_| ConfigError::InvalidOperand(operand))?;

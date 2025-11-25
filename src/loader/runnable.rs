@@ -10,36 +10,35 @@ pub struct Runnable
 
 impl Runnable
 {
-
     pub fn from_parsed_data(directives: &[Directive], bytecode: Vec<u8>) -> Option<Self>
     {
-        directives.iter()
-            .try_fold((None, None, vec![]), |(max_stack, max_locals, mut optionals), directive| {
-                match (max_stack, max_locals, *directive)
+        directives
+            .iter()
+            .try_fold(
+                (None, None, vec![]),
+                |(max_stack, max_locals, mut optionals), directive| match (
+                    max_stack, max_locals, *directive,
+                )
                 {
-                    (Some(_), _, Directive::MaxStack(_)) | (_, Some(_), Directive::MaxLocals(_)) => None,
-                    (None, ml, Directive::MaxStack(x)) =>
+                    (Some(_), _, Directive::MaxStack(_))
+                    | (_, Some(_), Directive::MaxLocals(_)) => None,
+                    (None, ml, Directive::MaxStack(x)) => Some((Some(x.into()), ml, optionals)),
+                    (ms, None, Directive::MaxLocals(x)) => Some((ms, Some(x.into()), optionals)),
+                    (ms, ml, x) =>
                     {
-                        Some((Some(x.into()), ml, optionals))
-                    }
-                    (ms, None, Directive::MaxLocals(x)) =>
-                    {
-                        Some((ms, Some(x.into()), optionals))
-                    }
-                    (ms, ml, x) => {
                         optionals.push(x);
                         Some((ms, ml, optionals))
-                    },
-
-                }
-            }
-        )
-        .and_then(|(max_stack, max_locals, optionals)| Some(Self {
-            maxstack: max_stack?,
-            maxlocals: max_locals?,
-            directives: optionals,
-            bytecode,
-        }))
+                    }
+                },
+            )
+            .and_then(|(max_stack, max_locals, optionals)| {
+                Some(Self {
+                    maxstack: max_stack?,
+                    maxlocals: max_locals?,
+                    directives: optionals,
+                    bytecode,
+                })
+            })
     }
 
     pub fn directives(&self) -> &[Directive]
