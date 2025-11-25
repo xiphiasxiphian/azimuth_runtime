@@ -29,10 +29,7 @@ impl<'a> Runner<'a>
 
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
-        let entry_point = self
-            .loader
-            .get_entry_point()
-            .ok_or(RunnerError::MissingEntryPoint)?;
+        let entry_point = self.loader.get_entry_point().ok_or(RunnerError::MissingEntryPoint)?;
         let (maxstack, maxlocals) = entry_point.setup_info();
 
         let initial_frame = self

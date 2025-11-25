@@ -17,8 +17,7 @@ impl Stack
         }
     }
 
-    pub fn initial_frame(&mut self, locals_size: usize, stack_size: usize)
-    -> Option<StackFrame<'_>>
+    pub fn initial_frame(&mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'_>>
     {
         (locals_size + stack_size <= self.stack.len())
             .then(|| StackFrame::new(self, 0, locals_size, locals_size + stack_size))
@@ -55,12 +54,7 @@ impl<'a> StackFrame<'a>
         }
     }
 
-    pub fn with_next_frame<F>(
-        &'a mut self,
-        locals_size: usize,
-        stack_size: usize,
-        action: F,
-    ) -> bool
+    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, action: F) -> bool
     where
         F: FnOnce(StackFrame<'a>),
     {
@@ -115,10 +109,7 @@ impl<'a> StackFrame<'a>
 
     pub fn get_local_double(&self, index: usize) -> u64
     {
-        Self::combine_double(
-            self.get_local_single(index),
-            self.get_local_single(index + 1),
-        )
+        Self::combine_double(self.get_local_single(index), self.get_local_single(index + 1))
     }
 
     pub fn set_local_single(&mut self, index: usize, value: u32)

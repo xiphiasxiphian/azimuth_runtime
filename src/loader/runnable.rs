@@ -16,12 +16,9 @@ impl Runnable
             .iter()
             .try_fold(
                 (None, None, vec![]),
-                |(max_stack, max_locals, mut optionals), directive| match (
-                    max_stack, max_locals, *directive,
-                )
+                |(max_stack, max_locals, mut optionals), directive| match (max_stack, max_locals, *directive)
                 {
-                    (Some(_), _, Directive::MaxStack(_))
-                    | (_, Some(_), Directive::MaxLocals(_)) => None,
+                    (Some(_), _, Directive::MaxStack(_)) | (_, Some(_), Directive::MaxLocals(_)) => None,
                     (None, ml, Directive::MaxStack(x)) => Some((Some(x.into()), ml, optionals)),
                     (ms, None, Directive::MaxLocals(x)) => Some((ms, Some(x.into()), optionals)),
                     (ms, ml, x) =>

@@ -7,30 +7,28 @@ pub enum OperandType
     WideInt,
 }
 
-static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> =
-    LazyLock::new(|| {
-        HashMap::from([
-            ("nop", (0, [].as_slice())),
-            ("i4.const.0", (1, [].as_slice())),
-            ("i4.const.1", (2, [].as_slice())),
-            ("i4.const.2", (3, [].as_slice())),
-            ("i4.const.3", (4, [].as_slice())),
-            ("i8.const.0", (5, [].as_slice())),
-            ("i8.const.1", (6, [].as_slice())),
-            ("i8.const.2", (7, [].as_slice())),
-            ("i8.const.3", (8, [].as_slice())),
-        ])
-    });
+static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
+    HashMap::from([
+        ("nop", (0, [].as_slice())),
+        ("i4.const.0", (1, [].as_slice())),
+        ("i4.const.1", (2, [].as_slice())),
+        ("i4.const.2", (3, [].as_slice())),
+        ("i4.const.3", (4, [].as_slice())),
+        ("i8.const.0", (5, [].as_slice())),
+        ("i8.const.1", (6, [].as_slice())),
+        ("i8.const.2", (7, [].as_slice())),
+        ("i8.const.3", (8, [].as_slice())),
+    ])
+});
 
-static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> =
-    LazyLock::new(|| {
-        HashMap::from([
-            (".start", (0, [].as_slice())),
-            (".symbol", (1, [OperandType::WideInt].as_slice())),
-            (".maxstack", (2, [OperandType::WideInt].as_slice())),
-            (".maxlocal", (3, [OperandType::WideInt].as_slice())),
-        ])
-    });
+static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
+    HashMap::from([
+        (".start", (0, [].as_slice())),
+        (".symbol", (1, [OperandType::WideInt].as_slice())),
+        (".maxstack", (2, [OperandType::WideInt].as_slice())),
+        (".maxlocal", (3, [OperandType::WideInt].as_slice())),
+    ])
+});
 
 #[derive(Debug, Clone, Copy)]
 pub enum AssemblerError
@@ -129,11 +127,7 @@ fn parse_directive(directive: &str) -> AssemblerResult<(u8, usize)>
     }
 }
 
-fn parse_operand(
-    operand: &str,
-    operand_type: OperandType,
-    bytes: &mut [u8],
-) -> AssemblerResult<usize>
+fn parse_operand(operand: &str, operand_type: OperandType, bytes: &mut [u8]) -> AssemblerResult<usize>
 {
     Ok(match operand_type
     {

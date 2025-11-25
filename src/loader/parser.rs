@@ -61,15 +61,9 @@ impl TableEntry
         (4, &|x| {
             Some(TableEntry::Integer(u32::from_le_bytes(x.try_into().ok()?)))
         }),
-        (8, &|x| {
-            Some(TableEntry::Long(u64::from_le_bytes(x.try_into().ok()?)))
-        }),
-        (4, &|x| {
-            Some(TableEntry::Float(f32::from_le_bytes(x.try_into().ok()?)))
-        }),
-        (8, &|x| {
-            Some(TableEntry::Double(f64::from_le_bytes(x.try_into().ok()?)))
-        }),
+        (8, &|x| Some(TableEntry::Long(u64::from_le_bytes(x.try_into().ok()?)))),
+        (4, &|x| Some(TableEntry::Float(f32::from_le_bytes(x.try_into().ok()?)))),
+        (8, &|x| Some(TableEntry::Double(f64::from_le_bytes(x.try_into().ok()?)))),
     ];
 }
 
@@ -155,8 +149,7 @@ impl FunctionInfo
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
-        let &(symbol_operand_count, symbol_handler) =
-            Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
+        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
         let (symbol_operands, rem_dirs) = input.split_at_checked(symbol_operand_count)?;
 
         let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
@@ -171,6 +164,8 @@ impl FunctionInfo
                     let name_idx = <usize>::from(name_index);
                     let descriptor_idx = <usize>::from(descriptor_index);
 
+                    // Get the name and descriptor from the constant pool.
+                    // This will also check whether the given indices are in fact valid.
                     let name = table.entries.get(name_idx)?;
                     let descriptor = table.entries.get(descriptor_idx)?;
 
@@ -187,22 +182,17 @@ impl FunctionInfo
 
         let mut directives: Vec<Directive> = vec![];
         let mut remaining = rem_dirs;
-        loop
+
+        // Loop through the bytes until it doesn't represent a directive anymore
+        while let &[Directive::OPCODE, x, ref res @ ..] = remaining
         {
-            match *remaining
-            {
-                [Directive::OPCODE, Directive::SYMBOL, ..] => return None, // Duplicate symbol directive
-                [Directive::OPCODE, x, ref res @ ..] =>
-                {
-                    let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
-                    let (operands, rem) = res.split_at_checked(operand_count)?;
+            if x == Directive::SYMBOL { return None; }
+            let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
+            let (operands, rem) = res.split_at_checked(operand_count)?;
 
-                    directives.push(handler(operands)?);
+            directives.push(handler(operands)?);
 
-                    remaining = rem;
-                }
-                [..] => break,
-            }
+            remaining = rem;
         }
 
         #[expect(
