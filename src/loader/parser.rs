@@ -14,6 +14,28 @@ macro_rules! split_off {
 type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>;
 type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<TableEntry>;
 
+struct FileParser<'a>
+{
+    remaining: &'a [u8]
+}
+
+impl<'a> FileParser<'a>
+{
+    pub fn new(input: &'a [u8]) -> Self
+    {
+        Self { remaining: input }
+    }
+
+    pub fn parse_off<T, F>(&mut self, parser: F) -> Option<T>
+    where
+        F: Fn(&'a [u8]) -> Option<(T, &'a [u8])>,
+    {
+        let (value, rem) = parser(self.remaining)?;
+        self.remaining = rem;
+        Some(value)
+    }
+}
+
 struct FileLayout
 {
     magic: u64,
@@ -28,16 +50,18 @@ impl FileLayout
 {
     pub fn from_bytes(input: &[u8]) -> Option<Self>
     {
-        let (magic, rem) = split_off!(u64, input)?;
-        let (version, rem) = rem.split_first()?;
-        let (constant_count, rem) = split_off!(u16, rem)?;
-        let (constant_pool, rem) = Table::new(constant_count.into(), rem)?;
-        let (function_count, rem) = split_off!(u16, rem)?;
-        let (functions, _) = FunctionInfo::get_all_functions(rem, &constant_pool)?;
+        let mut parser = FileParser::new(input);
+
+        let magic = parser.parse_off(|x| split_off!(u64, x))?;
+        let &version = parser.parse_off(|x| x.split_first())?;
+        let constant_count = parser.parse_off(|x| split_off!(u16, x))?;
+        let constant_pool = parser.parse_off(|x| Table::new(constant_count.into(), x))?;
+        let function_count = parser.parse_off(|x| split_off!(u16, x))?;
+        let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?;
 
         Some(Self {
             magic,
-            version: *version,
+            version,
             constant_count,
             constant_pool,
             function_count,
@@ -83,7 +107,7 @@ impl Table
         {
             match *remaining
             {
-                [] => return None,
+                [] => return None, // There were not enough entries, therefore the file is malformed
                 [tag, ref res @ ..] =>
                 {
                     let &(operand, handler) = TableEntry::HANDLERS.get(<usize>::from(tag))?;
@@ -194,6 +218,8 @@ impl FunctionInfo
 
             remaining = rem;
         }
+
+        // post condition:
 
         #[expect(
             clippy::expect_used,
