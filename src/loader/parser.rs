@@ -23,6 +23,7 @@ struct FileLayout
     constant_count: u16,
     constant_pool: Table,
     function_count: u16,
+    functions: Vec<FunctionInfo>,
 }
 
 impl FileLayout
@@ -34,6 +35,7 @@ impl FileLayout
         let (constant_count, rem) = split_off!(u16, rem)?;
         let (constant_pool, rem) = Table::new(constant_count.into(), rem)?;
         let (function_count, rem) = split_off!(u16, rem)?;
+        let (functions, _) = FunctionInfo::get_all_functions(rem, &constant_pool)?;
 
         Some(Self {
             magic,
@@ -41,6 +43,7 @@ impl FileLayout
             constant_count,
             constant_pool,
             function_count,
+            functions,
         })
     }
 }
@@ -215,5 +218,19 @@ impl FunctionInfo
             },
             remaining,
         ))
+    }
+
+    pub fn get_all_functions<'a, 'b>(input: &'a [u8], table: &'b Table) -> Option<(Vec<Self>, &'a [u8])>
+    {
+        let mut functions = vec![];
+        let mut remaining = input;
+        while let [Directive::OPCODE, 0, ..] = remaining // There is another function to read
+        {
+            let (function, rem) = Self::new(remaining, table)?;
+            functions.push(function);
+            remaining = rem;
+        }
+
+        Some((functions, remaining))
     }
 }
