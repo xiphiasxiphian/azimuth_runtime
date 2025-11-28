@@ -12,7 +12,7 @@ macro_rules! split_off {
 }
 
 type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>;
-type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<TableEntry>;
+type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<(TableEntry, usize)>;
 
 struct FileParser<'a>
 {
@@ -67,24 +67,29 @@ impl FileLayout
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 enum TableEntry
 {
     Integer(u32),
     Long(u64),
     Float(f32),
     Double(f64),
+    String(String) // This can eventually be a reference to a metaspace string
 }
 
 impl TableEntry
 {
-    pub const HANDLERS: [(usize, TableTypeHandler); 4] = [
-        (4, &|x| {
-            Some(TableEntry::Integer(u32::from_le_bytes(x.try_into().ok()?)))
-        }),
-        (8, &|x| Some(TableEntry::Long(u64::from_le_bytes(x.try_into().ok()?)))),
-        (4, &|x| Some(TableEntry::Float(f32::from_le_bytes(x.try_into().ok()?)))),
-        (8, &|x| Some(TableEntry::Double(f64::from_le_bytes(x.try_into().ok()?)))),
+    pub const HANDLERS: [TableTypeHandler; 5] = [
+        &|x| Some((TableEntry::Integer(u32::from_le_bytes(*x.first_chunk()?)), 4)),
+        &|x| Some((TableEntry::Long(u64::from_le_bytes(*x.first_chunk()?)), 8)),
+        &|x| Some((TableEntry::Float(f32::from_bits(u32::from_le_bytes(*x.first_chunk()?))), 4)),
+        &|x| Some((TableEntry::Double(f64::from_bits(u64::from_le_bytes(*x.first_chunk()?))), 8)),
+        &|x| {
+            let str_len = <usize>::from(u16::from_le_bytes(x[0..2].try_into().ok()?));
+            let str_bytes = x.get(2..(2 + str_len))?;
+            let string = String::from_utf8(str_bytes.to_vec()).ok()?;
+            Some((TableEntry::String(string), 2 + str_len))
+        },
     ];
 }
 
@@ -107,10 +112,10 @@ impl Table
                 [] => return None, // There were not enough entries, therefore the file is malformed
                 [tag, ref res @ ..] =>
                 {
-                    let &(operand, handler) = TableEntry::HANDLERS.get(<usize>::from(tag))?;
+                    let (result, operands) = TableEntry::HANDLERS.get(<usize>::from(tag))?(res)?;
 
-                    let (operands, rem) = res.split_at_checked(operand)?;
-                    entries.push(handler(operands)?);
+                    let (_, rem) = res.split_at_checked(operands)?;
+                    entries.push(result);
 
                     remaining = rem;
                 }
