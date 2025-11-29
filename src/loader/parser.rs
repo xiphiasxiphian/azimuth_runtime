@@ -3,11 +3,17 @@ use crate::engine::opcodes::Opcode;
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
 pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
 
+macro_rules! bytes_to_numeric {
+    ($t:ty, $input:expr) => {
+        <$t>::from_le_bytes(*$input.first_chunk()?)
+    };
+}
+
 macro_rules! split_off {
     ($t:ty, $input:ident) => {
         $input
             .split_at_checked(size_of::<$t>())
-            .and_then(|(x, y)| Some((<$t>::from_le_bytes(x.try_into().ok()?), y)))
+            .and_then(|(x, y)| Some((bytes_to_numeric!($t, x), y)))
     };
 }
 
@@ -16,7 +22,7 @@ type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<(TableEntry, usize)>;
 
 struct FileParser<'a>
 {
-    remaining: &'a [u8]
+    remaining: &'a [u8],
 }
 
 impl<'a> FileParser<'a>
@@ -67,25 +73,25 @@ impl FileLayout
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum TableEntry
 {
     Integer(u32),
     Long(u64),
     Float(f32),
     Double(f64),
-    String(String) // This can eventually be a reference to a metaspace string
+    String(String), // This can eventually be a reference to a metaspace string
 }
 
 impl TableEntry
 {
     pub const HANDLERS: [TableTypeHandler; 5] = [
-        &|x| Some((TableEntry::Integer(u32::from_le_bytes(*x.first_chunk()?)), 4)),
-        &|x| Some((TableEntry::Long(u64::from_le_bytes(*x.first_chunk()?)), 8)),
-        &|x| Some((TableEntry::Float(f32::from_bits(u32::from_le_bytes(*x.first_chunk()?))), 4)),
-        &|x| Some((TableEntry::Double(f64::from_bits(u64::from_le_bytes(*x.first_chunk()?))), 8)),
+        &|x| Some((TableEntry::Integer(bytes_to_numeric!(u32, x)), 4)),
+        &|x| Some((TableEntry::Long(bytes_to_numeric!(u64, x)), 8)),
+        &|x| Some((TableEntry::Float(f32::from_bits(bytes_to_numeric!(u32, x))), 4)),
+        &|x| Some((TableEntry::Double(f64::from_bits(bytes_to_numeric!(u64, x))), 8)),
         &|x| {
-            let str_len = <usize>::from(u16::from_le_bytes(x[0..2].try_into().ok()?));
+            let str_len = <usize>::from(bytes_to_numeric!(u16, x[0..2]));
             let str_bytes = x.get(2..(2 + str_len))?;
             let string = String::from_utf8(str_bytes.to_vec()).ok()?;
             Some((TableEntry::String(string), 2 + str_len))
@@ -155,12 +161,8 @@ impl Directive
             ))
         }),
         (0, &|_| Some(Directive::Start)),
-        (2, &|x| {
-            Some(Directive::MaxStack(u16::from_le_bytes(x.try_into().ok()?)))
-        }),
-        (2, &|x| {
-            Some(Directive::MaxLocals(u16::from_le_bytes(x.try_into().ok()?)))
-        }),
+        (2, &|x| Some(Directive::MaxStack(bytes_to_numeric!(u16, x)))),
+        (2, &|x| Some(Directive::MaxLocals(bytes_to_numeric!(u16, x)))),
     ];
 }
 
@@ -184,7 +186,8 @@ impl FunctionInfo
         // should be Directive 0, so get its entry in the handler array
         let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
         let (symbol_directive, rem_dirs) = input.split_at_checked(symbol_operand_count + Directive::HEADER_SIZE)?;
-        let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..(symbol_operand_count + Directive::HEADER_SIZE))?;
+        let symbol_operands =
+            symbol_directive.get(Directive::HEADER_SIZE..(symbol_operand_count + Directive::HEADER_SIZE))?;
 
         let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
@@ -220,7 +223,10 @@ impl FunctionInfo
         // Loop through the bytes until it doesn't represent a directive anymore
         while let &[Directive::OPCODE, x, ref res @ ..] = remaining
         {
-            if x == Directive::SYMBOL { return None; }
+            if x == Directive::SYMBOL
+            {
+                return None;
+            }
             let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
             let (operands, rem) = res.split_at_checked(operand_count)?;
 
@@ -298,7 +304,7 @@ mod table_tests
     fn heterogeneous_table()
     {
         let data: [u8; 28] = [
-            0, 10, 0, 0, 0,  // Integer 10
+            0, 10, 0, 0, 0, // Integer 10
             1, 100, 0, 0, 0, 0, 0, 0, 0, // Long 100
             2, 0, 0, 128, 63, // Float 1.0
             3, 0, 0, 0, 0, 0, 0, 240, 63, // Double 1.0
@@ -325,10 +331,15 @@ mod function_info_tests
         let data: [u8; 10] = [
             Directive::OPCODE,
             Directive::SYMBOL,
-            0, 0, // name index
-            1, 0, // descriptor index
+            0,
+            0, // name index
+            1,
+            0, // descriptor index
             // Code (4 bytes)
-            0x01, 0x02, 0x03, 0x04,
+            0x01,
+            0x02,
+            0x03,
+            0x04,
         ];
         let table = Table {
             entries: vec![
@@ -346,6 +357,4 @@ mod function_info_tests
 
 #[cfg(test)]
 mod parser_tests
-{
-
-}
+{}
