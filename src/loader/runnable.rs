@@ -47,4 +47,9 @@ impl<'a> Runnable<'a>
     {
         (self.maxstack, self.maxlocals)
     }
+
+    pub fn code(&self) -> &[u8]
+    {
+        self.bytecode
+    }
 }

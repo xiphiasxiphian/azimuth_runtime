@@ -1,6 +1,6 @@
 use std::env::args;
 
-use crate::{engine::stack::Stack, loader::Loader};
+use crate::{engine::{Runner, RunnerError, stack::Stack}, loader::Loader};
 
 #[derive(Debug, Clone)]
 pub enum ConfigError
@@ -12,6 +12,7 @@ pub enum ConfigError
     InvalidOperand(String),
     LoaderInitError,
     StackInitError,
+    RunnerError(RunnerError)
 }
 
 struct Flags
@@ -79,15 +80,16 @@ impl Config
         // -- Init Required systems --
 
         // Init Loader (WIP)
-        let loader = Loader::from_file(&self.filename).ok_or(ConfigError::LoaderInitError)?;
+        let loader = Loader::from_file(&self.filename).map_err(|_| ConfigError::LoaderInitError)?;
 
         // Init Stack
-        let stack = Stack::new(self.flags.stack_size);
+        let mut stack = Stack::new(self.flags.stack_size);
 
         // Init Heap
 
         // Pass information to runner
+        let mut runner = Runner::new(&mut stack, &loader);
 
-        Ok(())
+        runner.run().map_err(ConfigError::RunnerError)
     }
 }

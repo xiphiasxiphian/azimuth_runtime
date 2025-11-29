@@ -71,6 +71,11 @@ impl FileLayout
             functions,
         })
     }
+
+    pub fn functions(&self) -> &[FunctionInfo]
+    {
+        self.functions.as_slice()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -272,6 +277,11 @@ impl FunctionInfo
     pub fn into_runnable(&self) -> Option<Runnable>
     {
         Runnable::from_parsed_data(&self.directives, &self.code)
+    }
+
+    pub fn has_directive(&self, directive: Directive) -> bool
+    {
+        self.directives.contains(&directive)
     }
 }
 

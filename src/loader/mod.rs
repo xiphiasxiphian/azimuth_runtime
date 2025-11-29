@@ -1,6 +1,6 @@
 use std::{fs::read, io};
 
-use crate::loader::{parser::FileLayout, runnable::Runnable};
+use crate::loader::{parser::{Directive, FileLayout}, runnable::Runnable};
 
 mod parser;
 pub mod runnable;
@@ -11,7 +11,7 @@ pub struct Loader
 }
 
 #[derive(Debug)]
-enum LoaderError
+pub enum LoaderError
 {
     FileReadError(io::Error),
     LayoutError,
@@ -30,8 +30,11 @@ impl Loader
         Ok(Self { layout })
     }
 
+    // Get the entry point (aka function marked with .start)
     pub fn get_entry_point(&self) -> Option<Runnable>
     {
-        todo!()
+        self.layout.functions().iter()
+            .find(|x| x.has_directive(Directive::Start))
+            .and_then(|x| x.into_runnable())
     }
 }

@@ -3,10 +3,11 @@ pub mod opcodes;
 pub mod stack;
 
 use crate::{
-    engine::stack::{Stack, StackFrame},
+    engine::{opcode_handler::exec_instruction, stack::{Stack, StackFrame}},
     loader::{Loader, runnable::Runnable},
 };
 
+#[derive(Debug, Clone, Copy)]
 pub enum RunnerError
 {
     MissingEntryPoint,
@@ -32,17 +33,16 @@ impl<'a> Runner<'a>
         let entry_point = self.loader.get_entry_point().ok_or(RunnerError::MissingEntryPoint)?;
         let (maxstack, maxlocals) = entry_point.setup_info();
 
-        let initial_frame = self
+        let mut initial_frame = self
             .stack
             .initial_frame(maxlocals, maxstack)
             .ok_or(RunnerError::StackOverflow)?;
-        Self::execute(&entry_point, &initial_frame)?;
+
+        let code = entry_point.code();
+        let mut pc: usize = 0;
+
 
         Ok(())
     }
 
-    fn execute(runnable: &Runnable, frame: &StackFrame) -> Result<(), RunnerError>
-    {
-        todo!()
-    }
 }
