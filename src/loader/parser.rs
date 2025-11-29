@@ -1,4 +1,4 @@
-use crate::engine::opcodes::Opcode;
+use crate::{engine::opcodes::Opcode, loader::runnable::Runnable};
 
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
 pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
@@ -42,7 +42,7 @@ impl<'a> FileParser<'a>
     }
 }
 
-struct FileLayout
+pub struct FileLayout
 {
     magic: u64,
     version: u8,
@@ -74,7 +74,7 @@ impl FileLayout
 }
 
 #[derive(Debug, Clone)]
-enum TableEntry
+pub enum TableEntry
 {
     Integer(u32),
     Long(u64),
@@ -99,7 +99,7 @@ impl TableEntry
     ];
 }
 
-struct Table
+pub struct Table
 {
     entries: Vec<TableEntry>,
 }
@@ -166,7 +166,7 @@ impl Directive
     ];
 }
 
-struct FunctionInfo
+pub struct FunctionInfo
 {
     directives: Vec<Directive>,
 
@@ -267,6 +267,11 @@ impl FunctionInfo
         }
 
         Some((functions, remaining))
+    }
+
+    pub fn into_runnable(&self) -> Option<Runnable>
+    {
+        Runnable::from_parsed_data(&self.directives, &self.code)
     }
 }
 
