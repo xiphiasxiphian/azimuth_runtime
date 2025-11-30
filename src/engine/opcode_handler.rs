@@ -1,11 +1,11 @@
 use crate::engine::{opcodes::Opcode, stack::StackFrame};
 
 #[derive(Debug)]
-struct HandlerInputInfo<'a>
+struct HandlerInputInfo<'a, 'b, 'c>
 {
     opcode: u8,
     params: &'a [u8],
-    frame: &'a mut StackFrame<'a>,
+    frame: &'b mut StackFrame<'c>,
 }
 
 #[derive(Clone, Copy)]
@@ -13,53 +13,68 @@ struct HandlerInfo<'a>
 {
     opcode: Opcode,
     param_count: u8,
-    handler: &'a dyn Fn(&mut HandlerInputInfo) -> Option<usize>,
+    handler: &'a dyn Fn(&mut HandlerInputInfo) -> InstructionResult,
 }
 
-pub fn exec_instruction<'a>(bytecode: &'a [u8], pc: usize, frame: &'a mut StackFrame<'a>) -> usize
+#[derive(Clone, Copy)]
+pub enum InstructionResult
 {
-    let opcode = bytecode[pc];
-    let handler_info = &HANDLERS[opcode as usize];
+    Next,
+    Jump(usize),
+    Return
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ExecutionError
+{
+    OpcodeNotFound,
+    IllegalOpcode,
+}
+
+pub fn exec_instruction<'a, 'b, 'c>(bytecode: &'a [u8], frame: &'b mut StackFrame<'c>) -> Result<InstructionResult, ExecutionError>
+{
+    let (&opcode, operands) = bytecode.split_first().ok_or(ExecutionError::OpcodeNotFound)?;
+    let handler_info = HANDLERS.get(opcode as usize).ok_or(ExecutionError::IllegalOpcode)?;
 
     assert!(
         opcode == handler_info.opcode as u8,
         "HANDLERS Array invalid: misaligned opcode"
     );
-    let new_pc = pc + handler_info.param_count as usize + 1;
 
-    (handler_info.handler)(&mut HandlerInputInfo {
+    let instr_result = (handler_info.handler)(&mut HandlerInputInfo {
         opcode,
-        params: &bytecode[(pc + 1)..new_pc],
+        params: operands,
         frame,
-    })
-    .unwrap_or(new_pc)
+    });
+
+    Ok(instr_result)
 }
 
-fn push_single(input: &mut HandlerInputInfo, value: u32) -> Option<usize>
+fn push_single(input: &mut HandlerInputInfo, value: u32) -> InstructionResult
 {
     input.frame.push_single(value);
-    None
+    InstructionResult::Next
 }
 
-fn push_double(input: &mut HandlerInputInfo, value: u64) -> Option<usize>
+fn push_double(input: &mut HandlerInputInfo, value: u64) -> InstructionResult
 {
     input.frame.push_double(value);
-    None
+    InstructionResult::Next
 }
 
 // Debugging Handlers. Not for actual use
 
-fn simple_print_handler(input: &mut HandlerInputInfo) -> Option<usize>
+fn simple_print_handler(input: &mut HandlerInputInfo) -> InstructionResult
 {
     println!("{input:?}");
-    None
+    InstructionResult::Next
 }
 
 #[expect(
     clippy::panic,
     reason = "This is a debug handler that should never make it to a finished version"
 )]
-fn unimplemented_handler(_: &mut HandlerInputInfo) -> Option<usize>
+fn unimplemented_handler(_: &mut HandlerInputInfo) -> InstructionResult
 {
     panic!("Opcode not implemented")
 }
@@ -87,7 +102,7 @@ macro_rules! handler {
 }
 
 const HANDLERS: [HandlerInfo; 256] = handlers!(
-    { Opcode::Nop, 0, &(|_| None) }, // nop: Do nothing. [No Change]
+    { Opcode::Nop, 0, &(|_| InstructionResult::Next) }, // nop: Do nothing. [No Change]
     { Opcode::I4Const0,      0, push_single, 0 }, // i4.const.0: Push 0 onto the stack. -> 0
     { Opcode::I4Const1,      0, push_single, 1 }, // i4.const.1: Push 1 onto the stack. -> 1
     { Opcode::I4Const2,      0, push_single, 2 }, // i4.const.2: Push 2 onto the stack. -> 2
