@@ -1,6 +1,9 @@
 use std::env::args;
 
-use crate::{engine::{Runner, RunnerError, stack::Stack}, loader::Loader};
+use crate::{
+    engine::{Runner, RunnerError, stack::Stack},
+    loader::Loader,
+};
 
 #[derive(Debug, Clone)]
 pub enum ConfigError
@@ -12,7 +15,7 @@ pub enum ConfigError
     InvalidOperand(String),
     LoaderInitError,
     StackInitError,
-    RunnerError(RunnerError)
+    RunnerError(RunnerError),
 }
 
 struct Flags

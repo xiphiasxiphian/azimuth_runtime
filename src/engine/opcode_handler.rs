@@ -21,7 +21,7 @@ pub enum InstructionResult
 {
     Next,
     Jump(usize),
-    Return
+    Return,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +31,11 @@ pub enum ExecutionError
     IllegalOpcode,
 }
 
-pub fn exec_instruction<'a, 'b, 'c>(bytecode: &'a [u8], frame: &'b mut StackFrame<'c>) -> Result<InstructionResult, ExecutionError>
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "If this invariant check fails, the entire config is malformed"
+)]
+pub fn exec_instruction(bytecode: &[u8], frame: &mut StackFrame) -> Result<InstructionResult, ExecutionError>
 {
     let (&opcode, operands) = bytecode.split_first().ok_or(ExecutionError::OpcodeNotFound)?;
     let handler_info = HANDLERS.get(opcode as usize).ok_or(ExecutionError::IllegalOpcode)?;

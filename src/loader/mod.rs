@@ -1,6 +1,9 @@
 use std::{fs::read, io};
 
-use crate::loader::{parser::{Directive, FileLayout}, runnable::Runnable};
+use crate::loader::{
+    parser::{Directive, FileLayout, FunctionInfo},
+    runnable::Runnable,
+};
 
 mod parser;
 pub mod runnable;
@@ -24,7 +27,7 @@ impl Loader
 {
     pub fn from_file(filename: &str) -> Result<Self, LoaderError>
     {
-        let file_contents = read(filename).map_err(|x| LoaderError::FileReadError(x))?;
+        let file_contents = read(filename).map_err(LoaderError::FileReadError)?;
         let layout = FileLayout::from_bytes(&file_contents).ok_or(LoaderError::LayoutError)?;
 
         Ok(Self { layout })
@@ -33,8 +36,10 @@ impl Loader
     // Get the entry point (aka function marked with .start)
     pub fn get_entry_point(&self) -> Option<Runnable>
     {
-        self.layout.functions().iter()
+        self.layout
+            .functions()
+            .iter()
             .find(|x| x.has_directive(Directive::Start))
-            .and_then(|x| x.into_runnable())
+            .and_then(FunctionInfo::into_runnable)
     }
 }

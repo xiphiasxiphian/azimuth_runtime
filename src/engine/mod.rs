@@ -3,7 +3,10 @@ pub mod opcodes;
 pub mod stack;
 
 use crate::{
-    engine::{opcode_handler::{ExecutionError, InstructionResult, exec_instruction}, stack::{Stack, StackFrame}},
+    engine::{
+        opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
+        stack::{Stack, StackFrame},
+    },
     loader::{Loader, runnable::Runnable},
 };
 
@@ -45,27 +48,28 @@ impl<'a> Runner<'a>
 
         loop
         {
-            let exec_result = exec_instruction(&code[pc..], &mut initial_frame)
-                .map_err(|x| RunnerError::ExecutionError(x))?;
+            let exec_result =
+                exec_instruction(&code[pc..], &mut initial_frame).map_err(|x| RunnerError::ExecutionError(x))?;
 
             match exec_result
             {
                 InstructionResult::Next => pc += 1,
-                InstructionResult::Jump(target) => {
-                    if target >= code.len() {
+                InstructionResult::Jump(target) =>
+                {
+                    if target >= code.len()
+                    {
                         return Err(RunnerError::InvalidJump);
                     }
 
                     pc = target;
                 }
-                InstructionResult::Return => {
+                InstructionResult::Return =>
+                {
                     break;
                 }
             }
         }
 
-
         Ok(())
     }
-
 }
