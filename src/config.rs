@@ -1,6 +1,9 @@
 use std::env::args;
 
-use crate::engine::stack::Stack;
+use crate::{
+    engine::{Runner, RunnerError, stack::Stack},
+    loader::Loader,
+};
 
 #[derive(Debug, Clone)]
 pub enum ConfigError
@@ -10,6 +13,9 @@ pub enum ConfigError
     UnknownFlag(String),
     MissingOperand(String),
     InvalidOperand(String),
+    LoaderInitError,
+    StackInitError,
+    RunnerError(RunnerError),
 }
 
 struct Flags
@@ -50,12 +56,10 @@ impl Config
         {
             match arg.as_str()
             {
-                a @ "--maxstack" =>
+                arg_ @ "--maxstack" =>
                 {
-                    let operand = args.next().ok_or(ConfigError::MissingOperand(a.into()))?;
-                    flags.stack_size = operand
-                        .parse()
-                        .map_err(|_| ConfigError::InvalidOperand(operand))?;
+                    let operand = args.next().ok_or(ConfigError::MissingOperand(arg_.into()))?;
+                    flags.stack_size = operand.parse().map_err(|_| ConfigError::InvalidOperand(operand))?;
                 }
                 _file =>
                 {
@@ -75,11 +79,11 @@ impl Config
     pub fn execute(&self) -> Result<(), ConfigError>
     {
         // Load file
-        let contents = std::fs::read(&self.filename).map_err(|_| ConfigError::FileReadError)?;
 
         // -- Init Required systems --
 
-        // Init Class Loader (name WIP)
+        // Init Loader (WIP)
+        let loader = Loader::from_file(&self.filename).map_err(|_| ConfigError::LoaderInitError)?;
 
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);
@@ -87,7 +91,8 @@ impl Config
         // Init Heap
 
         // Pass information to runner
+        let mut runner = Runner::new(&mut stack, &loader);
 
-        Ok(())
+        runner.run().map_err(ConfigError::RunnerError)
     }
 }

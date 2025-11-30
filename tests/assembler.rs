@@ -1,36 +1,34 @@
 use std::{collections::HashMap, error::Error, fmt::Display, io::Write, sync::LazyLock};
 
 #[derive(Debug, Clone, Copy)]
-enum OperandType
+pub enum OperandType
 {
     Int,
     WideInt,
 }
 
-static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> =
-    LazyLock::new(|| {
-        HashMap::from([
-            ("nop", (0, [].as_slice())),
-            ("i4.const.0", (1, [].as_slice())),
-            ("i4.const.1", (2, [].as_slice())),
-            ("i4.const.2", (3, [].as_slice())),
-            ("i4.const.3", (4, [].as_slice())),
-            ("i8.const.0", (5, [].as_slice())),
-            ("i8.const.1", (6, [].as_slice())),
-            ("i8.const.2", (7, [].as_slice())),
-            ("i8.const.3", (8, [].as_slice())),
-        ])
-    });
+static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
+    HashMap::from([
+        ("nop", (0, [].as_slice())),
+        ("i4.const.0", (1, [].as_slice())),
+        ("i4.const.1", (2, [].as_slice())),
+        ("i4.const.2", (3, [].as_slice())),
+        ("i4.const.3", (4, [].as_slice())),
+        ("i8.const.0", (5, [].as_slice())),
+        ("i8.const.1", (6, [].as_slice())),
+        ("i8.const.2", (7, [].as_slice())),
+        ("i8.const.3", (8, [].as_slice())),
+    ])
+});
 
-static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> =
-    LazyLock::new(|| {
-        HashMap::from([
-            (".start", (0, [].as_slice())),
-            (".symbol", (1, [OperandType::WideInt].as_slice())),
-            (".maxstack", (2, [OperandType::WideInt].as_slice())),
-            (".maxlocal", (3, [OperandType::WideInt].as_slice())),
-        ])
-    });
+static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
+    HashMap::from([
+        (".start", (0, [].as_slice())),
+        (".symbol", (1, [OperandType::WideInt].as_slice())),
+        (".maxstack", (2, [OperandType::WideInt].as_slice())),
+        (".maxlocal", (3, [OperandType::WideInt].as_slice())),
+    ])
+});
 
 #[derive(Debug, Clone, Copy)]
 pub enum AssemblerError
@@ -47,7 +45,7 @@ impl Display for AssemblerError
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
     {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -57,7 +55,7 @@ type AssemblerResult<T> = Result<T, AssemblerError>;
 
 pub fn assemble(input: &str, target: &mut dyn Write) -> AssemblerResult<()>
 {
-    for line in input.split('\n').filter(|x| *x != "")
+    for line in input.split('\n').filter(|x| !x.is_empty())
     {
         assemble_instruction(&mut line.split_whitespace(), target)?;
     }
@@ -129,13 +127,9 @@ fn parse_directive(directive: &str) -> AssemblerResult<(u8, usize)>
     }
 }
 
-fn parse_operand(
-    operand: &str,
-    operand_type: OperandType,
-    bytes: &mut [u8],
-) -> AssemblerResult<usize>
+fn parse_operand(operand: &str, operand_type: OperandType, bytes: &mut [u8]) -> AssemblerResult<usize>
 {
-    return Ok(match operand_type
+    Ok(match operand_type
     {
         OperandType::Int =>
         {
@@ -153,5 +147,5 @@ fn parse_operand(
             bytes[0..].copy_from_slice(&number.to_le_bytes());
             2
         }
-    });
+    })
 }

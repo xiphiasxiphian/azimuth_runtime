@@ -17,11 +17,7 @@ impl Stack
         }
     }
 
-    pub fn initial_frame<'a>(
-        &'a mut self,
-        locals_size: usize,
-        stack_size: usize,
-    ) -> Option<StackFrame<'a>>
+    pub fn initial_frame(&mut self, locals_size: usize, stack_size: usize) -> Option<StackFrame<'_>>
     {
         (locals_size + stack_size <= self.stack.len())
             .then(|| StackFrame::new(self, 0, locals_size, locals_size + stack_size))
@@ -44,7 +40,7 @@ impl<'a> StackFrame<'a>
 {
     const UPPER_LOWER_OFFSET: u64 = 32;
 
-    const LOWER_MASK: u64 = 0xFFFFFFFF;
+    const LOWER_MASK: u64 = 0xFFFF_FFFF;
     const UPPER_MASK: u64 = Self::LOWER_MASK << Self::UPPER_LOWER_OFFSET;
 
     pub fn new(origin: &'a mut Stack, locals_base: usize, stack_base: usize, size: usize) -> Self
@@ -58,18 +54,18 @@ impl<'a> StackFrame<'a>
         }
     }
 
-    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, f: F) -> bool
+    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, action: F) -> bool
     where
         F: FnOnce(StackFrame<'a>),
     {
         (self.size + locals_size + stack_size <= self.origin.stack.len())
             .then(|| {
-                f(StackFrame::new(
+                action(StackFrame::new(
                     self.origin,
                     self.size,
                     self.size + locals_size,
                     locals_size + stack_size,
-                ))
+                ));
             })
             .is_some()
     }
@@ -113,10 +109,7 @@ impl<'a> StackFrame<'a>
 
     pub fn get_local_double(&self, index: usize) -> u64
     {
-        Self::combine_double(
-            self.get_local_single(index),
-            self.get_local_single(index + 1),
-        )
+        Self::combine_double(self.get_local_single(index), self.get_local_single(index + 1))
     }
 
     pub fn set_local_single(&mut self, index: usize, value: u32)
@@ -132,6 +125,10 @@ impl<'a> StackFrame<'a>
         self.set_local_single(index + 1, upper);
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "This conversion should be impossible to fail. If it somehow does this should be a good reason to fail"
+    )]
     fn split_double(value: u64) -> (u32, u32)
     {
         let lower: u32 = (value & Self::LOWER_MASK)
@@ -145,8 +142,8 @@ impl<'a> StackFrame<'a>
 
     fn combine_double(lower: u32, upper: u32) -> u64
     {
-        let low = lower as u64;
-        let high = upper as u64;
+        let low: u64 = lower.into();
+        let high: u64 = upper.into();
 
         (high << Self::UPPER_LOWER_OFFSET) | low
     }

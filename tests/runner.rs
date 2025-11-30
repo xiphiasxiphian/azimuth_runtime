@@ -19,8 +19,7 @@ fn test(path: &Path) -> datatest_stable::Result<()>
     bytecode_path.set_extension(COMPILED_FILE_EXTENSION);
 
     // Check whether to (re)compile
-    if !bytecode_path.exists()
-        || bytecode_path.metadata()?.modified()? < path.metadata()?.modified()?
+    if !bytecode_path.exists() || bytecode_path.metadata()?.modified()? < path.metadata()?.modified()?
     {
         let string = std::fs::read_to_string(path)?;
 
