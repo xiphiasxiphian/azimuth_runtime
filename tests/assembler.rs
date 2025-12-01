@@ -55,11 +55,22 @@ type AssemblerResult<T> = Result<T, AssemblerError>;
 
 pub fn assemble(input: &str, target: &mut dyn Write) -> AssemblerResult<()>
 {
-    for line in input.split('\n').filter(|x| !x.is_empty())
+    let mut lines = input.split('\n').filter(|x| !x.is_empty());
+    // assemble_constant_table(&mut lines, target)?;
+
+    for line in lines
     {
         assemble_instruction(&mut line.split_whitespace(), target)?;
     }
     Ok(())
+}
+
+fn assemble_constant_table<'a>(
+    entries: &mut impl Iterator<Item = &'a str>,
+    target: &mut dyn Write,
+) -> AssemblerResult<()>
+{
+    todo!()
 }
 
 fn assemble_instruction<'a>(

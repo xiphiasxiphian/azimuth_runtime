@@ -5,9 +5,9 @@ pub mod stack;
 use crate::{
     engine::{
         opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
-        stack::{Stack, StackFrame},
+        stack::Stack,
     },
-    loader::{Loader, runnable::Runnable},
+    loader::Loader,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -63,7 +63,7 @@ impl<'a> Runner<'a>
                 {
                     (target < code.len())
                         .then(|| pc = target)
-                        .ok_or(RunnerError::ProgramCounterOverflow)?
+                        .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
                 InstructionResult::Return =>
                 {
