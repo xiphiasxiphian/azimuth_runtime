@@ -16,7 +16,7 @@ pub enum RunnerError
     MissingEntryPoint,
     StackOverflow,
     ExecutionError(ExecutionError),
-    InvalidJump,
+    ProgramCounterOverflow,
 }
 
 pub struct Runner<'a>
@@ -53,18 +53,21 @@ impl<'a> Runner<'a>
 
             match exec_result
             {
-                InstructionResult::Next => pc += 1,
+                InstructionResult::Next =>
+                {
+                    (pc + 1 < code.len())
+                        .then(|| pc += 1)
+                        .ok_or(RunnerError::ProgramCounterOverflow)?;
+                }
                 InstructionResult::Jump(target) =>
                 {
-                    if target >= code.len()
-                    {
-                        return Err(RunnerError::InvalidJump);
-                    }
-
-                    pc = target;
+                    (target < code.len())
+                        .then(|| pc = target)
+                        .ok_or(RunnerError::ProgramCounterOverflow)?
                 }
                 InstructionResult::Return =>
                 {
+                    // Return the required value here? How would that work to say it could be multiple types?
                     break;
                 }
             }
