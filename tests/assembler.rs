@@ -39,6 +39,7 @@ pub enum AssemblerError
     WriteError,
     IncorrectOperandCount,
     OperandParseError(OperandType),
+    MalformedConstantTable
 }
 
 impl Display for AssemblerError
@@ -70,7 +71,65 @@ fn assemble_constant_table<'a>(
     target: &mut dyn Write,
 ) -> AssemblerResult<()>
 {
-    todo!()
+    let mut bytes: Vec<u8> = vec![];
+    let mut counter: u32 = 0;
+
+    for (i, entry) in entries.enumerate()
+    {
+        let &[raw_number, raw_ty, raw_data] = entry
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .first_chunk()
+            .ok_or(AssemblerError::MalformedConstantTable)?;
+
+        // Get the index
+        let number: u16 = match raw_number.split_at_checked(1).ok_or(AssemblerError::MalformedConstantTable)?
+            {
+                ("#", x) => x.parse().map_err(|_| AssemblerError::MalformedConstantTable)?,
+                _ => return Err(AssemblerError::MalformedConstantTable),
+            };
+
+        if i != number as usize { return Err(AssemblerError::MalformedConstantTable) }
+
+        let (type_tag, mut data): (u8, Vec<u8>) = match raw_ty {
+             "int" => (
+                 0,
+                 raw_data.parse::<u32>()
+                     .map_err(|_| AssemblerError::MalformedConstantTable)?.to_le_bytes().to_vec()
+             ),
+             "long" => (
+                 1,
+                 raw_data.parse::<u64>()
+                     .map_err(|_| AssemblerError::MalformedConstantTable)?.to_le_bytes().to_vec()
+             ),
+             "float" => (
+                 2,
+                 raw_data.parse::<f32>()
+                     .map_err(|_| AssemblerError::MalformedConstantTable)?.to_le_bytes().to_vec()
+             ),
+             "double" => (
+                 3,
+                 raw_data.parse::<f64>()
+                     .map_err(|_| AssemblerError::MalformedConstantTable)?.to_le_bytes().to_vec()
+             ),
+             "string" => (
+                 4,
+                 raw_data.as_bytes().to_vec()
+             ),
+             _ => return Err(AssemblerError::MalformedConstantTable),
+        };
+
+        bytes.extend_from_slice(&number.to_le_bytes());
+        bytes.push(type_tag);
+        bytes.append(&mut data);
+
+        counter = counter.checked_add(1).ok_or(AssemblerError::MalformedConstantTable)?;
+    }
+
+    target.write(&counter.to_le_bytes()).map_err(|_| AssemblerError::WriteError)?;
+    target.write(&bytes).map_err(|_| AssemblerError::WriteError)?;
+
+    Ok(())
 }
 
 fn assemble_instruction<'a>(

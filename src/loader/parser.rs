@@ -46,7 +46,7 @@ pub struct FileLayout
 {
     magic: u64,
     version: u8,
-    constant_count: u16,
+    constant_count: u32,
     constant_pool: Table,
     functions: Vec<FunctionInfo>,
 }
@@ -59,8 +59,8 @@ impl FileLayout
 
         let magic = parser.parse_off(|x| split_off!(u64, x))?;
         let &version = parser.parse_off(|x| x.split_first())?;
-        let constant_count = parser.parse_off(|x| split_off!(u16, x))?;
-        let constant_pool = parser.parse_off(|x| Table::new(constant_count.into(), x))?;
+        let constant_count = parser.parse_off(|x| split_off!(u32, x))?;
+        let constant_pool = parser.parse_off(|x| Table::new(constant_count as usize, x))?;
         let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?;
 
         Some(Self {
@@ -145,7 +145,7 @@ impl Table
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Directive
 {
-    Symbol(u16, u16), // (name_index, descriptor_index)
+    Symbol(u32, u32), // (name_index, descriptor_index)
     Start,
     MaxStack(u16),
     MaxLocals(u16),
@@ -161,8 +161,8 @@ impl Directive
     const HANDLERS: [(usize, DirectiveHandler); 4] = [
         (4, &|x| {
             Some(Directive::Symbol(
-                u16::from_le_bytes(x[0..2].try_into().ok()?),
-                u16::from_le_bytes(x[2..4].try_into().ok()?),
+                u32::from_le_bytes(x[0..2].try_into().ok()?),
+                u32::from_le_bytes(x[2..4].try_into().ok()?),
             ))
         }),
         (0, &|_| Some(Directive::Start)),
@@ -203,8 +203,8 @@ impl FunctionInfo
                     // important still to verify that it is a valid constant pool entry,
                     // and does in fact refer to a string entry
 
-                    let name_idx = <usize>::from(name_index);
-                    let descriptor_idx = <usize>::from(descriptor_index);
+                    let name_idx = name_index as usize;
+                    let descriptor_idx = descriptor_index as usize;
 
                     // Get the name and descriptor from the constant pool.
                     // This will also check whether the given indices are in fact valid.
