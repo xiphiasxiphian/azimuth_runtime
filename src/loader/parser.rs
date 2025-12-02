@@ -211,7 +211,7 @@ impl FunctionInfo
                     match (name, descriptor)
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        (TableEntry::String(s), &TableEntry::Integer(x)) => Some((s, x)),
+                        (&TableEntry::String(ref name_str), &TableEntry::Integer(x)) => Some((name_str, x)),
                         _ => None,
                     }
                 }
@@ -345,8 +345,14 @@ mod function_info_tests
         let data: [u8; 14] = [
             Directive::OPCODE,
             Directive::SYMBOL,
-            0, 0, 0, 0, // name index
-            1, 0, 0, 0, // descriptor index
+            0,
+            0,
+            0,
+            0, // name index
+            1,
+            0,
+            0,
+            0, // descriptor index
             // Code (4 bytes)
             0x01,
             0x02,
@@ -356,7 +362,7 @@ mod function_info_tests
         let table = Table {
             entries: vec![
                 TableEntry::String("main".into()), // name index
-                TableEntry::Integer(4), // descriptor index
+                TableEntry::Integer(4),            // descriptor index
             ],
         };
 
