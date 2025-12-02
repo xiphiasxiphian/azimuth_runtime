@@ -136,9 +136,9 @@ impl Table
         Some((Self { entries }, remaining))
     }
 
-    pub fn get(&self, idx: usize) -> Option<&TableEntry>
+    pub fn get(&self, idx: u32) -> Option<&TableEntry>
     {
-        self.entries.get(idx)
+        self.entries.get(idx as usize)
     }
 }
 
@@ -159,10 +159,10 @@ impl Directive
     const HEADER_SIZE: usize = 2; // Opcode (1 byte) + Directive Type (1 byte)
 
     const HANDLERS: [(usize, DirectiveHandler); 4] = [
-        (4, &|x| {
+        (8, &|x| {
             Some(Directive::Symbol(
-                u32::from_le_bytes(x[0..2].try_into().ok()?),
-                u32::from_le_bytes(x[2..4].try_into().ok()?),
+                u32::from_le_bytes(x[0..4].try_into().ok()?),
+                u32::from_le_bytes(x[4..8].try_into().ok()?),
             ))
         }),
         (0, &|_| Some(Directive::Start)),
@@ -194,7 +194,7 @@ impl FunctionInfo
         let symbol_operands =
             symbol_directive.get(Directive::HEADER_SIZE..(symbol_operand_count + Directive::HEADER_SIZE))?;
 
-        let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
+        let (_, descriptor): (&String, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
                 Directive::Symbol(name_index, descriptor_index) =>
@@ -203,24 +203,23 @@ impl FunctionInfo
                     // important still to verify that it is a valid constant pool entry,
                     // and does in fact refer to a string entry
 
-                    let name_idx = name_index as usize;
-                    let descriptor_idx = descriptor_index as usize;
-
                     // Get the name and descriptor from the constant pool.
                     // This will also check whether the given indices are in fact valid.
-                    let name = table.get(name_idx)?;
-                    let descriptor = table.get(descriptor_idx)?;
+                    let name = table.get(name_index)?;
+                    let descriptor = table.get(descriptor_index)?;
 
                     match (name, descriptor)
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        (&_, &TableEntry::Integer(x)) => Some((name, x)),
+                        (TableEntry::String(s), &TableEntry::Integer(x)) => Some((s, x)),
                         _ => None,
                     }
                 }
                 _ => None, // Something has gone really wrong if this triggers
             }
         })?;
+
+        println!("Parsed symbol directive");
 
         let mut directives: Vec<Directive> = vec![];
         let mut remaining = rem_dirs;
@@ -343,13 +342,11 @@ mod function_info_tests
     fn basic_function()
     {
         // Function with symbol directive and no other directives
-        let data: [u8; 10] = [
+        let data: [u8; 14] = [
             Directive::OPCODE,
             Directive::SYMBOL,
-            0,
-            0, // name index
-            1,
-            0, // descriptor index
+            0, 0, 0, 0, // name index
+            1, 0, 0, 0, // descriptor index
             // Code (4 bytes)
             0x01,
             0x02,
@@ -358,7 +355,7 @@ mod function_info_tests
         ];
         let table = Table {
             entries: vec![
-                TableEntry::Integer(0), // name index
+                TableEntry::String("main".into()), // name index
                 TableEntry::Integer(4), // descriptor index
             ],
         };
