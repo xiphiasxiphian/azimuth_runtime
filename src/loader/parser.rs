@@ -219,8 +219,6 @@ impl FunctionInfo
             }
         })?;
 
-        println!("Parsed symbol directive");
-
         let mut directives: Vec<Directive> = vec![];
         let mut remaining = rem_dirs;
 
