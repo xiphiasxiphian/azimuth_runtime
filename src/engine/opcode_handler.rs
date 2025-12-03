@@ -20,7 +20,7 @@ struct HandlerInfo<'a>
 {
     opcode: Opcode,
     param_count: u8,
-    handler: &'a dyn Fn(&mut HandlerInputInfo) -> InstructionResult,
+    handler: &'a dyn Fn(&mut HandlerInputInfo) -> ExecutionResult,
 }
 
 #[derive(Clone, Copy)]
@@ -37,6 +37,7 @@ pub enum ExecutionError
     OpcodeNotFound,
     IllegalOpcode,
     MissingParams,
+    EmptyStack,
 }
 
 type ExecutionResult = Result<InstructionResult, ExecutionError>;
@@ -64,65 +65,79 @@ pub fn exec_instruction<'a>(
         "HANDLERS Array invalid: misaligned opcode"
     );
 
-    let result = (handler_info.handler)(&mut HandlerInputInfo {
+    (handler_info.handler)(&mut HandlerInputInfo {
         opcode,
         params: operands,
         frame,
         constants,
-    });
-
-    Ok(result)
+    })
 }
 
-fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> InstructionResult
+/*
+ * ******************************************************************************
+ *                                  HANDLERS
+ * ******************************************************************************
+ */
+
+// Basic Pushing Handlers
+
+fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
     input.frame.push(value);
-    InstructionResult::Next
+    Ok(InstructionResult::Next)
 }
 
-fn push_bytes(input: &mut HandlerInputInfo) -> InstructionResult
+fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     let mut bytes = [0; Stack::ENTRY_SIZE];
     bytes.copy_from_slice(input.params); // If this doesnt copy properly, exec_instruction hasnt done its job properly.
 
     input.frame.push(<StackEntry>::from_le_bytes(bytes));
 
-    InstructionResult::Next
+    Ok(InstructionResult::Next)
 }
 
 #[expect(
     clippy::expect_used,
     reason = "If there aren't enough parameters in the parameters input, this means previous validation steps have failed"
 )]
-fn push_constant(input: &mut HandlerInputInfo) -> InstructionResult
+fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     let index = <ConstantTableIndex>::from_le_bytes(
         *input
             .params
             .first_chunk()
-            .expect("exec_instruction hasn't properly detected missing parameters"),
+            .ok_or(ExecutionError::MissingParams)?
     );
 
     input.constants.push_entry(input.frame, index);
-    InstructionResult::Next
+    Ok(InstructionResult::Next)
 }
+
 
 // Debugging Handlers. Not for actual use
 
-fn simple_print_handler(input: &mut HandlerInputInfo) -> InstructionResult
+fn simple_print_handler(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     println!("{input:?}");
-    InstructionResult::Next
+    Ok(InstructionResult::Next)
 }
 
 #[expect(
     clippy::panic,
     reason = "This is a debug handler that should never make it to a finished version"
 )]
-fn unimplemented_handler(_: &mut HandlerInputInfo) -> InstructionResult
+fn unimplemented_handler(_: &mut HandlerInputInfo) -> ExecutionResult
 {
     panic!("Opcode not implemented")
 }
+
+/*
+ * **************************************************************************
+ *                               HANDLERS ARRAY
+ * **************************************************************************
+ */
+
 
 macro_rules! handlers {
     ($($t:tt),+) => {
@@ -148,7 +163,7 @@ macro_rules! handler {
 
 // Is it possible to add any sanity checks into this?
 const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
-    { Opcode::Nop, 0, &(|_| InstructionResult::Next) }, // nop: Do nothing. [No Change]
+    { Opcode::Nop, 0, &(|_| Ok(InstructionResult::Next)) }, // nop: Do nothing. [No Change]
     { Opcode::IConst0,       0, push_numeric, 0 },  // i.const.0: Push 0_i64 onto the stack. -> 0
     { Opcode::IConst1,       0, push_numeric, 1 },  // i.const.1: Push 1_i64 onto the stack. -> 1
     { Opcode::IConst2,       0, push_numeric, 2 },  // i.const.2: Push 2_i64 onto the stack. -> 2
