@@ -1,10 +1,26 @@
-use std::{collections::HashMap, error::Error, fmt::Display, io::Write, sync::LazyLock};
+use std::{collections::HashMap, error::Error, fmt::Display, io::Write, str::FromStr, sync::LazyLock};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OperandType
 {
-    Int,
-    WideInt,
+    Unsigned8,
+    Unsigned16,
+    Unsigned32,
+    Unsigned64,
+}
+
+impl OperandType
+{
+    pub const fn get_size(self) -> usize
+    {
+        match self
+        {
+            Self::Unsigned8 => 1,
+            Self::Unsigned16 => 2,
+            Self::Unsigned32 => 4,
+            Self::Unsigned64 => 8,
+        }
+    }
 }
 
 static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
@@ -24,9 +40,9 @@ static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = 
 static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
     HashMap::from([
         (".start", (0, [].as_slice())),
-        (".symbol", (1, [OperandType::WideInt].as_slice())),
-        (".maxstack", (2, [OperandType::WideInt].as_slice())),
-        (".maxlocal", (3, [OperandType::WideInt].as_slice())),
+        (".symbol", (1, [OperandType::Unsigned32, OperandType::Unsigned32].as_slice())),
+        (".maxstack", (2, [OperandType::Unsigned16].as_slice())),
+        (".maxlocal", (3, [OperandType::Unsigned16].as_slice())),
     ])
 });
 
@@ -214,25 +230,38 @@ fn parse_directive(directive: &str) -> AssemblerResult<(u8, usize)>
     }
 }
 
+fn numeric_from_str<T: FromStr>(operand_type: OperandType, operand: &str) -> AssemblerResult<T>
+{
+    operand
+        .parse::<T>()
+        .map_err(|_| AssemblerError::OperandParseError(self))
+}
+
 fn parse_operand(operand: &str, operand_type: OperandType, bytes: &mut [u8]) -> AssemblerResult<usize>
 {
-    Ok(match operand_type
+    match operand_type
     {
-        OperandType::Int =>
+        OperandType::Unsigned8 =>
         {
-            let byte: u8 = operand
-                .parse::<u8>()
-                .map_err(|_| AssemblerError::OperandParseError(operand_type))?;
+            let byte: u8 = numeric_from_str(operand_type, operand)?;
             bytes[0] = byte;
-            1
         }
-        OperandType::WideInt =>
+        OperandType::Unsigned16 =>
         {
-            let number: u16 = operand
-                .parse::<u16>()
-                .map_err(|_| AssemblerError::OperandParseError(operand_type))?;
+            let number: u16 = numeric_from_str(operand_type, operand)?;
             bytes[0..].copy_from_slice(&number.to_le_bytes());
-            2
         }
-    })
+        OperandType::Unsigned32 =>
+        {
+            let number: u32 = numeric_from_str(operand_type, operand)?;
+            bytes[0..].copy_from_slice(&number.to_le_bytes());
+        }
+        OperandType::Unsigned64 =>
+        {
+            let number: u64 = numeric_from_str(operand_type, operand)?;
+            bytes[0..].copy_from_slice(&number.to_le_bytes());
+        }
+    }
+
+    Ok(operand_type.get_size())
 }
