@@ -183,13 +183,13 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits().into() }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
     { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
     { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
-    { Opcode::IConst,        1, push_bytes }, // i.const: Push a given 1 byte onto the stack
-    { Opcode::IConstW,       2, push_bytes }, // i.const.w: Push a given 2 bytes onto the stack
-    { Opcode::Const,         4, push_constant },
-    { Opcode::LdArg0,        0, load_local, 0 },
-    { Opcode::LdArg1,        0, load_local, 1 },
-    { Opcode::LdArg2,        0, load_local, 2 },
-    { Opcode::LdArg3,        0, load_local, 3 },
+    { Opcode::IConst,        1, push_bytes }, // i.const: Push a given 1 byte onto the stack -> [byte]
+    { Opcode::IConstW,       2, push_bytes }, // i.const.w: Push a given 2 bytes onto the stack. -> [byte1 << 8 | byte2]
+    { Opcode::Const,         4, push_constant }, // const: Push the constant at the given index onto the stack. -> [constant]
+    { Opcode::LdArg0,        0, load_local, 0 }, // ld.arg.0: Load the local variable at index 0 onto the stack. -> [local0]
+    { Opcode::LdArg1,        0, load_local, 1 }, // ld.arg.1: Load the local variable at index 1 onto the stack. -> [local1]
+    { Opcode::LdArg2,        0, load_local, 2 }, // ld.arg.2: Load the local variable at index 2 onto the stack. -> [local2]
+    { Opcode::LdArg3,        0, load_local, 3 }, // ld.arg.3: Load the local variable at index 3 onto the stack. -> [local3]
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
