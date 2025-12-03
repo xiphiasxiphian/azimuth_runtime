@@ -3,6 +3,8 @@
 
 use crate::{engine::stack::StackFrame, loader::parser::{Table, TableEntry}};
 
+pub type ConstantTableIndex = u32;
+
 #[derive(Debug)]
 pub struct ConstantTable<'a>
 {
@@ -45,12 +47,12 @@ impl<'a> ConstantTable<'a>
         }
     }
 
-    pub fn get_entry(&self, index: u32) -> Option<&Constant<'a>>
+    pub fn get_entry(&self, index: ConstantTableIndex) -> Option<&Constant<'a>>
     {
         self.entries.get(index as usize)
     }
 
-    pub fn push_entry<'b>(&self, stack: &mut StackFrame<'b>, index: u32) -> bool
+    pub fn push_entry<'b>(&self, stack: &mut StackFrame<'b>, index: ConstantTableIndex) -> bool
     {
         self.get_entry(index)
             .inspect(|x| {

@@ -1,4 +1,6 @@
-use crate::{engine::{opcodes::Opcode, stack::{Stack, StackEntry, StackFrame}}, loader::constant_table::ConstantTable};
+use assert_cmd::assert;
+
+use crate::{engine::{opcodes::Opcode, stack::{Stack, StackEntry, StackFrame}}, loader::constant_table::{ConstantTable, ConstantTableIndex}};
 
 #[derive(Debug)]
 struct HandlerInputInfo<'a, 'b, 'c>
@@ -30,30 +32,35 @@ pub enum ExecutionError
 {
     OpcodeNotFound,
     IllegalOpcode,
+    MissingParams,
 }
+
+type ExecutionResult = Result<InstructionResult, ExecutionError>;
 
 #[expect(
     clippy::panic_in_result_fn,
     reason = "If this invariant check fails, the entire config is malformed"
 )]
-pub fn exec_instruction<'a>(bytecode: &'a [u8], frame: &mut StackFrame, constants: &ConstantTable<'a>) -> Result<InstructionResult, ExecutionError>
+pub fn exec_instruction<'a>(bytecode: &'a [u8], frame: &mut StackFrame, constants: &ConstantTable<'a>) -> ExecutionResult
 {
     let (&opcode, operands) = bytecode.split_first().ok_or(ExecutionError::OpcodeNotFound)?;
     let handler_info = HANDLERS.get(opcode as usize).ok_or(ExecutionError::IllegalOpcode)?;
+
+    if operands.len() < handler_info.param_count as usize { return Err(ExecutionError::MissingParams) }
 
     assert!(
         opcode == handler_info.opcode as u8,
         "HANDLERS Array invalid: misaligned opcode"
     );
 
-    let instr_result = (handler_info.handler)(&mut HandlerInputInfo {
+    let result = (handler_info.handler)(&mut HandlerInputInfo {
         opcode,
         params: operands,
         frame,
         constants
     });
 
-    Ok(instr_result)
+    Ok(result)
 }
 
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> InstructionResult
@@ -71,6 +78,20 @@ fn push_bytes(input: &mut HandlerInputInfo) -> InstructionResult
 
     input.frame.push(<StackEntry>::from_le_bytes(bytes));
 
+    InstructionResult::Next
+}
+
+#[expect(
+    clippy::expect_used,
+    reason = "If there aren't enough parameters in the parameters input, this means previous validation steps have failed"
+)]
+fn push_constant(input: &mut HandlerInputInfo) -> InstructionResult
+{
+    let index = <ConstantTableIndex>::from_le_bytes(*input.params.first_chunk()
+        .expect("exec_instruction hasn't properly detected missing parameters")
+    );
+
+    input.constants.push_entry(input.frame, index);
     InstructionResult::Next
 }
 
@@ -117,21 +138,21 @@ macro_rules! handler {
 const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] =
     handlers!(
         { Opcode::Nop, 0, &(|_| InstructionResult::Next) }, // nop: Do nothing. [No Change]
-        { Opcode::I4Const0,      0, push_numeric, 0 },  // i4.const.0: Push 0 onto the stack. -> 0
-        { Opcode::I4Const1,      0, push_numeric, 1 },  // i4.const.1: Push 1 onto the stack. -> 1
-        { Opcode::I4Const2,      0, push_numeric, 2 },  // i4.const.2: Push 2 onto the stack. -> 2
-        { Opcode::I4Const3,      0, push_numeric, 3 },  // i4.const.3: Push 3 onto the stack. -> 3
-        { Opcode::I8Const0,      0, push_numeric, 0 },  // i8.const.0: Push 0_i64 onto the stack. -> 0
-        { Opcode::I8Const1,      0, push_numeric, 1 },  // i8.const.1: Push 1_i64 onto the stack. -> 1
-        { Opcode::I8Const2,      0, push_numeric, 2 },  // i8.const.2: Push 2_i64 onto the stack. -> 2
-        { Opcode::I8Const3,      0, push_numeric, 3 },  // i8.const.3: Push 3_i64 onto the stack. -> 3
+        { Opcode::IConst0,       0, push_numeric, 0 },  // i.const.0: Push 0_i64 onto the stack. -> 0
+        { Opcode::IConst1,       0, push_numeric, 1 },  // i.const.1: Push 1_i64 onto the stack. -> 1
+        { Opcode::IConst2,       0, push_numeric, 2 },  // i.const.2: Push 2_i64 onto the stack. -> 2
+        { Opcode::IConst3,       0, push_numeric, 3 },  // i.const.3: Push 3_i64 onto the stack. -> 3
         { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits() as u64 }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
         { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits() as u64 }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
         { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
         { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
-        { Opcode::I4Const,       1, push_bytes },
-        { Opcode::I4ConstW,      2, push_bytes },
-        { Opcode::Const,         4, unimplemented_handler },
+        { Opcode::IConst,        1, push_bytes }, // i.const: Push a given 1 byte onto the stack
+        { Opcode::IConstW,       2, push_bytes }, // i.const.w: Push a given 2 bytes onto the stack
+        { Opcode::Const,         4, push_constant },
+        { Opcode::Unimplemented, 0, unimplemented_handler },
+        { Opcode::Unimplemented, 0, unimplemented_handler },
+        { Opcode::Unimplemented, 0, unimplemented_handler },
+        { Opcode::Unimplemented, 0, unimplemented_handler },
         { Opcode::Unimplemented, 0, unimplemented_handler },
         { Opcode::Unimplemented, 0, unimplemented_handler },
         { Opcode::Unimplemented, 0, unimplemented_handler },
