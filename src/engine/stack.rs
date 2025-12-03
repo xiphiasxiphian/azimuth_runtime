@@ -1,15 +1,20 @@
 // Stack size is set at initiation and is hard coded somewhere.
 // Theoretically this could become a config value at some point in the future
+
+pub type StackEntry = u64;
+
 #[derive(Debug)]
 pub struct Stack
 {
     // The entire data for the stack. This is just a static vector initially set
     // to a specific capacity
-    stack: Vec<u64>,
+    stack: Vec<StackEntry>,
 }
 
 impl Stack
 {
+    pub const ENTRY_SIZE: usize = size_of::<StackEntry>();
+
     pub fn new(capacity: usize) -> Self
     {
         Stack {
@@ -65,14 +70,13 @@ impl<'a> StackFrame<'a>
             .is_some()
     }
 
-    pub fn push(&mut self, value: u64)
+    pub fn push(&mut self, value: StackEntry)
     {
         self.origin.stack[self.stack_base + self.stack_pointer] = value;
         self.stack_pointer += 1;
     }
 
-
-    pub fn pop(&mut self) -> Option<u64>
+    pub fn pop(&mut self) -> Option<StackEntry>
     {
         (self.stack_pointer > 0).then(|| {
             self.stack_pointer -= 1;
@@ -80,12 +84,12 @@ impl<'a> StackFrame<'a>
         })
     }
 
-    pub fn get_local(&self, index: usize) -> u64
+    pub fn get_local(&self, index: usize) -> StackEntry
     {
         self.origin.stack[self.locals_base + index]
     }
 
-    pub fn set_local(&mut self, index: usize, value: u64)
+    pub fn set_local(&mut self, index: usize, value: StackEntry)
     {
         self.origin.stack[self.locals_base + index] = value;
     }

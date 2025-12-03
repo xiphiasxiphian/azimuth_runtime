@@ -1,4 +1,4 @@
-use crate::{engine::{opcodes::Opcode, stack::StackFrame}, loader::constant_table::ConstantTable};
+use crate::{engine::{opcodes::Opcode, stack::{Stack, StackEntry, StackFrame}}, loader::constant_table::ConstantTable};
 
 #[derive(Debug)]
 struct HandlerInputInfo<'a, 'b, 'c>
@@ -56,25 +56,20 @@ pub fn exec_instruction<'a>(bytecode: &'a [u8], frame: &mut StackFrame, constant
     Ok(instr_result)
 }
 
-fn push_single(input: &mut HandlerInputInfo, value: u32) -> InstructionResult
+fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> InstructionResult
 {
-    input.frame.push_single(value);
+    input.frame.push(value);
     InstructionResult::Next
 }
 
-fn push_double(input: &mut HandlerInputInfo, value: u64) -> InstructionResult
-{
-    input.frame.push_double(value);
-    InstructionResult::Next
-}
 
-fn push_bytes_single(input: &mut HandlerInputInfo, count: usize) -> InstructionResult
+fn push_bytes(input: &mut HandlerInputInfo) -> InstructionResult
 {
-    assert!(count <= 4);
-    let mut bytes = [0; 4];
+    assert!(input.params.len() <= Stack::ENTRY_SIZE);
+    let mut bytes = [0; Stack::ENTRY_SIZE];
     bytes.copy_from_slice(input.params);
 
-    input.frame.push_single(<u32>::from_le_bytes(bytes));
+    input.frame.push(<StackEntry>::from_le_bytes(bytes));
 
     InstructionResult::Next
 }
@@ -121,20 +116,20 @@ macro_rules! handler {
 const HANDLERS: [HandlerInfo; 256] = const {
     let handlers = handlers!(
         { Opcode::Nop, 0, &(|_| InstructionResult::Next) }, // nop: Do nothing. [No Change]
-        { Opcode::I4Const0,      0, push_single, 0 }, // i4.const.0: Push 0 onto the stack. -> 0
-        { Opcode::I4Const1,      0, push_single, 1 }, // i4.const.1: Push 1 onto the stack. -> 1
-        { Opcode::I4Const2,      0, push_single, 2 }, // i4.const.2: Push 2 onto the stack. -> 2
-        { Opcode::I4Const3,      0, push_single, 3 }, // i4.const.3: Push 3 onto the stack. -> 3
-        { Opcode::I8Const0,      0, push_double, 0 }, // i8.const.0: Push 0_i64 onto the stack. -> 0
-        { Opcode::I8Const1,      0, push_double, 1 }, // i8.const.1: Push 1_i64 onto the stack. -> 1
-        { Opcode::I8Const2,      0, push_double, 2 }, // i8.const.2: Push 2_i64 onto the stack. -> 2
-        { Opcode::I8Const3,      0, push_double, 3 }, // i8.const.3: Push 3_i64 onto the stack. -> 3
-        { Opcode::F4Const0,      0, push_single, (0.0_f32).to_bits() }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
-        { Opcode::F4Const1,      0, push_single, (1.0_f32).to_bits() }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
-        { Opcode::F8Const0,      0, push_double, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
-        { Opcode::F8Const1,      0, push_double, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
-        { Opcode::I4Const,       1, push_bytes_single, 1 },
-        { Opcode::I4ConstW,      2, push_bytes_single, 2 },
+        { Opcode::I4Const0,      0, push_numeric, 0 }, // i4.const.0: Push 0 onto the stack. -> 0
+        { Opcode::I4Const1,      0, push_numeric, 1 }, // i4.const.1: Push 1 onto the stack. -> 1
+        { Opcode::I4Const2,      0, push_numeric, 2 }, // i4.const.2: Push 2 onto the stack. -> 2
+        { Opcode::I4Const3,      0, push_numeric, 3 }, // i4.const.3: Push 3 onto the stack. -> 3
+        { Opcode::I8Const0,      0, push_numeric, 0 }, // i8.const.0: Push 0_i64 onto the stack. -> 0
+        { Opcode::I8Const1,      0, push_numeric, 1 }, // i8.const.1: Push 1_i64 onto the stack. -> 1
+        { Opcode::I8Const2,      0, push_numeric, 2 }, // i8.const.2: Push 2_i64 onto the stack. -> 2
+        { Opcode::I8Const3,      0, push_numeric, 3 }, // i8.const.3: Push 3_i64 onto the stack. -> 3
+        { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits() as u64 }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
+        { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits() as u64 }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
+        { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
+        { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
+        { Opcode::I4Const,       1, push_bytes },
+        { Opcode::I4ConstW,      2, push_bytes },
         { Opcode::Const,         4, unimplemented_handler },
         { Opcode::Unimplemented, 0, unimplemented_handler },
         { Opcode::Unimplemented, 0, unimplemented_handler },
