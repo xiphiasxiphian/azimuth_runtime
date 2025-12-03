@@ -43,7 +43,10 @@ static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = 
 static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
     HashMap::from([
         (".start", (0, [].as_slice())),
-        (".symbol", (1, [OperandType::Unsigned32, OperandType::Unsigned32].as_slice())),
+        (
+            ".symbol",
+            (1, [OperandType::Unsigned32, OperandType::Unsigned32].as_slice()),
+        ),
         (".maxstack", (2, [OperandType::Unsigned16].as_slice())),
         (".maxlocal", (3, [OperandType::Unsigned16].as_slice())),
     ])
@@ -75,7 +78,9 @@ type AssemblerResult<T> = Result<T, AssemblerError>;
 
 pub fn assemble(input: &str, target: &mut dyn Write) -> AssemblerResult<()>
 {
-    target.write(&MAGIC_NUMBER.to_le_bytes()).map_err(|_| AssemblerError::WriteError)?;
+    target
+        .write(&MAGIC_NUMBER.to_le_bytes())
+        .map_err(|_| AssemblerError::WriteError)?;
     target.write(&[0]).map_err(|_| AssemblerError::WriteError)?;
 
     let mut lines = input.split('\n').filter(|x| !x.is_empty());

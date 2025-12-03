@@ -1,12 +1,14 @@
 use std::{fs::read, io};
 
 use crate::loader::{
-    constant_table::ConstantTable, parser::{Directive, FileLayout, FunctionInfo}, runnable::Runnable
+    constant_table::ConstantTable,
+    parser::{Directive, FileLayout, FunctionInfo},
+    runnable::Runnable,
 };
 
+pub mod constant_table;
 pub(super) mod parser;
 pub mod runnable;
-pub mod constant_table;
 
 pub struct Loader
 {

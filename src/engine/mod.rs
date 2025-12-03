@@ -50,8 +50,8 @@ impl<'a> Runner<'a>
 
         loop
         {
-            let exec_result =
-                exec_instruction(&code[pc..], &mut initial_frame, &constant_table).map_err(|x| RunnerError::ExecutionError(x))?;
+            let exec_result = exec_instruction(&code[pc..], &mut initial_frame, &constant_table)
+                .map_err(|x| RunnerError::ExecutionError(x))?;
 
             match exec_result
             {
