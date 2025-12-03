@@ -92,9 +92,7 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
     let mut bytes = [0; Stack::ENTRY_SIZE];
     bytes.copy_from_slice(input.params); // If this doesnt copy properly, exec_instruction hasnt done its job properly.
 
-    input.frame.push(<StackEntry>::from_le_bytes(bytes));
-
-    Ok(InstructionResult::Next)
+    push_numeric(input, <StackEntry>::from_le_bytes(bytes))
 }
 
 #[expect(
@@ -112,6 +110,19 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 
     input.constants.push_entry(input.frame, index);
     Ok(InstructionResult::Next)
+}
+
+// Basic Loading Handlers
+
+fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
+{
+    input.frame.push(input.frame.get_local(index as usize));
+    Ok(InstructionResult::Next)
+}
+
+fn load_local_from_arg(input: &mut HandlerInputInfo) -> ExecutionResult
+{
+    load_local(input, *input.params.first().ok_or(ExecutionError::MissingParams)?)
 }
 
 
@@ -175,10 +186,10 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::IConst,        1, push_bytes }, // i.const: Push a given 1 byte onto the stack
     { Opcode::IConstW,       2, push_bytes }, // i.const.w: Push a given 2 bytes onto the stack
     { Opcode::Const,         4, push_constant },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::LdArg0,        0, load_local, 0 },
+    { Opcode::LdArg1,        0, load_local, 1 },
+    { Opcode::LdArg2,        0, load_local, 2 },
+    { Opcode::LdArg3,        0, load_local, 3 },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },

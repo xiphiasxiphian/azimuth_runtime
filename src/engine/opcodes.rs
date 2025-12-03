@@ -13,6 +13,10 @@ pub enum Opcode
     IConst,
     IConstW,
     Const,
+    LdArg0,
+    LdArg1,
+    LdArg2,
+    LdArg3,
     Directive = 254,
     Unimplemented = 255,
 }
