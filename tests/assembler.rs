@@ -170,9 +170,9 @@ fn assemble_instruction<'a>(
     target: &mut dyn Write,
 ) -> AssemblerResult<()>
 {
-    const MAX_BYTES: usize = 4;
+    const MAX_BYTES: usize = 10;
 
-    let mut bytes: [u8; 4] = [0; 4];
+    let mut bytes: [u8; MAX_BYTES] = [0; MAX_BYTES];
     let (operand_types, written) = get_opcode_data(operation, &mut bytes)?;
 
     let mut byte_pointer: usize = written;
@@ -218,27 +218,17 @@ fn get_opcode_data<'a>(
     }
 }
 
-fn parse_directive(directive: &str) -> AssemblerResult<(u8, usize)>
-{
-    match directive
-    {
-        ".start" => Ok((0, 0)),
-        ".symbol" => Ok((1, 1)),
-        ".maxstack" => Ok((2, 1)),
-        ".maxlocal" => Ok((3, 1)),
-        _ => Err(AssemblerError::UnknownDirective),
-    }
-}
-
 fn numeric_from_str<T: FromStr>(operand_type: OperandType, operand: &str) -> AssemblerResult<T>
 {
     operand
         .parse::<T>()
-        .map_err(|_| AssemblerError::OperandParseError(self))
+        .map_err(|_| AssemblerError::OperandParseError(operand_type))
 }
 
 fn parse_operand(operand: &str, operand_type: OperandType, bytes: &mut [u8]) -> AssemblerResult<usize>
 {
+    let size = operand_type.get_size();
+
     match operand_type
     {
         OperandType::Unsigned8 =>
@@ -249,19 +239,19 @@ fn parse_operand(operand: &str, operand_type: OperandType, bytes: &mut [u8]) -> 
         OperandType::Unsigned16 =>
         {
             let number: u16 = numeric_from_str(operand_type, operand)?;
-            bytes[0..].copy_from_slice(&number.to_le_bytes());
+            bytes[0..size].copy_from_slice(&number.to_le_bytes());
         }
         OperandType::Unsigned32 =>
         {
             let number: u32 = numeric_from_str(operand_type, operand)?;
-            bytes[0..].copy_from_slice(&number.to_le_bytes());
+            bytes[0..size].copy_from_slice(&number.to_le_bytes());
         }
         OperandType::Unsigned64 =>
         {
             let number: u64 = numeric_from_str(operand_type, operand)?;
-            bytes[0..].copy_from_slice(&number.to_le_bytes());
+            bytes[0..size].copy_from_slice(&number.to_le_bytes());
         }
     }
 
-    Ok(operand_type.get_size())
+    Ok(size)
 }

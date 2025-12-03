@@ -1,3 +1,5 @@
+#0 string main
+
+.symbol 0 1
 .start
-.symbol 0
 nop
