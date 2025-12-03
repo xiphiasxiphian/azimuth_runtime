@@ -1,5 +1,3 @@
-use assert_cmd::assert;
-
 use crate::{
     engine::{
         opcodes::Opcode,
@@ -84,9 +82,8 @@ fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> InstructionResult
 
 fn push_bytes(input: &mut HandlerInputInfo) -> InstructionResult
 {
-    assert!(input.params.len() <= Stack::ENTRY_SIZE);
     let mut bytes = [0; Stack::ENTRY_SIZE];
-    bytes.copy_from_slice(input.params);
+    bytes.copy_from_slice(input.params); // If this doesnt copy properly, exec_instruction hasnt done its job properly.
 
     input.frame.push(<StackEntry>::from_le_bytes(bytes));
 
@@ -156,8 +153,8 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::IConst1,       0, push_numeric, 1 },  // i.const.1: Push 1_i64 onto the stack. -> 1
     { Opcode::IConst2,       0, push_numeric, 2 },  // i.const.2: Push 2_i64 onto the stack. -> 2
     { Opcode::IConst3,       0, push_numeric, 3 },  // i.const.3: Push 3_i64 onto the stack. -> 3
-    { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits() as u64 }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
-    { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits() as u64 }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
+    { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits().into() }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
+    { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits().into() }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
     { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
     { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
     { Opcode::IConst,        1, push_bytes }, // i.const: Push a given 1 byte onto the stack

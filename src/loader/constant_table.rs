@@ -28,13 +28,13 @@ impl<'a> Constant<'a>
 {
     pub fn from_parsed_entry(entry: &'a TableEntry) -> Self
     {
-        match entry
+        match *entry
         {
-            &TableEntry::Integer(x) => Self::Unsigned32(x),
-            &TableEntry::Long(x) => Self::Unsigned64(x),
-            &TableEntry::Float(x) => Self::Float32(x),
-            &TableEntry::Double(x) => Self::Float64(x),
-            &TableEntry::String(ref string) => Self::String(string.as_str()),
+            TableEntry::Integer(x) => Self::Unsigned32(x),
+            TableEntry::Long(x) => Self::Unsigned64(x),
+            TableEntry::Float(x) => Self::Float32(x),
+            TableEntry::Double(x) => Self::Float64(x),
+            TableEntry::String(ref string) => Self::String(string.as_str()),
         }
     }
 }
@@ -44,7 +44,7 @@ impl<'a> ConstantTable<'a>
     pub fn from_parsed_table(table: &'a Table) -> Self
     {
         Self {
-            entries: table.entries().iter().map(|x| Constant::from_parsed_entry(x)).collect(),
+            entries: table.entries().iter().map(Constant::from_parsed_entry).collect(),
         }
     }
 
@@ -53,16 +53,16 @@ impl<'a> ConstantTable<'a>
         self.entries.get(index as usize)
     }
 
-    pub fn push_entry<'b>(&self, stack: &mut StackFrame<'b>, index: ConstantTableIndex) -> bool
+    pub fn push_entry(&self, stack: &mut StackFrame, index: ConstantTableIndex) -> bool
     {
         self.get_entry(index)
-            .inspect(|x| match *x
+            .inspect(|x| match **x
             {
-                &Constant::Unsigned32(x) => stack.push(x as u64),
-                &Constant::Unsigned64(x) => stack.push(x),
-                &Constant::Float32(x) => stack.push(x.to_bits() as u64),
-                &Constant::Float64(x) => stack.push(x.to_bits()),
-                &Constant::String(string) => stack.push(string.as_ptr() as u64),
+                Constant::Unsigned32(x) => stack.push(x.into()),
+                Constant::Unsigned64(x) => stack.push(x),
+                Constant::Float32(x) => stack.push(x.to_bits().into()),
+                Constant::Float64(x) => stack.push(x.to_bits()),
+                Constant::String(string) => stack.push(string.as_ptr() as u64),
             })
             .is_some()
     }
