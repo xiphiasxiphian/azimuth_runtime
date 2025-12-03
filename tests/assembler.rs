@@ -1,5 +1,8 @@
 use std::{collections::HashMap, error::Error, fmt::Display, io::Write, str::FromStr, sync::LazyLock};
 
+const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
+pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
+
 #[derive(Debug, Clone, Copy)]
 pub enum OperandType
 {
@@ -72,6 +75,9 @@ type AssemblerResult<T> = Result<T, AssemblerError>;
 
 pub fn assemble(input: &str, target: &mut dyn Write) -> AssemblerResult<()>
 {
+    target.write(MAGIC_STRING).map_err(|_| AssemblerError::WriteError)?;
+    target.write(&[0]).map_err(|_| AssemblerError::WriteError)?;
+
     let mut lines = input.split('\n').filter(|x| !x.is_empty());
     assemble_constant_table(&mut lines, target)?;
 
