@@ -113,17 +113,18 @@ macro_rules! handler {
     };
 }
 
-const HANDLERS: [HandlerInfo; 256] = const {
-    let handlers = handlers!(
+// Is it possible to add any sanity checks into this?
+const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] =
+    handlers!(
         { Opcode::Nop, 0, &(|_| InstructionResult::Next) }, // nop: Do nothing. [No Change]
-        { Opcode::I4Const0,      0, push_numeric, 0 }, // i4.const.0: Push 0 onto the stack. -> 0
-        { Opcode::I4Const1,      0, push_numeric, 1 }, // i4.const.1: Push 1 onto the stack. -> 1
-        { Opcode::I4Const2,      0, push_numeric, 2 }, // i4.const.2: Push 2 onto the stack. -> 2
-        { Opcode::I4Const3,      0, push_numeric, 3 }, // i4.const.3: Push 3 onto the stack. -> 3
-        { Opcode::I8Const0,      0, push_numeric, 0 }, // i8.const.0: Push 0_i64 onto the stack. -> 0
-        { Opcode::I8Const1,      0, push_numeric, 1 }, // i8.const.1: Push 1_i64 onto the stack. -> 1
-        { Opcode::I8Const2,      0, push_numeric, 2 }, // i8.const.2: Push 2_i64 onto the stack. -> 2
-        { Opcode::I8Const3,      0, push_numeric, 3 }, // i8.const.3: Push 3_i64 onto the stack. -> 3
+        { Opcode::I4Const0,      0, push_numeric, 0 },  // i4.const.0: Push 0 onto the stack. -> 0
+        { Opcode::I4Const1,      0, push_numeric, 1 },  // i4.const.1: Push 1 onto the stack. -> 1
+        { Opcode::I4Const2,      0, push_numeric, 2 },  // i4.const.2: Push 2 onto the stack. -> 2
+        { Opcode::I4Const3,      0, push_numeric, 3 },  // i4.const.3: Push 3 onto the stack. -> 3
+        { Opcode::I8Const0,      0, push_numeric, 0 },  // i8.const.0: Push 0_i64 onto the stack. -> 0
+        { Opcode::I8Const1,      0, push_numeric, 1 },  // i8.const.1: Push 1_i64 onto the stack. -> 1
+        { Opcode::I8Const2,      0, push_numeric, 2 },  // i8.const.2: Push 2_i64 onto the stack. -> 2
+        { Opcode::I8Const3,      0, push_numeric, 3 },  // i8.const.3: Push 3_i64 onto the stack. -> 3
         { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits() as u64 }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
         { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits() as u64 }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
         { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
@@ -372,10 +373,3 @@ const HANDLERS: [HandlerInfo; 256] = const {
         { Opcode::Directive,     0, unimplemented_handler },
         { Opcode::Unimplemented, 0, unimplemented_handler }
     );
-
-    // Just some sanity checks to make sure the lookup table
-    // has been configured correctly.
-    assert!(handlers.len() == u8::MAX as usize + 1);
-
-    handlers
-};
