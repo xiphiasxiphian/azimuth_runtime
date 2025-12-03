@@ -76,6 +76,11 @@ impl FileLayout
     {
         self.functions.as_slice()
     }
+
+    pub fn constants(&self) -> &Table
+    {
+        &self.constant_pool
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +144,11 @@ impl Table
     pub fn get(&self, idx: u32) -> Option<&TableEntry>
     {
         self.entries.get(idx as usize)
+    }
+
+    pub fn entries(&self) -> &[TableEntry]
+    {
+        &self.entries
     }
 }
 

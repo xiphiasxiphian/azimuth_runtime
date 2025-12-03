@@ -14,6 +14,9 @@ pub enum Opcode
     F4Const1,
     F8Const0,
     F8Const1,
+    I4Const,
+    I4ConstW,
+    Const,
     Directive = 254,
     Unimplemented = 255,
 }

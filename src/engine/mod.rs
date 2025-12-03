@@ -43,13 +43,15 @@ impl<'a> Runner<'a>
             .initial_frame(maxlocals, maxstack)
             .ok_or(RunnerError::StackOverflow)?;
 
+        let constant_table = self.loader.get_constant_table();
+
         let code = entry_point.code();
         let mut pc: usize = 0;
 
         loop
         {
             let exec_result =
-                exec_instruction(&code[pc..], &mut initial_frame).map_err(|x| RunnerError::ExecutionError(x))?;
+                exec_instruction(&code[pc..], &mut initial_frame, &constant_table).map_err(|x| RunnerError::ExecutionError(x))?;
 
             match exec_result
             {
