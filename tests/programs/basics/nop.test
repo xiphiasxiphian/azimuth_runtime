@@ -1,6 +1,8 @@
 #0 string main
 
-.symbol 0 1
+.symbol 0 2
 .start
+.maxstack 0
+.maxlocal 0
 nop
 ret

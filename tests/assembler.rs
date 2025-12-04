@@ -59,11 +59,11 @@ static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = 
 
 static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
     HashMap::from([
-        (".start", (0, [].as_slice())),
         (
             ".symbol",
-            (1, [OperandType::Unsigned32, OperandType::Unsigned32].as_slice()),
+            (0, [OperandType::Unsigned32, OperandType::Unsigned32].as_slice()),
         ),
+        (".start", (1, [].as_slice())),
         (".maxstack", (2, [OperandType::Unsigned16].as_slice())),
         (".maxlocal", (3, [OperandType::Unsigned16].as_slice())),
     ])
@@ -174,11 +174,19 @@ fn assemble_constant_table<'a>(
                     .to_le_bytes()
                     .to_vec(),
             ),
-            "string" => (4, raw_data.as_bytes().to_vec()),
+            "string" => {
+                let string_bytes = raw_data.as_bytes();
+                let mut length_bytes = <u32>::try_from(string_bytes.len())
+                    .map_err(|_| AssemblerError::MalformedConstantTable)?
+                    .to_le_bytes()
+                    .to_vec();
+
+                length_bytes.extend_from_slice(string_bytes);
+                (4, length_bytes)
+            },
             _ => return Err(AssemblerError::MalformedConstantTable),
         };
 
-        bytes.extend_from_slice(&number.to_le_bytes());
         bytes.push(type_tag);
         bytes.append(&mut data);
 

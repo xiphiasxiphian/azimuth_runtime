@@ -101,14 +101,15 @@ impl TableEntry
         &|x| Some((TableEntry::Float(f32::from_bits(bytes_to_numeric!(u32, x))), 4)),
         &|x| Some((TableEntry::Double(f64::from_bits(bytes_to_numeric!(u64, x))), 8)),
         &|x| {
-            let str_len = <usize>::from(bytes_to_numeric!(u16, x[0..2]));
-            let str_bytes = x.get(2..(2 + str_len))?;
+            let str_len = bytes_to_numeric!(u32, x) as usize;
+            let str_bytes = x.get(size_of::<u32>()..(size_of::<u32>() + str_len))?;
             let string = String::from_utf8(str_bytes.to_vec()).ok()?;
-            Some((TableEntry::String(string), 2 + str_len))
+            Some((TableEntry::String(string), size_of::<u32>() + str_len))
         },
     ];
 }
 
+#[derive(Debug)]
 pub struct Table
 {
     entries: Vec<TableEntry>,
@@ -152,7 +153,7 @@ impl Table
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Directive
 {
     Symbol(u32, u32), // (name_index, descriptor_index)
@@ -181,6 +182,7 @@ impl Directive
     ];
 }
 
+#[derive(Debug)]
 pub struct FunctionInfo
 {
     directives: Vec<Directive>,
@@ -199,15 +201,16 @@ impl FunctionInfo
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
-        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
-        let (symbol_directive, rem_dirs) = input.split_at_checked(symbol_operand_count + Directive::HEADER_SIZE)?;
+        let &(symbol_operand_byte_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
+        let (symbol_directive, rem_dirs) = input.split_at_checked(symbol_operand_byte_count + Directive::HEADER_SIZE)?;
+
         let symbol_operands =
-            symbol_directive.get(Directive::HEADER_SIZE..(symbol_operand_count + Directive::HEADER_SIZE))?;
+            symbol_directive.get(Directive::HEADER_SIZE..)?;
 
         let (_, descriptor): (&String, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
-                Directive::Symbol(name_index, descriptor_index) =>
+                Directive::Symbol(name_index, code_count) =>
                 {
                     // Even thought the name is not needed here, it is
                     // important still to verify that it is a valid constant pool entry,
@@ -216,12 +219,11 @@ impl FunctionInfo
                     // Get the name and descriptor from the constant pool.
                     // This will also check whether the given indices are in fact valid.
                     let name = table.get(name_index)?;
-                    let descriptor = table.get(descriptor_index)?;
 
-                    match (name, descriptor)
+                    match name
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        (&TableEntry::String(ref name_str), &TableEntry::Integer(x)) => Some((name_str, x)),
+                        &TableEntry::String(ref name_str) => Some((name_str, code_count)),
                         _ => None,
                     }
                 }
@@ -357,10 +359,10 @@ mod function_info_tests
             0,
             0,
             0, // name index
-            1,
+            4,
             0,
             0,
-            0, // descriptor index
+            0, // code count
             // Code (4 bytes)
             0x01,
             0x02,
