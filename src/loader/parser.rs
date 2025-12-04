@@ -202,10 +202,10 @@ impl FunctionInfo
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
         let &(symbol_operand_byte_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
-        let (symbol_directive, rem_dirs) = input.split_at_checked(symbol_operand_byte_count + Directive::HEADER_SIZE)?;
+        let (symbol_directive, rem_dirs) =
+            input.split_at_checked(symbol_operand_byte_count + Directive::HEADER_SIZE)?;
 
-        let symbol_operands =
-            symbol_directive.get(Directive::HEADER_SIZE..)?;
+        let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..)?;
 
         let (_, descriptor): (&String, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x

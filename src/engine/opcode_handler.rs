@@ -102,9 +102,7 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    let index = <ConstantTableIndex>::from_le_bytes(
-        pull_params(input.params)?
-    );
+    let index = <ConstantTableIndex>::from_le_bytes(pull_params(input.params)?);
 
     input.constants.push_entry(input.frame, index);
     Ok(InstructionResult::Next)
@@ -112,7 +110,9 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 
 fn pop(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    input.frame.pop()
+    input
+        .frame
+        .pop()
         .ok_or(ExecutionError::EmptyStack)
         .map(|_| InstructionResult::Next)
 }
@@ -146,7 +146,10 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
     clippy::panic_in_result_fn,
     reason = "This is a debug handler that should never make it to a finished version"
 )]
-#[expect(clippy::panic, reason = "This is a debug handler that should never make it to a finished version")]
+#[expect(
+    clippy::panic,
+    reason = "This is a debug handler that should never make it to a finished version"
+)]
 fn unimplemented_handler(_: &mut HandlerInputInfo) -> ExecutionResult
 {
     panic!("Opcode not implemented")
@@ -157,7 +160,6 @@ fn unimplemented_handler(_: &mut HandlerInputInfo) -> ExecutionResult
  *                               HANDLERS ARRAY
  * **************************************************************************
  */
-
 
 macro_rules! handlers {
     ($($t:tt),+) => {

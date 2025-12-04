@@ -86,9 +86,7 @@ impl<'a> StackFrame<'a>
 
     pub fn peek(&self) -> Option<&StackEntry>
     {
-        (self.stack_pointer > 0).then(|| {
-            &self.origin.stack[self.stack_base + self.stack_pointer]
-        })
+        (self.stack_pointer > 0).then(|| &self.origin.stack[self.stack_base + self.stack_pointer])
     }
 
     pub fn get_local(&self, index: usize) -> StackEntry

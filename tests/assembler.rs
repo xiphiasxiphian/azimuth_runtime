@@ -174,7 +174,8 @@ fn assemble_constant_table<'a>(
                     .to_le_bytes()
                     .to_vec(),
             ),
-            "string" => {
+            "string" =>
+            {
                 let string_bytes = raw_data.as_bytes();
                 let mut length_bytes = <u32>::try_from(string_bytes.len())
                     .map_err(|_| AssemblerError::MalformedConstantTable)?
@@ -183,7 +184,7 @@ fn assemble_constant_table<'a>(
 
                 length_bytes.extend_from_slice(string_bytes);
                 (4, length_bytes)
-            },
+            }
             _ => return Err(AssemblerError::MalformedConstantTable),
         };
 
