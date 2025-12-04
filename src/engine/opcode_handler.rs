@@ -73,6 +73,7 @@ pub fn exec_instruction<'a>(
     })
 }
 
+#[inline(always)]
 fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 {
     Ok(*input.first_chunk().ok_or(ExecutionError::MissingParams)?)
@@ -84,7 +85,7 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
  * ******************************************************************************
  */
 
-// Basic Pushing Handlers
+// Basic Stack Handlers
 
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
@@ -107,14 +108,24 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     let index = <ConstantTableIndex>::from_le_bytes(
-        *input
-            .params
-            .first_chunk()
-            .ok_or(ExecutionError::MissingParams)?
+        pull_params(input.params)?
     );
 
     input.constants.push_entry(input.frame, index);
     Ok(InstructionResult::Next)
+}
+
+fn pop(input: &mut HandlerInputInfo) -> ExecutionResult
+{
+    input.frame.pop()
+        .ok_or(ExecutionError::EmptyStack)
+        .map(|_| InstructionResult::Next)
+}
+
+fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
+{
+    let value = input.frame.peek().ok_or(ExecutionError::EmptyStack)?;
+    push_numeric(input, *value)
 }
 
 // Basic Loading Handlers
@@ -206,8 +217,8 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::StArg2,        0, store_local, 2 }, // st.arg.2: Store top of the stack into local variable 2. [value] ->
     { Opcode::StArg3,        0, store_local, 3 }, // st.arg.3: Store top of the stack into local variable 3. [value] ->
     { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) }, // st.arg: Store top of the stack into local variable. [value] ->
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Pop,           0, pop }, // pop: Discard the top of the stack. [value] ->
+    { Opcode::Dup,           0, dup }, // dup: Duplicate the value on the top of the stack [value] -> [value], [value]
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
