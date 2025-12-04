@@ -67,9 +67,9 @@ impl<'a> Runner<'a>
                         .then(|| pc = target)
                         .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
-                InstructionResult::Return =>
+                InstructionResult::Return(x) =>
                 {
-                    // Return the required value here? How would that work to say it could be multiple types?
+                    // Return the required value here?
                     break;
                 }
             }

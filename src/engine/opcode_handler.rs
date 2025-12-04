@@ -28,7 +28,7 @@ pub enum InstructionResult
 {
     Next,
     Jump(usize),
-    Return,
+    Return(bool),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,15 +128,13 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
     push_numeric(input, *value)
 }
 
-// Basic Loading Handlers
+// Basic Local Variable Handlers
 
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     input.frame.push(input.frame.get_local(index as usize));
     Ok(InstructionResult::Next)
 }
-
-// Basic Storing Handlers
 
 fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
@@ -145,7 +143,6 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
     Ok(InstructionResult::Next)
 }
-
 
 // Debugging Handlers. Not for actual use
 
@@ -219,8 +216,8 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) }, // st.arg: Store top of the stack into local variable. [value] ->
     { Opcode::Pop,           0, pop }, // pop: Discard the top of the stack. [value] ->
     { Opcode::Dup,           0, dup }, // dup: Duplicate the value on the top of the stack [value] -> [value], [value]
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) }, // ret: Return out of the current function. -> !
+    { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) }, // ret.val: Return with the value top of hte stack. [value] -> !
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },

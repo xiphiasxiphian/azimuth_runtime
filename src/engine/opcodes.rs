@@ -25,6 +25,8 @@ pub enum Opcode
     StArg,
     Pop,
     Dup,
+    Ret,
+    RetVal,
     Directive = 254,
     Unimplemented = 255,
 }
