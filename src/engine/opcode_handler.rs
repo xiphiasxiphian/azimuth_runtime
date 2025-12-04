@@ -73,7 +73,6 @@ pub fn exec_instruction<'a>(
     })
 }
 
-#[inline(always)]
 fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 {
     Ok(*input.first_chunk().ok_or(ExecutionError::MissingParams)?)
@@ -86,7 +85,7 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
  */
 
 // Basic Stack Handlers
-
+#[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
     input.frame.push(value);
@@ -101,10 +100,6 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
     push_numeric(input, <StackEntry>::from_le_bytes(bytes))
 }
 
-#[expect(
-    clippy::expect_used,
-    reason = "If there aren't enough parameters in the parameters input, this means previous validation steps have failed"
-)]
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     let index = <ConstantTableIndex>::from_le_bytes(
@@ -130,6 +125,7 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 
 // Basic Local Variable Handlers
 
+#[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     input.frame.push(input.frame.get_local(index as usize));
@@ -146,16 +142,11 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
 // Debugging Handlers. Not for actual use
 
-fn simple_print_handler(input: &mut HandlerInputInfo) -> ExecutionResult
-{
-    println!("{input:?}");
-    Ok(InstructionResult::Next)
-}
-
 #[expect(
-    clippy::panic,
+    clippy::panic_in_result_fn,
     reason = "This is a debug handler that should never make it to a finished version"
 )]
+#[expect(clippy::panic, reason = "This is a debug handler that should never make it to a finished version")]
 fn unimplemented_handler(_: &mut HandlerInputInfo) -> ExecutionResult
 {
     panic!("Opcode not implemented")

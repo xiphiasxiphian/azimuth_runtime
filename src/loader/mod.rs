@@ -38,7 +38,6 @@ impl Loader
     // Get the entry point (aka function marked with .start)
     pub fn get_entry_point(&self) -> Option<Runnable>
     {
-        println!("{:?}", self.layout.functions());
         self.layout
             .functions()
             .iter()
