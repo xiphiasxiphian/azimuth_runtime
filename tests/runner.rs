@@ -1,14 +1,16 @@
+use std::process::Command;
 use std::{fs::File, io::Write, path::Path};
 
-use constcat::concat;
+use assert_cmd::cargo::cargo_bin_cmd;
+use assert_cmd::prelude::*;
 
 mod assembler;
 
 const FILE_PATTERN: &str = r"^.*\.test$";
 
 const TEST_BASE: &str = "./tests";
-const PROGRAM_PATH: &str = concat!(TEST_BASE, "/programs");
-const COMPILED_PATH: &str = concat!(TEST_BASE, "/compiled");
+const PROGRAM_PATH: &str = constcat::concat!(TEST_BASE, "/programs");
+const COMPILED_PATH: &str = constcat::concat!(TEST_BASE, "/compiled");
 
 const COMPILED_FILE_EXTENSION: &str = "azc";
 
@@ -30,6 +32,12 @@ fn test(path: &Path) -> datatest_stable::Result<()>
         let mut file = File::create(&bytecode_path)?;
         file.write_all(&bytes)?;
     }
+
+    cargo_bin_cmd!()
+        .arg(bytecode_path.to_str().unwrap())
+        .unwrap()
+        .assert()
+        .success();
 
     Ok(())
 }

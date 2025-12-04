@@ -1,15 +1,20 @@
 // Stack size is set at initiation and is hard coded somewhere.
 // Theoretically this could become a config value at some point in the future
+
+pub type StackEntry = u64;
+
 #[derive(Debug)]
 pub struct Stack
 {
     // The entire data for the stack. This is just a static vector initially set
     // to a specific capacity
-    stack: Vec<u32>,
+    stack: Vec<StackEntry>,
 }
 
 impl Stack
 {
+    pub const ENTRY_SIZE: usize = size_of::<StackEntry>();
+
     pub fn new(capacity: usize) -> Self
     {
         Stack {
@@ -38,11 +43,6 @@ pub struct StackFrame<'a>
 
 impl<'a> StackFrame<'a>
 {
-    const UPPER_LOWER_OFFSET: u64 = 32;
-
-    const LOWER_MASK: u64 = 0xFFFF_FFFF;
-    const UPPER_MASK: u64 = Self::LOWER_MASK << Self::UPPER_LOWER_OFFSET;
-
     pub fn new(origin: &'a mut Stack, locals_base: usize, stack_base: usize, size: usize) -> Self
     {
         StackFrame {
@@ -70,23 +70,13 @@ impl<'a> StackFrame<'a>
             .is_some()
     }
 
-    pub fn push_single(&mut self, value: u32)
+    pub fn push(&mut self, value: StackEntry)
     {
         self.origin.stack[self.stack_base + self.stack_pointer] = value;
         self.stack_pointer += 1;
     }
 
-    pub fn push_double(&mut self, value: u64)
-    {
-        let (lower, upper) = Self::split_double(value);
-
-        // The upper half is stored first in the stack compared with the lower half.
-        // This means that the first thing popped off the stack will be the lower half
-        self.push_single(upper);
-        self.push_single(lower);
-    }
-
-    pub fn pop_single(&mut self) -> Option<u32>
+    pub fn pop(&mut self) -> Option<StackEntry>
     {
         (self.stack_pointer > 0).then(|| {
             self.stack_pointer -= 1;
@@ -94,58 +84,19 @@ impl<'a> StackFrame<'a>
         })
     }
 
-    pub fn pop_double(&mut self) -> Option<u64>
+    pub fn peek(&self) -> Option<&StackEntry>
     {
-        let lower = self.pop_single()?;
-        let upper = self.pop_single()?;
-
-        Some(Self::combine_double(lower, upper))
+        (self.stack_pointer > 0).then(|| &self.origin.stack[self.stack_base + self.stack_pointer])
     }
 
-    pub fn get_local_single(&self, index: usize) -> u32
+    pub fn get_local(&self, index: usize) -> StackEntry
     {
         self.origin.stack[self.locals_base + index]
     }
 
-    pub fn get_local_double(&self, index: usize) -> u64
-    {
-        Self::combine_double(self.get_local_single(index), self.get_local_single(index + 1))
-    }
-
-    pub fn set_local_single(&mut self, index: usize, value: u32)
+    pub fn set_local(&mut self, index: usize, value: StackEntry)
     {
         self.origin.stack[self.locals_base + index] = value;
-    }
-
-    pub fn set_local_double(&mut self, index: usize, value: u64)
-    {
-        let (lower, upper) = Self::split_double(value);
-
-        self.set_local_single(index, lower);
-        self.set_local_single(index + 1, upper);
-    }
-
-    #[expect(
-        clippy::expect_used,
-        reason = "This conversion should be impossible to fail. If it somehow does this should be a good reason to fail"
-    )]
-    fn split_double(value: u64) -> (u32, u32)
-    {
-        let lower: u32 = (value & Self::LOWER_MASK)
-            .try_into()
-            .expect("Failed to convert lower to u32. This result should be impossible");
-        let upper: u32 = ((value & Self::UPPER_MASK) >> Self::UPPER_LOWER_OFFSET)
-            .try_into()
-            .expect("Failed to convert upper to u32. This result should be impossible");
-        (lower, upper)
-    }
-
-    fn combine_double(lower: u32, upper: u32) -> u64
-    {
-        let low: u64 = lower.into();
-        let high: u64 = upper.into();
-
-        (high << Self::UPPER_LOWER_OFFSET) | low
     }
 }
 
@@ -202,12 +153,12 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.push_single(10);
-        frame.push_single(20);
+        frame.push(10);
+        frame.push(20);
 
-        assert_eq!(frame.pop_single().unwrap(), 20);
-        assert_eq!(frame.pop_single().unwrap(), 10);
-        assert!(frame.pop_single().is_none());
+        assert_eq!(frame.pop().unwrap(), 20);
+        assert_eq!(frame.pop().unwrap(), 10);
+        assert!(frame.pop().is_none());
     }
 
     #[test]
@@ -216,10 +167,10 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.push_double(1 << 33);
+        frame.push(1 << 33);
 
-        assert_eq!(frame.pop_double().unwrap(), 1 << 33);
-        assert!(frame.pop_double().is_none());
+        assert_eq!(frame.pop().unwrap(), 1 << 33);
+        assert!(frame.pop().is_none());
     }
 
     #[test]
@@ -228,10 +179,10 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.set_local_single(0, 10);
-        frame.set_local_double(1, 1 << 33);
+        frame.set_local(0, 10);
+        frame.set_local(1, 1 << 33);
 
-        assert_eq!(frame.get_local_single(0), 10);
-        assert_eq!(frame.get_local_double(1), 1 << 33);
+        assert_eq!(frame.get_local(0), 10);
+        assert_eq!(frame.get_local(1), 1 << 33);
     }
 }

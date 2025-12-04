@@ -46,7 +46,7 @@ pub struct FileLayout
 {
     magic: u64,
     version: u8,
-    constant_count: u16,
+    constant_count: u32,
     constant_pool: Table,
     functions: Vec<FunctionInfo>,
 }
@@ -59,8 +59,8 @@ impl FileLayout
 
         let magic = parser.parse_off(|x| split_off!(u64, x))?;
         let &version = parser.parse_off(|x| x.split_first())?;
-        let constant_count = parser.parse_off(|x| split_off!(u16, x))?;
-        let constant_pool = parser.parse_off(|x| Table::new(constant_count.into(), x))?;
+        let constant_count = parser.parse_off(|x| split_off!(u32, x))?;
+        let constant_pool = parser.parse_off(|x| Table::new(constant_count as usize, x))?;
         let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?;
 
         Some(Self {
@@ -75,6 +75,11 @@ impl FileLayout
     pub fn functions(&self) -> &[FunctionInfo]
     {
         self.functions.as_slice()
+    }
+
+    pub fn constants(&self) -> &Table
+    {
+        &self.constant_pool
     }
 }
 
@@ -96,14 +101,15 @@ impl TableEntry
         &|x| Some((TableEntry::Float(f32::from_bits(bytes_to_numeric!(u32, x))), 4)),
         &|x| Some((TableEntry::Double(f64::from_bits(bytes_to_numeric!(u64, x))), 8)),
         &|x| {
-            let str_len = <usize>::from(bytes_to_numeric!(u16, x[0..2]));
-            let str_bytes = x.get(2..(2 + str_len))?;
+            let str_len = bytes_to_numeric!(u32, x) as usize;
+            let str_bytes = x.get(size_of::<u32>()..(size_of::<u32>() + str_len))?;
             let string = String::from_utf8(str_bytes.to_vec()).ok()?;
-            Some((TableEntry::String(string), 2 + str_len))
+            Some((TableEntry::String(string), size_of::<u32>() + str_len))
         },
     ];
 }
 
+#[derive(Debug)]
 pub struct Table
 {
     entries: Vec<TableEntry>,
@@ -136,16 +142,21 @@ impl Table
         Some((Self { entries }, remaining))
     }
 
-    pub fn get(&self, idx: usize) -> Option<&TableEntry>
+    pub fn get(&self, idx: u32) -> Option<&TableEntry>
     {
-        self.entries.get(idx)
+        self.entries.get(idx as usize)
+    }
+
+    pub fn entries(&self) -> &[TableEntry]
+    {
+        &self.entries
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Directive
 {
-    Symbol(u16, u16), // (name_index, descriptor_index)
+    Symbol(u32, u32), // (name_index, descriptor_index)
     Start,
     MaxStack(u16),
     MaxLocals(u16),
@@ -159,10 +170,10 @@ impl Directive
     const HEADER_SIZE: usize = 2; // Opcode (1 byte) + Directive Type (1 byte)
 
     const HANDLERS: [(usize, DirectiveHandler); 4] = [
-        (4, &|x| {
+        (8, &|x| {
             Some(Directive::Symbol(
-                u16::from_le_bytes(x[0..2].try_into().ok()?),
-                u16::from_le_bytes(x[2..4].try_into().ok()?),
+                u32::from_le_bytes(x[0..4].try_into().ok()?),
+                u32::from_le_bytes(x[4..8].try_into().ok()?),
             ))
         }),
         (0, &|_| Some(Directive::Start)),
@@ -171,6 +182,7 @@ impl Directive
     ];
 }
 
+#[derive(Debug)]
 pub struct FunctionInfo
 {
     directives: Vec<Directive>,
@@ -189,32 +201,29 @@ impl FunctionInfo
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
-        let &(symbol_operand_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
-        let (symbol_directive, rem_dirs) = input.split_at_checked(symbol_operand_count + Directive::HEADER_SIZE)?;
-        let symbol_operands =
-            symbol_directive.get(Directive::HEADER_SIZE..(symbol_operand_count + Directive::HEADER_SIZE))?;
+        let &(symbol_operand_byte_count, symbol_handler) = Directive::HANDLERS.get(<usize>::from(Directive::SYMBOL))?;
+        let (symbol_directive, rem_dirs) =
+            input.split_at_checked(symbol_operand_byte_count + Directive::HEADER_SIZE)?;
 
-        let (_, descriptor): (_, u32) = symbol_handler(symbol_operands).and_then(|x| {
+        let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..)?;
+
+        let (_, descriptor): (&String, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
-                Directive::Symbol(name_index, descriptor_index) =>
+                Directive::Symbol(name_index, code_count) =>
                 {
                     // Even thought the name is not needed here, it is
                     // important still to verify that it is a valid constant pool entry,
                     // and does in fact refer to a string entry
 
-                    let name_idx = <usize>::from(name_index);
-                    let descriptor_idx = <usize>::from(descriptor_index);
-
                     // Get the name and descriptor from the constant pool.
                     // This will also check whether the given indices are in fact valid.
-                    let name = table.get(name_idx)?;
-                    let descriptor = table.get(descriptor_idx)?;
+                    let name = table.get(name_index)?;
 
-                    match (name, descriptor)
+                    match name
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        (&_, &TableEntry::Integer(x)) => Some((name, x)),
+                        &TableEntry::String(ref name_str) => Some((name_str, code_count)),
                         _ => None,
                     }
                 }
@@ -343,13 +352,17 @@ mod function_info_tests
     fn basic_function()
     {
         // Function with symbol directive and no other directives
-        let data: [u8; 10] = [
+        let data: [u8; 14] = [
             Directive::OPCODE,
             Directive::SYMBOL,
             0,
+            0,
+            0,
             0, // name index
-            1,
-            0, // descriptor index
+            4,
+            0,
+            0,
+            0, // code count
             // Code (4 bytes)
             0x01,
             0x02,
@@ -358,8 +371,8 @@ mod function_info_tests
         ];
         let table = Table {
             entries: vec![
-                TableEntry::Integer(0), // name index
-                TableEntry::Integer(4), // descriptor index
+                TableEntry::String("main".into()), // name index
+                TableEntry::Integer(4),            // descriptor index
             ],
         };
 

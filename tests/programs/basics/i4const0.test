@@ -1,3 +1,8 @@
+#0 string main
+
+.symbol 0 2
 .start
-i4.const.0
-nop
+.maxstack 1
+.maxlocal 0
+i.const.0
+ret

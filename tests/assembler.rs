@@ -1,32 +1,71 @@
-use std::{collections::HashMap, error::Error, fmt::Display, io::Write, sync::LazyLock};
+use std::{collections::HashMap, error::Error, fmt::Display, io::Write, str::FromStr, sync::LazyLock};
+
+const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
+const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
 
 #[derive(Debug, Clone, Copy)]
 pub enum OperandType
 {
-    Int,
-    WideInt,
+    Unsigned8,
+    Unsigned16,
+    Unsigned32,
+    Unsigned64,
+}
+
+impl OperandType
+{
+    pub const fn get_size(self) -> usize
+    {
+        match self
+        {
+            Self::Unsigned8 => 1,
+            Self::Unsigned16 => 2,
+            Self::Unsigned32 => 4,
+            Self::Unsigned64 => 8,
+        }
+    }
 }
 
 static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
     HashMap::from([
         ("nop", (0, [].as_slice())),
-        ("i4.const.0", (1, [].as_slice())),
-        ("i4.const.1", (2, [].as_slice())),
-        ("i4.const.2", (3, [].as_slice())),
-        ("i4.const.3", (4, [].as_slice())),
-        ("i8.const.0", (5, [].as_slice())),
-        ("i8.const.1", (6, [].as_slice())),
-        ("i8.const.2", (7, [].as_slice())),
-        ("i8.const.3", (8, [].as_slice())),
+        ("i.const.0", (1, [].as_slice())),
+        ("i.const.1", (2, [].as_slice())),
+        ("i.const.2", (3, [].as_slice())),
+        ("i.const.3", (4, [].as_slice())),
+        ("f4.const.0", (5, [].as_slice())),
+        ("f4.const.1", (6, [].as_slice())),
+        ("f8.const.0", (7, [].as_slice())),
+        ("f8.const.1", (8, [].as_slice())),
+        ("i.const", (9, [OperandType::Unsigned8].as_slice())),
+        ("i.const.w", (9, [OperandType::Unsigned16].as_slice())),
+        ("const", (11, [OperandType::Unsigned32].as_slice())),
+        ("ld.arg.0", (12, [].as_slice())),
+        ("ld.arg.1", (13, [].as_slice())),
+        ("ld.arg.2", (14, [].as_slice())),
+        ("ld.arg.3", (15, [].as_slice())),
+        ("ld.arg", (16, [OperandType::Unsigned8].as_slice())),
+        ("st.arg.0", (17, [].as_slice())),
+        ("st.arg.1", (18, [].as_slice())),
+        ("st.arg.2", (19, [].as_slice())),
+        ("st.arg.3", (20, [].as_slice())),
+        ("st.arg", (21, [OperandType::Unsigned8].as_slice())),
+        ("pop", (22, [].as_slice())),
+        ("dup", (23, [].as_slice())),
+        ("ret", (24, [].as_slice())),
+        ("ret.val", (25, [].as_slice())),
     ])
 });
 
 static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {
     HashMap::from([
-        (".start", (0, [].as_slice())),
-        (".symbol", (1, [OperandType::WideInt].as_slice())),
-        (".maxstack", (2, [OperandType::WideInt].as_slice())),
-        (".maxlocal", (3, [OperandType::WideInt].as_slice())),
+        (
+            ".symbol",
+            (0, [OperandType::Unsigned32, OperandType::Unsigned32].as_slice()),
+        ),
+        (".start", (1, [].as_slice())),
+        (".maxstack", (2, [OperandType::Unsigned16].as_slice())),
+        (".maxlocal", (3, [OperandType::Unsigned16].as_slice())),
     ])
 });
 
@@ -39,6 +78,7 @@ pub enum AssemblerError
     WriteError,
     IncorrectOperandCount,
     OperandParseError(OperandType),
+    MalformedConstantTable,
 }
 
 impl Display for AssemblerError
@@ -55,10 +95,110 @@ type AssemblerResult<T> = Result<T, AssemblerError>;
 
 pub fn assemble(input: &str, target: &mut dyn Write) -> AssemblerResult<()>
 {
-    for line in input.split('\n').filter(|x| !x.is_empty())
+    target
+        .write(&MAGIC_NUMBER.to_le_bytes())
+        .map_err(|_| AssemblerError::WriteError)?;
+    target.write(&[0]).map_err(|_| AssemblerError::WriteError)?;
+
+    let mut lines = input.split('\n').filter(|x| !x.is_empty());
+    assemble_constant_table(&mut lines, target)?;
+
+    for line in lines
     {
         assemble_instruction(&mut line.split_whitespace(), target)?;
     }
+    Ok(())
+}
+
+fn assemble_constant_table<'a>(
+    entries: &mut impl Iterator<Item = &'a str>,
+    target: &mut dyn Write,
+) -> AssemblerResult<()>
+{
+    let mut bytes: Vec<u8> = vec![];
+    let mut counter: u32 = 0;
+
+    for (i, entry) in entries.take_while(|x| x.starts_with('#')).enumerate()
+    {
+        let &[raw_number, raw_ty, raw_data] = entry
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .first_chunk()
+            .ok_or(AssemblerError::MalformedConstantTable)?;
+
+        // Get the index
+        let number: u16 = match raw_number
+            .split_at_checked(1)
+            .ok_or(AssemblerError::MalformedConstantTable)?
+        {
+            ("#", x) => x.parse().map_err(|_| AssemblerError::MalformedConstantTable)?,
+            _ => return Err(AssemblerError::MalformedConstantTable),
+        };
+
+        if i != number as usize
+        {
+            return Err(AssemblerError::MalformedConstantTable);
+        }
+
+        let (type_tag, mut data): (u8, Vec<u8>) = match raw_ty
+        {
+            "int" => (
+                0,
+                raw_data
+                    .parse::<u32>()
+                    .map_err(|_| AssemblerError::MalformedConstantTable)?
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+            "long" => (
+                1,
+                raw_data
+                    .parse::<u64>()
+                    .map_err(|_| AssemblerError::MalformedConstantTable)?
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+            "float" => (
+                2,
+                raw_data
+                    .parse::<f32>()
+                    .map_err(|_| AssemblerError::MalformedConstantTable)?
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+            "double" => (
+                3,
+                raw_data
+                    .parse::<f64>()
+                    .map_err(|_| AssemblerError::MalformedConstantTable)?
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+            "string" =>
+            {
+                let string_bytes = raw_data.as_bytes();
+                let mut length_bytes = <u32>::try_from(string_bytes.len())
+                    .map_err(|_| AssemblerError::MalformedConstantTable)?
+                    .to_le_bytes()
+                    .to_vec();
+
+                length_bytes.extend_from_slice(string_bytes);
+                (4, length_bytes)
+            }
+            _ => return Err(AssemblerError::MalformedConstantTable),
+        };
+
+        bytes.push(type_tag);
+        bytes.append(&mut data);
+
+        counter = counter.checked_add(1).ok_or(AssemblerError::MalformedConstantTable)?;
+    }
+
+    target
+        .write(&counter.to_le_bytes())
+        .map_err(|_| AssemblerError::WriteError)?;
+    target.write(&bytes).map_err(|_| AssemblerError::WriteError)?;
+
     Ok(())
 }
 
@@ -67,9 +207,9 @@ fn assemble_instruction<'a>(
     target: &mut dyn Write,
 ) -> AssemblerResult<()>
 {
-    const MAX_BYTES: usize = 4;
+    const MAX_BYTES: usize = 10;
 
-    let mut bytes: [u8; 4] = [0; 4];
+    let mut bytes: [u8; MAX_BYTES] = [0; MAX_BYTES];
     let (operand_types, written) = get_opcode_data(operation, &mut bytes)?;
 
     let mut byte_pointer: usize = written;
@@ -115,37 +255,40 @@ fn get_opcode_data<'a>(
     }
 }
 
-fn parse_directive(directive: &str) -> AssemblerResult<(u8, usize)>
+fn numeric_from_str<T: FromStr>(operand_type: OperandType, operand: &str) -> AssemblerResult<T>
 {
-    match directive
-    {
-        ".start" => Ok((0, 0)),
-        ".symbol" => Ok((1, 1)),
-        ".maxstack" => Ok((2, 1)),
-        ".maxlocal" => Ok((3, 1)),
-        _ => Err(AssemblerError::UnknownDirective),
-    }
+    operand
+        .parse::<T>()
+        .map_err(|_| AssemblerError::OperandParseError(operand_type))
 }
 
 fn parse_operand(operand: &str, operand_type: OperandType, bytes: &mut [u8]) -> AssemblerResult<usize>
 {
-    Ok(match operand_type
+    let size = operand_type.get_size();
+
+    match operand_type
     {
-        OperandType::Int =>
+        OperandType::Unsigned8 =>
         {
-            let byte: u8 = operand
-                .parse::<u8>()
-                .map_err(|_| AssemblerError::OperandParseError(operand_type))?;
+            let byte: u8 = numeric_from_str(operand_type, operand)?;
             bytes[0] = byte;
-            1
         }
-        OperandType::WideInt =>
+        OperandType::Unsigned16 =>
         {
-            let number: u16 = operand
-                .parse::<u16>()
-                .map_err(|_| AssemblerError::OperandParseError(operand_type))?;
-            bytes[0..].copy_from_slice(&number.to_le_bytes());
-            2
+            let number: u16 = numeric_from_str(operand_type, operand)?;
+            bytes[0..size].copy_from_slice(&number.to_le_bytes());
         }
-    })
+        OperandType::Unsigned32 =>
+        {
+            let number: u32 = numeric_from_str(operand_type, operand)?;
+            bytes[0..size].copy_from_slice(&number.to_le_bytes());
+        }
+        OperandType::Unsigned64 =>
+        {
+            let number: u64 = numeric_from_str(operand_type, operand)?;
+            bytes[0..size].copy_from_slice(&number.to_le_bytes());
+        }
+    }
+
+    Ok(size)
 }

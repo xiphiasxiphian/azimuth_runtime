@@ -5,9 +5,9 @@ pub mod stack;
 use crate::{
     engine::{
         opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
-        stack::{Stack, StackFrame},
+        stack::Stack,
     },
-    loader::{Loader, runnable::Runnable},
+    loader::Loader,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -16,7 +16,7 @@ pub enum RunnerError
     MissingEntryPoint,
     StackOverflow,
     ExecutionError(ExecutionError),
-    InvalidJump,
+    ProgramCounterOverflow,
 }
 
 pub struct Runner<'a>
@@ -43,28 +43,33 @@ impl<'a> Runner<'a>
             .initial_frame(maxlocals, maxstack)
             .ok_or(RunnerError::StackOverflow)?;
 
+        let constant_table = self.loader.get_constant_table();
+
         let code = entry_point.code();
         let mut pc: usize = 0;
 
         loop
         {
-            let exec_result =
-                exec_instruction(&code[pc..], &mut initial_frame).map_err(|x| RunnerError::ExecutionError(x))?;
+            let exec_result = exec_instruction(&code[pc..], &mut initial_frame, &constant_table)
+                .map_err(RunnerError::ExecutionError)?;
 
             match exec_result
             {
-                InstructionResult::Next => pc += 1,
+                InstructionResult::Next =>
+                {
+                    (pc + 1 < code.len())
+                        .then(|| pc += 1)
+                        .ok_or(RunnerError::ProgramCounterOverflow)?;
+                }
                 InstructionResult::Jump(target) =>
                 {
-                    if target >= code.len()
-                    {
-                        return Err(RunnerError::InvalidJump);
-                    }
-
-                    pc = target;
+                    (target < code.len())
+                        .then(|| pc = target)
+                        .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
-                InstructionResult::Return =>
+                InstructionResult::Return(_) =>
                 {
+                    // Return the required value here?
                     break;
                 }
             }

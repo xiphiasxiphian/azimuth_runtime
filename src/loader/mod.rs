@@ -1,11 +1,13 @@
 use std::{fs::read, io};
 
 use crate::loader::{
+    constant_table::ConstantTable,
     parser::{Directive, FileLayout, FunctionInfo},
     runnable::Runnable,
 };
 
-mod parser;
+pub mod constant_table;
+pub(super) mod parser;
 pub mod runnable;
 
 pub struct Loader
@@ -41,5 +43,10 @@ impl Loader
             .iter()
             .find(|x| x.has_directive(Directive::Start))
             .and_then(FunctionInfo::into_runnable)
+    }
+
+    pub fn get_constant_table(&self) -> ConstantTable
+    {
+        ConstantTable::from_parsed_table(self.layout.constants())
     }
 }
