@@ -73,6 +73,11 @@ pub fn exec_instruction<'a>(
     })
 }
 
+fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
+{
+    Ok(*input.first_chunk().ok_or(ExecutionError::MissingParams)?)
+}
+
 /*
  * ******************************************************************************
  *                                  HANDLERS
@@ -120,9 +125,14 @@ fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
     Ok(InstructionResult::Next)
 }
 
-fn load_local_from_arg(input: &mut HandlerInputInfo) -> ExecutionResult
+// Basic Storing Handlers
+
+fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
-    load_local(input, *input.params.first().ok_or(ExecutionError::MissingParams)?)
+    let value = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
+    input.frame.set_local(index as usize, value);
+
+    Ok(InstructionResult::Next)
 }
 
 
@@ -174,7 +184,7 @@ macro_rules! handler {
 
 // Is it possible to add any sanity checks into this?
 const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
-    { Opcode::Nop, 0, &(|_| Ok(InstructionResult::Next)) }, // nop: Do nothing. [No Change]
+    { Opcode::Nop,           0, &(|_| Ok(InstructionResult::Next)) }, // nop: Do nothing. [No Change]
     { Opcode::IConst0,       0, push_numeric, 0 },  // i.const.0: Push 0_i64 onto the stack. -> 0
     { Opcode::IConst1,       0, push_numeric, 1 },  // i.const.1: Push 1_i64 onto the stack. -> 1
     { Opcode::IConst2,       0, push_numeric, 2 },  // i.const.2: Push 2_i64 onto the stack. -> 2
@@ -190,12 +200,12 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::LdArg1,        0, load_local, 1 }, // ld.arg.1: Load the local variable at index 1 onto the stack. -> [local1]
     { Opcode::LdArg2,        0, load_local, 2 }, // ld.arg.2: Load the local variable at index 2 onto the stack. -> [local2]
     { Opcode::LdArg3,        0, load_local, 3 }, // ld.arg.3: Load the local variable at index 3 onto the stack. -> [local3]
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::LdArg,         1, &(|x| load_local(x, pull_params::<1>(x.params)?[0])) }, // ld.arg: Load local variable to the stack. -> [local{index}]
+    { Opcode::StArg0,        0, store_local, 0 }, // st.arg.0: Store top of the stack into local variable 0. [value] ->
+    { Opcode::StArg1,        0, store_local, 1 }, // st.arg.1: Store top of the stack into local variable 1. [value] ->
+    { Opcode::StArg2,        0, store_local, 2 }, // st.arg.2: Store top of the stack into local variable 2. [value] ->
+    { Opcode::StArg3,        0, store_local, 3 }, // st.arg.3: Store top of the stack into local variable 3. [value] ->
+    { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) }, // st.arg: Store top of the stack into local variable. [value] ->
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
