@@ -3,3 +3,4 @@
 .symbol 0 1
 .start
 nop
+ret

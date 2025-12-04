@@ -3,4 +3,4 @@
 .symbol 0 2
 .start
 i4.const.0
-nop
+ret

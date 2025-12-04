@@ -1,5 +1,6 @@
 use std::{fs::File, io::Write, path::Path};
 
+use assert_cmd::Command;
 use constcat::concat;
 
 mod assembler;

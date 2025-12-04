@@ -37,6 +37,23 @@ static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = 
         ("f4.const.1", (6, [].as_slice())),
         ("f8.const.0", (7, [].as_slice())),
         ("f8.const.1", (8, [].as_slice())),
+        ("i.const", (9, [OperandType::Unsigned8].as_slice())),
+        ("i.const.w", (9, [OperandType::Unsigned16].as_slice())),
+        ("const", (11, [OperandType::Unsigned32].as_slice())),
+        ("ld.arg.0", (12, [].as_slice())),
+        ("ld.arg.1", (13, [].as_slice())),
+        ("ld.arg.2", (14, [].as_slice())),
+        ("ld.arg.3", (15, [].as_slice())),
+        ("ld.arg", (16, [OperandType::Unsigned8].as_slice())),
+        ("st.arg.0", (17, [].as_slice())),
+        ("st.arg.1", (18, [].as_slice())),
+        ("st.arg.2", (19, [].as_slice())),
+        ("st.arg.3", (20, [].as_slice())),
+        ("st.arg", (21, [OperandType::Unsigned8].as_slice())),
+        ("pop", (22, [].as_slice())),
+        ("dup", (23, [].as_slice())),
+        ("ret", (24, [].as_slice())),
+        ("ret.val", (25, [].as_slice())),
     ])
 });
 

@@ -67,7 +67,7 @@ impl<'a> Runner<'a>
                         .then(|| pc = target)
                         .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
-                InstructionResult::Return(x) =>
+                InstructionResult::Return(_) =>
                 {
                     // Return the required value here?
                     break;
