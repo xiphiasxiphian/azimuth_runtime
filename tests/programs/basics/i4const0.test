@@ -2,7 +2,7 @@
 
 .symbol 0 2
 .start
-.maxstack 0
+.maxstack 1
 .maxlocal 0
 i.const.0
 ret
