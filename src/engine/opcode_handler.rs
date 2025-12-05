@@ -168,8 +168,10 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
     // the type of constant
-    input.constants.push_entry(input.frame, index);
-    Ok(InstructionResult::Next)
+    input.constants.push_entry(input.frame, index)
+        .ok_or(ExecutionError::IndexOutOfBounds)?
+        .then_some(InstructionResult::Next)
+        .ok_or(ExecutionError::StackOverflow)
 }
 
 /// Pops a value off the stack, explicitly discarding it
@@ -199,12 +201,15 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     input.frame.push(
-        input.frame.get_local(index as usize).ok_or(ExecutionError::IndexOutOfBounds)?
+        input.frame
+            .get_local(index as usize)
+            .ok_or(ExecutionError::IndexOutOfBounds)?
     )
     .then_some(InstructionResult::Next)
     .ok_or(ExecutionError::StackOverflow)
 }
 
+/// Stores the value on top of the stack onto the stack
 fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let value = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
