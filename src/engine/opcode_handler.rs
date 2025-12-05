@@ -263,32 +263,32 @@ macro_rules! handler {
 
 // Is it possible to add any sanity checks into this?
 const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
-    { Opcode::Nop,           0, &(|_| Ok(InstructionResult::Next)) }, // nop: Do nothing. [No Change]
-    { Opcode::IConst0,       0, push_numeric, 0 },  // i.const.0: Push 0_i64 onto the stack. -> 0
-    { Opcode::IConst1,       0, push_numeric, 1 },  // i.const.1: Push 1_i64 onto the stack. -> 1
-    { Opcode::IConst2,       0, push_numeric, 2 },  // i.const.2: Push 2_i64 onto the stack. -> 2
-    { Opcode::IConst3,       0, push_numeric, 3 },  // i.const.3: Push 3_i64 onto the stack. -> 3
-    { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits().into() }, // f4.const.0: Push 0.0f onto the stack. -> 0.0f
-    { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits().into() }, // f4.const.1: Push 1.0f onto the stack. -> 1.0f
-    { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() }, // f8.const.0: Push 0.0 onto the stack. -> 0.0
-    { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() }, // f8.const.1: Push 1.0 onto the stack. -> 1.0
-    { Opcode::IConst,        1, push_bytes }, // i.const: Push a given 1 byte onto the stack -> [byte]
-    { Opcode::IConstW,       2, push_bytes }, // i.const.w: Push a given 2 bytes onto the stack. -> [byte1 << 8 | byte2]
-    { Opcode::Const,         4, push_constant }, // const: Push the constant at the given index onto the stack. -> [constant]
-    { Opcode::LdArg0,        0, load_local, 0 }, // ld.arg.0: Load the local variable at index 0 onto the stack. -> [local0]
-    { Opcode::LdArg1,        0, load_local, 1 }, // ld.arg.1: Load the local variable at index 1 onto the stack. -> [local1]
-    { Opcode::LdArg2,        0, load_local, 2 }, // ld.arg.2: Load the local variable at index 2 onto the stack. -> [local2]
-    { Opcode::LdArg3,        0, load_local, 3 }, // ld.arg.3: Load the local variable at index 3 onto the stack. -> [local3]
-    { Opcode::LdArg,         1, &(|x| load_local(x, pull_params::<1>(x.params)?[0])) }, // ld.arg: Load local variable to the stack. -> [local{index}]
-    { Opcode::StArg0,        0, store_local, 0 }, // st.arg.0: Store top of the stack into local variable 0. [value] ->
-    { Opcode::StArg1,        0, store_local, 1 }, // st.arg.1: Store top of the stack into local variable 1. [value] ->
-    { Opcode::StArg2,        0, store_local, 2 }, // st.arg.2: Store top of the stack into local variable 2. [value] ->
-    { Opcode::StArg3,        0, store_local, 3 }, // st.arg.3: Store top of the stack into local variable 3. [value] ->
-    { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) }, // st.arg: Store top of the stack into local variable. [value] ->
-    { Opcode::Pop,           0, pop }, // pop: Discard the top of the stack. [value] ->
-    { Opcode::Dup,           0, dup }, // dup: Duplicate the value on the top of the stack [value] -> [value], [value]
-    { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) }, // ret: Return out of the current function. -> !
-    { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) }, // ret.val: Return with the value top of hte stack. [value] -> !
+    { Opcode::Nop,           0, &(|_| Ok(InstructionResult::Next)) },
+    { Opcode::IConst0,       0, push_numeric, 0 },
+    { Opcode::IConst1,       0, push_numeric, 1 },
+    { Opcode::IConst2,       0, push_numeric, 2 },
+    { Opcode::IConst3,       0, push_numeric, 3 },
+    { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits().into() },
+    { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits().into() },
+    { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() },
+    { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() },
+    { Opcode::IConst,        1, push_bytes },
+    { Opcode::IConstW,       2, push_bytes },
+    { Opcode::Const,         4, push_constant },
+    { Opcode::LdArg0,        0, load_local, 0 },
+    { Opcode::LdArg1,        0, load_local, 1 },
+    { Opcode::LdArg2,        0, load_local, 2 },
+    { Opcode::LdArg3,        0, load_local, 3 },
+    { Opcode::LdArg,         1, &(|x| load_local(x, pull_params::<1>(x.params)?[0])) },
+    { Opcode::StArg0,        0, store_local, 0 },
+    { Opcode::StArg1,        0, store_local, 1 },
+    { Opcode::StArg2,        0, store_local, 2 },
+    { Opcode::StArg3,        0, store_local, 3 },
+    { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) },
+    { Opcode::Pop,           0, pop },
+    { Opcode::Dup,           0, dup },
+    { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
+    { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
