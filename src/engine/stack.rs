@@ -89,14 +89,23 @@ impl<'a> StackFrame<'a>
         (self.stack_pointer > 0).then(|| &self.origin.stack[self.stack_base + self.stack_pointer])
     }
 
-    pub fn get_local(&self, index: usize) -> StackEntry
+    pub fn get_local(&self, index: usize) -> Option<StackEntry>
     {
-        self.origin.stack[self.locals_base + index]
+        let idx = self.locals_base + index;
+        (idx < self.stack_base + self.size).then(|| {
+            self.origin.stack[idx]
+        })
     }
 
-    pub fn set_local(&mut self, index: usize, value: StackEntry)
+    pub fn set_local(&mut self, index: usize, value: StackEntry) -> Option<StackEntry>
     {
-        self.origin.stack[self.locals_base + index] = value;
+        let idx = self.locals_base + index;
+        (idx < self.stack_base + self.size).then(|| {
+            let prev = self.origin.stack[idx];
+            self.origin.stack[idx] = value;
+
+            prev
+        })
     }
 }
 

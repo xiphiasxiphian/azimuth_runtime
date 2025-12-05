@@ -66,6 +66,7 @@ pub enum ExecutionError
     IllegalOpcode,
     MissingParams,
     EmptyStack,
+    IndexOutOfBounds,
 }
 
 type ExecutionResult = Result<InstructionResult, ExecutionError>;
@@ -192,7 +193,7 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 
 // Basic Local Variable Handlers
 
-#[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
+/// Loads a local variable at the provided index onto the stack
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     input.frame.push(input.frame.get_local(index as usize));
