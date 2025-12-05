@@ -138,8 +138,9 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 #[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
-    input.frame.push(value);
-    Ok(InstructionResult::Next)
+    input.frame.push(value)
+        .then_some(InstructionResult::Next)
+        .ok_or(ExecutionError::StackOverflow)
 }
 
 /// Push bytes found from parameters onto the stack
