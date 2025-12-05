@@ -13,6 +13,22 @@ pub struct Stack
 
 impl Stack
 {
+    /// Represents the size of one entry in the stack.
+    ///
+    /// Azimuth uses 64-bit values for each stack entry.
+    /// This is largely because Azimuth is built for 64-bit
+    /// computers, which want to be handling 64-bit values anyway.
+    /// There is a world where using smaller 32-bit entries is still better
+    /// owing to wasting less memory when representing values less than 64-bit,
+    /// but it was decided that the problems with this outweigh the advantages.
+    ///
+    /// Some of the most common types used in common code are 32-bit ints,
+    /// 64-bit ints and pointers, while bools are relatively uncommon and
+    /// characters, while traditionally 8-bit, can end up being bigger when
+    /// working with Unicode.
+    ///
+    /// Using 64-bit means that there aren't wasted clock cycles on having
+    /// to stitch 64-bit values back together when stored on a 32-bit stack.
     pub const ENTRY_SIZE: usize = size_of::<StackEntry>();
 
     pub fn new(capacity: usize) -> Self
