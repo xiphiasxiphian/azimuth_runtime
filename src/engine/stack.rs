@@ -70,10 +70,13 @@ impl<'a> StackFrame<'a>
             .is_some()
     }
 
-    pub fn push(&mut self, value: StackEntry)
+    pub fn push(&mut self, value: StackEntry) -> bool
     {
+        if self.stack_pointer > self.size { return false; }
+
         self.origin.stack[self.stack_base + self.stack_pointer] = value;
         self.stack_pointer += 1;
+        true
     }
 
     pub fn pop(&mut self) -> Option<StackEntry>
@@ -191,7 +194,7 @@ mod stack_tests
         frame.set_local(0, 10);
         frame.set_local(1, 1 << 33);
 
-        assert_eq!(frame.get_local(0), 10);
-        assert_eq!(frame.get_local(1), 1 << 33);
+        assert_eq!(frame.get_local(0), Some(10));
+        assert_eq!(frame.get_local(1), Some(1 << 33));
     }
 }

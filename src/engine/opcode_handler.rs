@@ -66,6 +66,7 @@ pub enum ExecutionError
     IllegalOpcode,
     MissingParams,
     EmptyStack,
+    StackOverflow,
     IndexOutOfBounds,
 }
 
@@ -196,16 +197,19 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 /// Loads a local variable at the provided index onto the stack
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
-    input.frame.push(input.frame.get_local(index as usize));
-    Ok(InstructionResult::Next)
+    input.frame.push(
+        input.frame.get_local(index as usize).ok_or(ExecutionError::IndexOutOfBounds)?
+    )
+    .then_some(InstructionResult::Next)
+    .ok_or(ExecutionError::StackOverflow)
 }
 
 fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let value = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
-    input.frame.set_local(index as usize, value);
-
-    Ok(InstructionResult::Next)
+    input.frame.set_local(index as usize, value)
+        .map(|_| InstructionResult::Next)
+        .ok_or(ExecutionError::IndexOutOfBounds)
 }
 
 // Debugging Handlers. Not for actual use

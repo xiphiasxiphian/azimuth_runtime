@@ -56,7 +56,7 @@ impl<'a> ConstantTable<'a>
     pub fn push_entry(&self, stack: &mut StackFrame, index: ConstantTableIndex) -> bool
     {
         self.get_entry(index)
-            .inspect(|x| match **x
+            .map(|x| match *x
             {
                 Constant::Unsigned32(x) => stack.push(x.into()),
                 Constant::Unsigned64(x) => stack.push(x),
@@ -64,6 +64,6 @@ impl<'a> ConstantTable<'a>
                 Constant::Float64(x) => stack.push(x.to_bits()),
                 Constant::String(string) => stack.push(string.as_ptr() as u64),
             })
-            .is_some()
+            .unwrap_or(false)
     }
 }
