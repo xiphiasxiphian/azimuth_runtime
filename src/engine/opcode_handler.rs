@@ -6,6 +6,23 @@ use crate::{
     loader::constant_table::{ConstantTable, ConstantTableIndex},
 };
 
+/// Contains information given to each instruction handler
+///
+/// ### Fields
+/// `opcode` - The numerical value of the opcode
+///
+/// `params` - A slice of the parameters passed into this opcode
+///
+/// `frame` - A reference to the current stack frame
+///
+/// `constants` - A reference to the constant table
+///
+/// ### Note
+/// The lifetime parameters of this struct reflect the expected lifetimes of the references:
+/// the `params` slice will have the same lifetime as the contents of the constant table (`'a`),
+/// as they will both be stored within the loader's metaspace. The reference to the stack frame
+/// and the reference to the constant table will both be the same as they are both
+/// constructed in the loader
 #[derive(Debug)]
 struct HandlerInputInfo<'a, 'b, 'c>
 {
@@ -15,6 +32,17 @@ struct HandlerInputInfo<'a, 'b, 'c>
     constants: &'b ConstantTable<'a>,
 }
 
+/// Information about a handler for a given instruction
+///
+/// ## Fields
+/// `opcode` - The opcode this handler is responsible for. This is mainly used for validation
+///
+/// `param_count` - The number of bytes this handler takes as parameters
+///
+/// `handler` - The function that handles the given opcode
+///
+/// ## Note
+/// This type should remain a copy type
 #[derive(Clone, Copy)]
 struct HandlerInfo<'a>
 {
@@ -42,6 +70,12 @@ pub enum ExecutionError
 
 type ExecutionResult = Result<InstructionResult, ExecutionError>;
 
+/// Executes the next instruction found from the sequence of bytes.
+///
+/// Takes the current stream of bytcode, the current stack frame and the
+/// constant table associated with this bytecode stream.
+/// It is expected that the first byte in the `bytecode` slice will be
+/// the opcode, and then the remaining bytes can be whatever is next in the stream.
 #[expect(
     clippy::panic_in_result_fn,
     reason = "If this invariant check fails, the entire config is malformed"
@@ -52,6 +86,9 @@ pub fn exec_instruction<'a>(
     constants: &ConstantTable<'a>,
 ) -> ExecutionResult
 {
+    // Get the bytecode out of the stream. As this is "user input", it is critical
+    // at all stages to check whether there are actually enough values in the stream
+    // to meet expectations
     let (&opcode, operands) = bytecode.split_first().ok_or(ExecutionError::OpcodeNotFound)?;
     let handler_info = HANDLERS.get(opcode as usize).ok_or(ExecutionError::IllegalOpcode)?;
 
@@ -60,6 +97,8 @@ pub fn exec_instruction<'a>(
         return Err(ExecutionError::MissingParams);
     }
 
+    // If this assertion fails, this means that the HANDLERS table has been malformed
+    // and found handler doesn't match the opcode.
     assert!(
         opcode == handler_info.opcode as u8,
         "HANDLERS Array invalid: misaligned opcode"
@@ -73,6 +112,8 @@ pub fn exec_instruction<'a>(
     })
 }
 
+/// Helper function for pulling a given number of parameters out of the bytecode stream.
+/// This function will fail if there aren't enough parameters, returning and Err(_)
 fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 {
     Ok(*input.first_chunk().ok_or(ExecutionError::MissingParams)?)
@@ -85,6 +126,13 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
  */
 
 // Basic Stack Handlers
+
+
+/// Push a given number (in the form of `u64`) onto the stack.
+///
+/// It is expected that any other numeric type (such as `f32` of `f64`) must be converted
+/// into a `u64` format. This can normally be done with `.to_bits()`.
+/// These bits can later be recovered into their original type.
 #[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
@@ -92,31 +140,50 @@ fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
     Ok(InstructionResult::Next)
 }
 
+/// Push bytes found from parameters onto the stack
+///
+/// The number of bytes must be less than `Stack::ENTRY_SIZE`
 fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    let mut bytes = [0; Stack::ENTRY_SIZE];
-    bytes.copy_from_slice(input.params); // If this doesnt copy properly, exec_instruction hasnt done its job properly.
+    // Ensures that the number of bytes provided will actually fit
+    // within a stack entry
+    assert!(input.params.len() <= Stack::ENTRY_SIZE);
 
+    let mut bytes = [0; Stack::ENTRY_SIZE]; // This is set to the stack entry size.
+    bytes[0..(input.params.len())].copy_from_slice(input.params);
+
+    // Defer to just pushing a normal numeric value
     push_numeric(input, <StackEntry>::from_le_bytes(bytes))
 }
 
+/// Gets a constant from the constant table and pushes it to the stack.
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
+    // Construct the constant table index from the given parameters.
     let index = <ConstantTableIndex>::from_le_bytes(pull_params(input.params)?);
 
+    // Copy the constant from the constant table onto the stack.
+    // This function will take care of the differing behaviours depending on
+    // the type of constant
     input.constants.push_entry(input.frame, index);
     Ok(InstructionResult::Next)
 }
 
+/// Pops a value off the stack, explicitly discarding it
+///
+/// This should only be used to remove redundant values off the stack,
+/// as it throws away whatever the value it found was.
 fn pop(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     input
         .frame
         .pop()
         .ok_or(ExecutionError::EmptyStack)
-        .map(|_| InstructionResult::Next)
+        .map(|_| InstructionResult::Next) // Discard whatever the value was
 }
 
+
+/// Duplicates the value on top of the stack.
 fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     let value = input.frame.peek().ok_or(ExecutionError::EmptyStack)?;
