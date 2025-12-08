@@ -24,7 +24,8 @@ pub enum Opcode
     StArg3,          // st.arg.3: Store top of the stack into local variable 3. [value] ->
     StArg,           // st.arg: Store top of the stack into local variable. [value] ->
     Pop,             // pop: Discard the top of the stack. [value] ->
-    Dup,             // dup: Duplicate the value on the top of the stack [value] -> [value], [value]
+    Dup,             // dup: Duplicate the value on the top of the stack. [value] -> [value], [value]
+    Swap,            // swap: Swap the top 2 stack entries. [value1], [value2] -> [value2], [value1]
     Ret,             // ret: Return out of the current function. -> !
     RetVal,          // ret.val: Return with the value top of hte stack. [value] -> !
     Directive = 254, // .X: Directives for supplying metadata

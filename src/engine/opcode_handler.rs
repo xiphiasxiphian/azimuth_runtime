@@ -197,6 +197,18 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
     push_numeric(input, *value)
 }
 
+/// Swaps the top 2 stack values
+fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
+{
+    let value1 = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
+    let value2 = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
+
+    input.frame.push(value1)
+        .then(|| input.frame.push(value2))
+        .ok_or(ExecutionError::StackOverflow)
+        .and_then(|x| x.then_some(InstructionResult::Next).ok_or(ExecutionError::StackOverflow))
+}
+
 // Basic Local Variable Handlers
 
 /// Loads a local variable at the provided index onto the stack
@@ -294,9 +306,9 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) },
     { Opcode::Pop,           0, pop },
     { Opcode::Dup,           0, dup },
+    { Opcode::Swap,          0, swap },
     { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
     { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
