@@ -18,6 +18,7 @@ pub enum ConfigError
     RunnerError(RunnerError),
 }
 
+// List of optional flags that can be passed in as arguments
 struct Flags
 {
     stack_size: usize,
@@ -28,6 +29,7 @@ impl Flags
     const DEFAULT_STACK_SIZE: usize = 1024;
 }
 
+// Config the defaults for all the optional parameters
 impl Default for Flags
 {
     fn default() -> Self
@@ -40,8 +42,8 @@ impl Default for Flags
 
 pub struct Config
 {
-    filename: String,
-    flags: Flags,
+    filename: String, // name of the compiled for to execute
+    flags: Flags,     // Optional flags
 }
 
 impl Config
@@ -88,7 +90,7 @@ impl Config
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);
 
-        // Init Heap
+        // Init Heap: TODO
 
         // Pass information to runner
         let mut runner = Runner::new(&mut stack, &loader);

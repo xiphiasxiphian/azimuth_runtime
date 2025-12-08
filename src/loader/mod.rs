@@ -36,7 +36,7 @@ impl Loader
     }
 
     // Get the entry point (aka function marked with .start)
-    pub fn get_entry_point(&self) -> Option<Runnable>
+    pub fn get_entry_point(&self) -> Option<Runnable<'_>>
     {
         self.layout
             .functions()
@@ -45,7 +45,7 @@ impl Loader
             .and_then(FunctionInfo::into_runnable)
     }
 
-    pub fn get_constant_table(&self) -> ConstantTable
+    pub fn get_constant_table(&self) -> ConstantTable<'_>
     {
         ConstantTable::from_parsed_table(self.layout.constants())
     }
