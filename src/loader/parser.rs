@@ -227,10 +227,10 @@ impl FunctionInfo
                     // This will also check whether the given indices are in fact valid.
                     let name = table.get(name_index)?;
 
-                    match name
+                    match *name
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        &TableEntry::String(ref name_str) => Some((name_str, code_count)),
+                        TableEntry::String(ref name_str) => Some((name_str, code_count)),
                         _ => None,
                     }
                 }
@@ -294,8 +294,8 @@ impl FunctionInfo
         Some((functions, remaining))
     }
 
-    /// Turn a raw parsed FunctionInfo into a usable Runnable, with safety checks
-    pub fn into_runnable<'a>(&'a self) -> Option<Runnable<'a>>
+    /// Turn a raw parsed `FunctionInfo` into a usable `Runnable`, with safety checks
+    pub fn into_runnable(&self) -> Option<Runnable<'_>>
     {
         Runnable::from_parsed_data(&self.directives, &self.code)
     }

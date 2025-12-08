@@ -65,6 +65,7 @@ pub enum ExecutionError
     OpcodeNotFound,
     IllegalOpcode,
     MissingParams,
+    IllegalParam,
     EmptyStack,
     StackOverflow,
     IndexOutOfBounds,
@@ -134,7 +135,6 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 /// It is expected that any other numeric type (such as `f32` of `f64`) must be converted
 /// into a `u64` format. This can normally be done with `.to_bits()`.
 /// These bits can later be recovered into their original type.
-#[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
     input
@@ -151,7 +151,7 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Ensures that the number of bytes provided will actually fit
     // within a stack entry
-    assert!(input.params.len() <= Stack::ENTRY_SIZE);
+    if input.params.len() <= Stack::ENTRY_SIZE { return Err(ExecutionError::IllegalParam) }
 
     let mut bytes = [0; Stack::ENTRY_SIZE]; // This is set to the stack entry size.
     bytes[0..(input.params.len())].copy_from_slice(input.params);
