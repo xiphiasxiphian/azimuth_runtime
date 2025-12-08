@@ -32,6 +32,29 @@ struct HandlerInputInfo<'a, 'b, 'c>
     constants: &'b ConstantTable<'a>,
 }
 
+impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
+{
+    pub fn stack_pop(&mut self) -> Result<StackEntry, ExecutionError>
+    {
+        self.frame.pop().ok_or(ExecutionError::EmptyStack)
+    }
+
+    pub fn stack_push(&mut self, val: StackEntry) -> Result<(), ExecutionError>
+    {
+        self.frame.push(val).then_some(()).ok_or(ExecutionError::StackOverflow)
+    }
+
+    pub fn local_get(&mut self, index: u8) -> Result<StackEntry, ExecutionError>
+    {
+        self.frame.get_local(index as usize).ok_or(ExecutionError::IndexOutOfBounds)
+    }
+
+    pub fn local_set(&mut self, index: u8, value: StackEntry) -> Result<StackEntry, ExecutionError>
+    {
+        self.frame.set_local(index as usize, value).ok_or(ExecutionError::IndexOutOfBounds)
+    }
+}
+
 /// Information about a handler for a given instruction
 ///
 /// ## Fields
@@ -138,10 +161,8 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
     input
-        .frame
-        .push(value)
-        .then_some(InstructionResult::Next)
-        .ok_or(ExecutionError::StackOverflow)
+        .stack_push(value)
+        .map(|_| InstructionResult::Next)
 }
 
 /// Push bytes found from parameters onto the stack
@@ -183,11 +204,8 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 /// as it throws away whatever the value it found was.
 fn pop(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    input
-        .frame
-        .pop()
-        .ok_or(ExecutionError::EmptyStack)
-        .map(|_| InstructionResult::Next) // Discard whatever the value was
+    input.stack_pop()
+        .map(|_| InstructionResult::Next) // Discard value
 }
 
 /// Duplicates the value on top of the stack.
@@ -200,13 +218,12 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 /// Swaps the top 2 stack values
 fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    let value1 = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
-    let value2 = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
+    let value1 = input.stack_pop()?;
+    let value2 = input.stack_pop()?;
 
-    input.frame.push(value1)
-        .then(|| input.frame.push(value2))
-        .ok_or(ExecutionError::StackOverflow)
-        .and_then(|x| x.then_some(InstructionResult::Next).ok_or(ExecutionError::StackOverflow))
+    input.stack_push(value1)
+        .and_then(|_| input.stack_push(value2))
+        .map(|_| InstructionResult::Next)
 }
 
 // Basic Local Variable Handlers
@@ -214,27 +231,17 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
 /// Loads a local variable at the provided index onto the stack
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
-    input
-        .frame
-        .push(
-            input
-                .frame
-                .get_local(index as usize)
-                .ok_or(ExecutionError::IndexOutOfBounds)?,
-        )
-        .then_some(InstructionResult::Next)
-        .ok_or(ExecutionError::StackOverflow)
+    let val = input.local_get(index)?;
+    input.stack_push(val)
+        .map(|_| InstructionResult::Next)
 }
 
 /// Stores the value on top of the stack onto the stack
 fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
-    let value = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
-    input
-        .frame
-        .set_local(index as usize, value)
+    let value = input.stack_pop()?;
+    input.local_set(index, value)
         .map(|_| InstructionResult::Next)
-        .ok_or(ExecutionError::IndexOutOfBounds)
 }
 
 // Debugging Handlers. Not for actual use
