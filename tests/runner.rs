@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::{fs::File, io::Write, path::Path};
 
 use assert_cmd::cargo::cargo_bin_cmd;

@@ -3,12 +3,15 @@ use crate::{engine::opcodes::Opcode, loader::runnable::Runnable};
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
 pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
 
+// Convert a set of bytes into a numeric type
 macro_rules! bytes_to_numeric {
     ($t:ty, $input:expr) => {
         <$t>::from_le_bytes(*$input.first_chunk()?)
     };
 }
 
+// Macro to speed up splitting of a specific bit of the data into a specific
+// numeric type
 macro_rules! split_off {
     ($t:ty, $input:ident) => {
         $input
@@ -17,8 +20,8 @@ macro_rules! split_off {
     };
 }
 
-type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>;
-type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<(TableEntry, usize)>;
+type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>; // Creates a handler
+type TableTypeHandler = &'static dyn Fn(&[u8]) -> Option<(TableEntry, usize)>; // Creates a table
 
 struct FileParser<'a>
 {
@@ -32,6 +35,7 @@ impl<'a> FileParser<'a>
         Self { remaining: input }
     }
 
+    /// Create a type based on a given parser
     pub fn parse_off<T, F>(&mut self, parser: F) -> Option<T>
     where
         F: Fn(&'a [u8]) -> Option<(T, &'a [u8])>,
@@ -53,15 +57,16 @@ pub struct FileLayout
 
 impl FileLayout
 {
+    /// Parse the direct information from a raw file, representing its format as closely as possible.
     pub fn from_bytes(input: &[u8]) -> Option<Self>
     {
         let mut parser = FileParser::new(input);
 
-        let magic = parser.parse_off(|x| split_off!(u64, x))?;
-        let &version = parser.parse_off(|x| x.split_first())?;
-        let constant_count = parser.parse_off(|x| split_off!(u32, x))?;
-        let constant_pool = parser.parse_off(|x| Table::new(constant_count as usize, x))?;
-        let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?;
+        let magic = parser.parse_off(|x| split_off!(u64, x))?; // Magic Number
+        let &version = parser.parse_off(|x| x.split_first())?; // Version Number
+        let constant_count = parser.parse_off(|x| split_off!(u32, x))?; // Number of constants
+        let constant_pool = parser.parse_off(|x| Table::new(constant_count as usize, x))?; // Constant Table
+        let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?; // Functions
 
         Some(Self {
             magic,
@@ -122,12 +127,12 @@ impl Table
         let mut entries: Vec<TableEntry> = Vec::with_capacity(count);
 
         let mut remaining: &[u8] = from;
-        for _ in 0..count
+        for _ in 0..count // Parse entries based on the count previously given
         {
             match *remaining
             {
                 [] => return None, // There were not enough entries, therefore the file is malformed
-                [tag, ref res @ ..] =>
+                [tag, ref res @ ..] => // Parse the entry
                 {
                     let (result, operands) = TableEntry::HANDLERS.get(<usize>::from(tag))?(res)?;
 
@@ -158,14 +163,14 @@ pub enum Directive
 {
     Symbol(u32, u32), // (name_index, descriptor_index)
     Start,
-    MaxStack(u16),
-    MaxLocals(u16),
+    MaxStack(u16), // max_stack
+    MaxLocals(u16), // max_locals
 }
 
 impl Directive
 {
-    const OPCODE: u8 = Opcode::Directive as u8;
-    const SYMBOL: u8 = 0;
+    const OPCODE: u8 = Opcode::Directive as u8; // Opcode for a directive
+    const SYMBOL: u8 = 0; // The symbol directive is important and should always be 0
 
     const HEADER_SIZE: usize = 2; // Opcode (1 byte) + Directive Type (1 byte)
 
@@ -239,8 +244,12 @@ impl FunctionInfo
         {
             if x == Directive::SYMBOL
             {
+                // This means that there has been a second symbol directive which isnt
+                // legal
                 return None;
             }
+
+            // Parse the found directive
             let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
             let (operands, rem) = res.split_at_checked(operand_count)?;
 
@@ -283,7 +292,9 @@ impl FunctionInfo
         Some((functions, remaining))
     }
 
-    pub fn into_runnable(&self) -> Option<Runnable>
+
+    /// Turn a raw parsed FunctionInfo into a usable Runnable, with safety checks
+    pub fn into_runnable<'a>(&'a self) -> Option<Runnable<'a>>
     {
         Runnable::from_parsed_data(&self.directives, &self.code)
     }
