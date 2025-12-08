@@ -43,7 +43,7 @@ impl Default for Flags
 pub struct Config
 {
     filename: String, // name of the compiled for to execute
-    flags: Flags, // Optional flags
+    flags: Flags,     // Optional flags
 }
 
 impl Config

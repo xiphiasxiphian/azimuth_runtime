@@ -127,12 +127,14 @@ impl Table
         let mut entries: Vec<TableEntry> = Vec::with_capacity(count);
 
         let mut remaining: &[u8] = from;
-        for _ in 0..count // Parse entries based on the count previously given
+        for _ in 0..count
+        // Parse entries based on the count previously given
         {
             match *remaining
             {
                 [] => return None, // There were not enough entries, therefore the file is malformed
-                [tag, ref res @ ..] => // Parse the entry
+                [tag, ref res @ ..] =>
+                // Parse the entry
                 {
                     let (result, operands) = TableEntry::HANDLERS.get(<usize>::from(tag))?(res)?;
 
@@ -163,7 +165,7 @@ pub enum Directive
 {
     Symbol(u32, u32), // (name_index, descriptor_index)
     Start,
-    MaxStack(u16), // max_stack
+    MaxStack(u16),  // max_stack
     MaxLocals(u16), // max_locals
 }
 
@@ -291,7 +293,6 @@ impl FunctionInfo
 
         Some((functions, remaining))
     }
-
 
     /// Turn a raw parsed FunctionInfo into a usable Runnable, with safety checks
     pub fn into_runnable<'a>(&'a self) -> Option<Runnable<'a>>

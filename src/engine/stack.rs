@@ -95,7 +95,6 @@ impl<'a> StackFrame<'a>
         }
     }
 
-
     /// Runs the given function within the context of the "next" stack frame.
     ///
     /// This functions creates a new stack frame on top of the current one, and will then run
@@ -142,7 +141,10 @@ impl<'a> StackFrame<'a>
     pub fn push(&mut self, value: StackEntry) -> bool
     {
         // Stack Overflow check
-        if self.stack_pointer > self.size { return false; }
+        if self.stack_pointer > self.size
+        {
+            return false;
+        }
 
         self.origin.stack[self.stack_base + self.stack_pointer] = value;
         self.stack_pointer += 1;
@@ -179,9 +181,7 @@ impl<'a> StackFrame<'a>
     pub fn get_local(&self, index: usize) -> Option<StackEntry>
     {
         let idx = self.locals_base + index;
-        (idx < self.stack_base + self.size).then(|| {
-            self.origin.stack[idx]
-        })
+        (idx < self.stack_base + self.size).then(|| self.origin.stack[idx])
     }
 
     /// Set the value of a local variable at the given index, returning the previous

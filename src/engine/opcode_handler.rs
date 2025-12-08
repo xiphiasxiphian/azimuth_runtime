@@ -129,7 +129,6 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 
 // Basic Stack Handlers
 
-
 /// Push a given number (in the form of `u64`) onto the stack.
 ///
 /// It is expected that any other numeric type (such as `f32` of `f64`) must be converted
@@ -138,7 +137,9 @@ fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
 #[expect(clippy::unnecessary_wraps, reason = "Needs to conform to handler format")]
 fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
 {
-    input.frame.push(value)
+    input
+        .frame
+        .push(value)
         .then_some(InstructionResult::Next)
         .ok_or(ExecutionError::StackOverflow)
 }
@@ -168,7 +169,9 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
     // the type of constant
-    input.constants.push_entry(input.frame, index)
+    input
+        .constants
+        .push_entry(input.frame, index)
         .ok_or(ExecutionError::IndexOutOfBounds)?
         .then_some(InstructionResult::Next)
         .ok_or(ExecutionError::StackOverflow)
@@ -187,7 +190,6 @@ fn pop(input: &mut HandlerInputInfo) -> ExecutionResult
         .map(|_| InstructionResult::Next) // Discard whatever the value was
 }
 
-
 /// Duplicates the value on top of the stack.
 fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 {
@@ -200,20 +202,25 @@ fn dup(input: &mut HandlerInputInfo) -> ExecutionResult
 /// Loads a local variable at the provided index onto the stack
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
-    input.frame.push(
-        input.frame
-            .get_local(index as usize)
-            .ok_or(ExecutionError::IndexOutOfBounds)?
-    )
-    .then_some(InstructionResult::Next)
-    .ok_or(ExecutionError::StackOverflow)
+    input
+        .frame
+        .push(
+            input
+                .frame
+                .get_local(index as usize)
+                .ok_or(ExecutionError::IndexOutOfBounds)?,
+        )
+        .then_some(InstructionResult::Next)
+        .ok_or(ExecutionError::StackOverflow)
 }
 
 /// Stores the value on top of the stack onto the stack
 fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let value = input.frame.pop().ok_or(ExecutionError::EmptyStack)?;
-    input.frame.set_local(index as usize, value)
+    input
+        .frame
+        .set_local(index as usize, value)
         .map(|_| InstructionResult::Next)
         .ok_or(ExecutionError::IndexOutOfBounds)
 }

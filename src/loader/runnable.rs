@@ -19,7 +19,8 @@ impl<'a> Runnable<'a>
     {
         directives
             .iter()
-            .try_fold( // Collect the required data, checking for invalid states
+            .try_fold(
+                // Collect the required data, checking for invalid states
                 (None, None, vec![]),
                 |(max_stack, max_locals, mut optionals), directive| match (max_stack, max_locals, *directive)
                 {
@@ -33,7 +34,8 @@ impl<'a> Runnable<'a>
                     }
                 },
             )
-            .and_then(|(max_stack, max_locals, optionals)| { // Construct the runnable based on this data
+            .and_then(|(max_stack, max_locals, optionals)| {
+                // Construct the runnable based on this data
                 Some(Self {
                     maxstack: max_stack?,
                     maxlocals: max_locals?,
