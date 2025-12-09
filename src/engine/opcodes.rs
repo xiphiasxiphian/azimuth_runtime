@@ -11,7 +11,7 @@ pub enum Opcode
     F8Const0,        // f8.const.0: Push 0.0 onto the stack. -> 0.0
     F8Const1,        // f8.const.1: Push 1.0 onto the stack. -> 1.0
     IConst,          // i.const: Push a given 1 byte onto the stack -> [byte]
-    IConstW,         // i.const.w: Push a given 2 bytes onto the stack. -> [byte1 << 8 | byte2]
+    IConstW,         // i.const.w: Push a given 2 bytes onto the stack. -> [byte2 << 8 | byte1]
     Const,           // const: Push the constant at the given index onto the stack. -> [constant]
     LdArg0,          // ld.arg.0: Load the local variable at index 0 onto the stack. -> [local0]
     LdArg1,          // ld.arg.1: Load the local variable at index 1 onto the stack. -> [local1]
@@ -27,7 +27,10 @@ pub enum Opcode
     Dup,             // dup: Duplicate the value on the top of the stack. [value] -> [value], [value]
     Swap,            // swap: Swap the top 2 stack entries. [value1], [value2] -> [value2], [value1]
     Ret,             // ret: Return out of the current function. -> !
-    RetVal,          // ret.val: Return with the value top of hte stack. [value] -> !
+    RetVal,          // ret.val: Return with the value top of the stack. [value] -> !
+    IAdd,            // i.add: Add top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Add,           // f4.add: Add top 2 values on the stack as float32. [value1], [value2] -> [result]
+    F8Add,           // f8.add: Add top 2 values on the stack as float64. [value1], [value2] -> [result]
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }

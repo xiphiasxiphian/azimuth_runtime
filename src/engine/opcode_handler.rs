@@ -1,3 +1,5 @@
+use std::{iter::Sum, ops::Add};
+
 use crate::{
     engine::{
         opcodes::Opcode,
@@ -32,6 +34,7 @@ struct HandlerInputInfo<'a, 'b, 'c>
     constants: &'b ConstantTable<'a>,
 }
 
+// Bunch of helper functions to make things a bit cleaner
 impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
 {
     pub fn stack_pop(&mut self) -> Result<StackEntry, ExecutionError>
@@ -52,6 +55,26 @@ impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
     pub fn local_set(&mut self, index: u8, value: StackEntry) -> Result<StackEntry, ExecutionError>
     {
         self.frame.set_local(index as usize, value).ok_or(ExecutionError::IndexOutOfBounds)
+    }
+
+    /// Helper function for pulling a given number of parameters out of the bytecode stream.
+    /// This function will fail if there aren't enough parameters, returning and Err(_)
+    fn pull_params<const N: usize>(&self) -> Result<[u8; N], ExecutionError>
+    {
+        self.params.first_chunk()
+            .ok_or(ExecutionError::MissingParams)
+            .map(|x| *x)
+    }
+
+    fn stack_pop_many<const N: usize>(&mut self) -> Result<[u64; N], ExecutionError>
+    {
+        let mut values = [0; N];
+        for i in 0..N
+        {
+            values[i] = self.stack_pop()?
+        }
+
+        Ok(values)
     }
 }
 
@@ -138,12 +161,7 @@ pub fn exec_instruction<'a>(
     })
 }
 
-/// Helper function for pulling a given number of parameters out of the bytecode stream.
-/// This function will fail if there aren't enough parameters, returning and Err(_)
-fn pull_params<const N: usize>(input: &[u8]) -> Result<[u8; N], ExecutionError>
-{
-    Ok(*input.first_chunk().ok_or(ExecutionError::MissingParams)?)
-}
+
 
 /*
  * ******************************************************************************
@@ -185,7 +203,7 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Construct the constant table index from the given parameters.
-    let index = <ConstantTableIndex>::from_le_bytes(pull_params(input.params)?);
+    let index = <ConstantTableIndex>::from_le_bytes(input.pull_params()?);
 
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
@@ -241,6 +259,19 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let value = input.stack_pop()?;
     input.local_set(index, value)
+        .map(|_| InstructionResult::Next)
+}
+
+// Arithmetic Handlers
+
+fn add<T, F1, F2>(input: &mut HandlerInputInfo, ingress: F1, egress: F2) -> ExecutionResult
+where
+    T: Sum,
+    F1: Fn(StackEntry) -> T,
+    F2: Fn(T) -> StackEntry
+{
+    let result = input.stack_pop_many::<2>()?.map(ingress).into_iter().sum();
+    input.stack_push(egress(result))
         .map(|_| InstructionResult::Next)
 }
 
@@ -305,19 +336,19 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::LdArg1,        0, load_local, 1 },
     { Opcode::LdArg2,        0, load_local, 2 },
     { Opcode::LdArg3,        0, load_local, 3 },
-    { Opcode::LdArg,         1, &(|x| load_local(x, pull_params::<1>(x.params)?[0])) },
+    { Opcode::LdArg,         1, &(|x| load_local(x, x.pull_params::<1>()?[0])) },
     { Opcode::StArg0,        0, store_local, 0 },
     { Opcode::StArg1,        0, store_local, 1 },
     { Opcode::StArg2,        0, store_local, 2 },
     { Opcode::StArg3,        0, store_local, 3 },
-    { Opcode::StArg,         1, &(|x| store_local(x, pull_params::<1>(x.params)?[0])) },
+    { Opcode::StArg,         1, &(|x| store_local(x, x.pull_params::<1>()?[0])) },
     { Opcode::Pop,           0, pop },
     { Opcode::Dup,           0, dup },
     { Opcode::Swap,          0, swap },
     { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
     { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::IAdd,          0, add, |x| x, |x| x },
+    { Opcode::F4Add,         0, add, |x| x, |x| x },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
