@@ -1,6 +1,8 @@
 // Stack size is set at initiation and is hard coded somewhere.
 // Theoretically this could become a config value at some point in the future
 
+use crate::engine::stackable::Stackable;
+
 pub type StackEntry = u64;
 
 #[derive(Debug)]

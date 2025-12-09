@@ -1,0 +1,66 @@
+use crate::engine::stack::{Stack, StackEntry};
+
+pub trait Stackable: Copy
+{
+    fn into_entry(self) -> StackEntry;
+    fn from_entry(entry: StackEntry) -> Self;
+}
+
+impl Stackable for StackEntry
+{
+    fn into_entry(self) -> StackEntry { self }
+
+    fn from_entry(entry: StackEntry) -> Self
+    {
+        entry
+    }
+}
+
+impl Stackable for u32
+{
+    fn into_entry(self) -> StackEntry
+    {
+        self.into()
+    }
+
+    fn from_entry(entry: StackEntry) -> Self
+    {
+        entry as Self // Truncating behavior desired
+    }
+}
+
+impl Stackable for f32
+{
+    fn into_entry(self) -> StackEntry { self.to_bits() as StackEntry }
+
+    fn from_entry(entry: StackEntry) -> Self
+    {
+        Self::from_bits(entry as u32) // The truncating behaviour here is desired
+    }
+}
+
+impl Stackable for f64
+{
+    fn into_entry(self) -> StackEntry
+    {
+        self.to_bits()
+    }
+
+    fn from_entry(entry: StackEntry) -> Self
+    {
+        Self::from_bits(entry)
+    }
+}
+
+impl<T> Stackable for *const T
+{
+    fn into_entry(self) -> StackEntry
+    {
+        self as StackEntry
+    }
+
+    fn from_entry(entry: StackEntry) -> Self
+    {
+        entry as Self
+    }
+}
