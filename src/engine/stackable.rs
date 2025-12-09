@@ -1,4 +1,4 @@
-use crate::engine::stack::{Stack, StackEntry};
+use crate::engine::stack::StackEntry;
 
 pub trait Stackable: Copy
 {
@@ -13,6 +13,21 @@ impl Stackable for StackEntry
     fn from_entry(entry: StackEntry) -> Self
     {
         entry
+    }
+}
+
+impl Stackable for i64
+{
+    fn into_entry(self) -> StackEntry
+    {
+        // The compiler should be intelligent enough to realise this is a no-op
+        <StackEntry>::from_le_bytes(self.to_le_bytes())
+    }
+
+    fn from_entry(entry: StackEntry) -> Self
+    {
+        // The compiler should be intelligent enough to realise this is a no-op
+        Self::from_le_bytes(entry.to_le_bytes())
     }
 }
 

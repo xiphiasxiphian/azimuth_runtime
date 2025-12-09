@@ -1,4 +1,4 @@
-use std::{iter::Sum, ops::{Add, Sub}};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
 use crate::{
     engine::{
@@ -266,6 +266,16 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
 // Arithmetic Handlers
 
+fn unaryop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
+where
+    T: Stackable,
+    F: Fn(T) -> T
+{
+    let value = input.stack_pop().map(T::from_entry)?;
+    input.stack_push(op(value).into_entry())
+        .map(|_| InstructionResult::Next)
+}
+
 fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
 where
     T: Stackable,
@@ -351,27 +361,27 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::IAdd,          0, binop, <u64>::add },
     { Opcode::F4Add,         0, binop, <f32>::add },
     { Opcode::F8Add,         0, binop, <f64>::add },
-    { Opcode::ISub,          0, binop, <u64>::sub },
+    { Opcode::ISub,          0, binop, <u64>::sub }, // TODO: Think about wrapping
     { Opcode::F4Sub,         0, binop, <f32>::sub },
     { Opcode::F8Sub,         0, binop, <f64>::sub },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::IMul,          0, binop, <u64>::mul },
+    { Opcode::F4Mul,         0, binop, <f32>::mul },
+    { Opcode::F8Mul,         0, binop, <f64>::mul },
+    { Opcode::IDiv,          0, binop, <u64>::div },
+    { Opcode::F4Div,         0, binop, <f32>::div },
+    { Opcode::F8Div,         0, binop, <f64>::div },
+    { Opcode::IRem,          0, binop, <u64>::rem },
+    { Opcode::F4Rem,         0, binop, <f32>::rem },
+    { Opcode::F8Rem,         0, binop, <f64>::rem },
+    { Opcode::INeg,          0, unaryop, <i64>::neg },
+    { Opcode::F4Neg,         0, unaryop, <f32>::neg },
+    { Opcode::F8Neg,         0, unaryop, <f64>::neg },
+    { Opcode::Shl,           0, binop, <u64>::shl },
+    { Opcode::Shr,           0, binop, <u64>::shr },
+    { Opcode::AShr,          0, binop, <i64>::shr },
+    { Opcode::And,           0, binop, <u64>::bitand },
+    { Opcode::Or,            0, binop, <u64>::bitor },
+    { Opcode::Xor,           0, binop, <u64>::bitxor },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
