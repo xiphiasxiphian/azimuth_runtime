@@ -1,4 +1,4 @@
-use std::{iter::Sum, ops::Add};
+use std::{iter::Sum, ops::{Add, Sub}};
 
 use crate::{
     engine::{
@@ -271,6 +271,16 @@ where
 {
     let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
     input.stack_push((value1 + value2).into_entry())
+        .map(|_| InstructionResult::Next)
+}
+
+fn sub<T>(input: &mut HandlerInputInfo) -> ExecutionResult
+where
+    T: Sub + Stackable,
+    <T as Sub>::Output: Stackable
+{
+    let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
+    input.stack_push((value1 - value2).into_entry())
         .map(|_| InstructionResult::Next)
 }
 
