@@ -3,7 +3,7 @@ use std::{iter::Sum, ops::Add};
 use crate::{
     engine::{
         opcodes::Opcode,
-        stack::{Stack, StackEntry, StackFrame},
+        stack::{Stack, StackEntry, StackFrame}, stackable::Stackable,
     },
     loader::constant_table::{ConstantTable, ConstantTableIndex},
 };
@@ -264,14 +264,13 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
 // Arithmetic Handlers
 
-fn add<T, F1, F2>(input: &mut HandlerInputInfo, ingress: F1, egress: F2) -> ExecutionResult
+fn add<T>(input: &mut HandlerInputInfo) -> ExecutionResult
 where
-    T: Sum,
-    F1: Fn(StackEntry) -> T,
-    F2: Fn(T) -> StackEntry
+    T: Add + Stackable,
+    <T as Add>::Output: Stackable
 {
-    let result = input.stack_pop_many::<2>()?.map(ingress).into_iter().sum();
-    input.stack_push(egress(result))
+    let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
+    input.stack_push((value1 + value2).into_entry())
         .map(|_| InstructionResult::Next)
 }
 
@@ -347,9 +346,9 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Swap,          0, swap },
     { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
     { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
-    { Opcode::IAdd,          0, add, |x| x, |x| x },
-    { Opcode::F4Add,         0, add, |x| x, |x| x },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::IAdd,          0, &(|x| add::<u64>(x)) },
+    { Opcode::F4Add,         0, &(|x| add::<f32>(x)) },
+    { Opcode::F8Add,         0, &(|x| add::<f64>(x)) },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
