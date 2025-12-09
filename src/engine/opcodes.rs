@@ -31,6 +31,9 @@ pub enum Opcode
     IAdd,            // i.add: Add top 2 values on the stack as integers. [value1], [value2] -> [result]
     F4Add,           // f4.add: Add top 2 values on the stack as float32. [value1], [value2] -> [result]
     F8Add,           // f8.add: Add top 2 values on the stack as float64. [value1], [value2] -> [result]
+    ISub,            // i.sub: Subtract top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Sub,            // i.sub: Subtract top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F8Sub,            // i.sub: Subtract top 2 values on the stack as integers. [value1], [value2] -> [result]
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }

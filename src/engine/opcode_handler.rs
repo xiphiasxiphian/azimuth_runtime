@@ -59,11 +59,12 @@ impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
 
     /// Helper function for pulling a given number of parameters out of the bytecode stream.
     /// This function will fail if there aren't enough parameters, returning and Err(_)
-    fn pull_params<const N: usize>(&self) -> Result<[u8; N], ExecutionError>
+    fn pull_params(&self, count: usize) -> Result<&[u8], ExecutionError>
     {
-        self.params.first_chunk()
+        self.params
+            .split_at_checked(count)
+            .map(|(x, _)| x)
             .ok_or(ExecutionError::MissingParams)
-            .map(|x| *x)
     }
 
     fn stack_pop_many<const N: usize>(&mut self) -> Result<[u64; N], ExecutionError>
@@ -203,7 +204,8 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Construct the constant table index from the given parameters.
-    let index = <ConstantTableIndex>::from_le_bytes(input.pull_params()?);
+    let bytes = input.pull_params(4)?.first_chunk().ok_or(ExecutionError::MissingParams)?;
+    let index = <ConstantTableIndex>::from_le_bytes(*bytes);
 
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
@@ -264,23 +266,13 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
 // Arithmetic Handlers
 
-fn add<T>(input: &mut HandlerInputInfo) -> ExecutionResult
+fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
 where
-    T: Add + Stackable,
-    <T as Add>::Output: Stackable
+    T: Stackable,
+    F: Fn(T, T) -> T
 {
     let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
-    input.stack_push((value1 + value2).into_entry())
-        .map(|_| InstructionResult::Next)
-}
-
-fn sub<T>(input: &mut HandlerInputInfo) -> ExecutionResult
-where
-    T: Sub + Stackable,
-    <T as Sub>::Output: Stackable
-{
-    let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
-    input.stack_push((value1 - value2).into_entry())
+    input.stack_push(op(value1, value2).into_entry())
         .map(|_| InstructionResult::Next)
 }
 
@@ -345,23 +337,23 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::LdArg1,        0, load_local, 1 },
     { Opcode::LdArg2,        0, load_local, 2 },
     { Opcode::LdArg3,        0, load_local, 3 },
-    { Opcode::LdArg,         1, &(|x| load_local(x, x.pull_params::<1>()?[0])) },
+    { Opcode::LdArg,         1, &(|x| load_local(x, x.pull_params(1)?[0])) },
     { Opcode::StArg0,        0, store_local, 0 },
     { Opcode::StArg1,        0, store_local, 1 },
     { Opcode::StArg2,        0, store_local, 2 },
     { Opcode::StArg3,        0, store_local, 3 },
-    { Opcode::StArg,         1, &(|x| store_local(x, x.pull_params::<1>()?[0])) },
+    { Opcode::StArg,         1, &(|x| store_local(x, x.pull_params(1)?[0])) },
     { Opcode::Pop,           0, pop },
     { Opcode::Dup,           0, dup },
     { Opcode::Swap,          0, swap },
     { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
     { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
-    { Opcode::IAdd,          0, &(|x| add::<u64>(x)) },
-    { Opcode::F4Add,         0, &(|x| add::<f32>(x)) },
-    { Opcode::F8Add,         0, &(|x| add::<f64>(x)) },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::IAdd,          0, binop, <u64>::add },
+    { Opcode::F4Add,         0, binop, <f32>::add },
+    { Opcode::F8Add,         0, binop, <f64>::add },
+    { Opcode::ISub,          0, binop, <u64>::sub },
+    { Opcode::F4Sub,         0, binop, <f32>::sub },
+    { Opcode::F8Sub,         0, binop, <f64>::sub },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
