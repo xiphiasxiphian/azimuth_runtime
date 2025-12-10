@@ -2,7 +2,7 @@
 // In the future this can be more "referency" as things will instead be stored in metaspace
 
 use crate::{
-    engine::{stack::StackFrame, stack::stackable::Stackable},
+    engine::{stack::StackFrame, stack::stackable::Stackable as _},
     loader::parser::{Table, TableEntry},
 };
 

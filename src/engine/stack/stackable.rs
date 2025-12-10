@@ -41,6 +41,7 @@ impl Stackable for u32
         self.into()
     }
 
+    #[expect(clippy::cast_possible_truncation, reason = "Truncating behaviour here is desired")]
     fn from_entry(entry: StackEntry) -> Self
     {
         entry as Self // Truncating behavior desired
@@ -51,9 +52,10 @@ impl Stackable for f32
 {
     fn into_entry(self) -> StackEntry
     {
-        self.to_bits() as StackEntry
+        StackEntry::from(self.to_bits())
     }
 
+    #[expect(clippy::cast_possible_truncation, reason = "Truncating behaviour here is desired")]
     fn from_entry(entry: StackEntry) -> Self
     {
         Self::from_bits(entry as u32) // The truncating behaviour here is desired

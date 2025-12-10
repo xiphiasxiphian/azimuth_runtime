@@ -1,4 +1,4 @@
-use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
+use std::ops::{Add as _, BitAnd as _, BitOr as _, BitXor as _, Div as _, Mul as _, Neg as _, Not as _, Rem as _, Shl as _, Shr as _, Sub as _};
 
 use crate::{
     engine::{
@@ -36,7 +36,7 @@ struct HandlerInputInfo<'a, 'b, 'c>
 }
 
 // Bunch of helper functions to make things a bit cleaner
-impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
+impl HandlerInputInfo<'_, '_, '_>
 {
     pub fn stack_pop(&mut self) -> Result<StackEntry, ExecutionError>
     {
@@ -75,9 +75,9 @@ impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
     fn stack_pop_many<const N: usize>(&mut self) -> Result<[u64; N], ExecutionError>
     {
         let mut values = [0; N];
-        for i in 0..N
+        for val in &mut values
         {
-            values[i] = self.stack_pop()?
+            *val = self.stack_pop()?;
         }
 
         Ok(values)
@@ -183,7 +183,7 @@ fn push_numeric<T>(input: &mut HandlerInputInfo, value: T) -> ExecutionResult
 where
     T: Stackable,
 {
-    input.stack_push(value.into_entry()).map(|_| InstructionResult::Next)
+    input.stack_push(value.into_entry()).map(|()| InstructionResult::Next)
 }
 
 /// Push bytes found from parameters onto the stack
@@ -250,8 +250,8 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
 
     input
         .stack_push(value1)
-        .and_then(|_| input.stack_push(value2))
-        .map(|_| InstructionResult::Next)
+        .and_then(|()| input.stack_push(value2))
+        .map(|()| InstructionResult::Next)
 }
 
 // Basic Local Variable Handlers
@@ -260,7 +260,7 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let val = input.local_get(index)?;
-    input.stack_push(val).map(|_| InstructionResult::Next)
+    input.stack_push(val).map(|()| InstructionResult::Next)
 }
 
 /// Stores the value on top of the stack onto the stack
@@ -280,7 +280,7 @@ where
     let value = input.stack_pop().map(T::from_entry)?;
     input
         .stack_push(op(value).into_entry())
-        .map(|_| InstructionResult::Next)
+        .map(|()| InstructionResult::Next)
 }
 
 fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
@@ -291,7 +291,7 @@ where
     let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
     input
         .stack_push(op(value1, value2).into_entry())
-        .map(|_| InstructionResult::Next)
+        .map(|()| InstructionResult::Next)
 }
 
 // Conversion
@@ -304,7 +304,7 @@ where
     let value = input.stack_pop().map(<I>::from_entry)?;
     input
         .stack_push(<O>::convert(value).into_entry())
-        .map(|_| InstructionResult::Next)
+        .map(|()| InstructionResult::Next)
 }
 
 // Debugging Handlers. Not for actual use

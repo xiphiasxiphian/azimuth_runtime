@@ -1,4 +1,8 @@
+// The narrowing primitive conversion behaviour here is desired
 #![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_precision_loss)]
 
 use crate::engine::stack::stackable::Stackable;
 
