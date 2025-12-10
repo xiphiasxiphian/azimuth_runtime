@@ -1,4 +1,4 @@
-use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Rem, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 use crate::{
     engine::{
@@ -382,7 +382,7 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::And,           0, binop, <u64>::bitand },
     { Opcode::Or,            0, binop, <u64>::bitor },
     { Opcode::Xor,           0, binop, <u64>::bitxor },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Not,           0, unaryop, <u64>::not },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },

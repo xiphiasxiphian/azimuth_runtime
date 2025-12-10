@@ -50,8 +50,9 @@ pub enum Opcode
     Shr,             // shr: Logical Shift Right of value top of the stack. [value1], [value2] -> [result]
     AShr,            // ashr: Arithmetic Shift Right of value top of the stack. [value1], [value2] -> [result]
     And,             // and: And operation on top 2 values on the stack. [value1], [value2] -> [result]
-    Or,              // or: operation on top 2 values on the stack. [value1], [value2] -> [result]
-    Xor,             // xor: operation on top 2 values on the stack. [value1], [value2] -> [result]
+    Or,              // or: Or operation on top 2 values on the stack. [value1], [value2] -> [result]
+    Xor,             // xor: Xor operation on top 2 values on the stack. [value1], [value2] -> [result]
+    Not,             // not: Not operation on top value of the stack. [value] -> [result]
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }
