@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation)]
+
 use crate::engine::stack::stackable::Stackable;
 
 /// Defines behaviour of converting between stack types
