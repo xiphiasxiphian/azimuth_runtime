@@ -8,7 +8,10 @@ pub trait Stackable: Copy
 
 impl Stackable for StackEntry
 {
-    fn into_entry(self) -> StackEntry { self }
+    fn into_entry(self) -> StackEntry
+    {
+        self
+    }
 
     fn from_entry(entry: StackEntry) -> Self
     {
@@ -46,7 +49,10 @@ impl Stackable for u32
 
 impl Stackable for f32
 {
-    fn into_entry(self) -> StackEntry { self.to_bits() as StackEntry }
+    fn into_entry(self) -> StackEntry
+    {
+        self.to_bits() as StackEntry
+    }
 
     fn from_entry(entry: StackEntry) -> Self
     {

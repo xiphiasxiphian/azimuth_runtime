@@ -3,7 +3,8 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Su
 use crate::{
     engine::{
         opcodes::Opcode,
-        stack::{Stack, StackEntry, StackFrame, convert::StackableConvert}, stack::stackable::Stackable,
+        stack::stackable::Stackable,
+        stack::{Stack, StackEntry, StackFrame, convert::StackableConvert},
     },
     loader::constant_table::{ConstantTable, ConstantTableIndex},
 };
@@ -49,12 +50,16 @@ impl<'a, 'b, 'c> HandlerInputInfo<'a, 'b, 'c>
 
     pub fn local_get(&mut self, index: u8) -> Result<StackEntry, ExecutionError>
     {
-        self.frame.get_local(index as usize).ok_or(ExecutionError::IndexOutOfBounds)
+        self.frame
+            .get_local(index as usize)
+            .ok_or(ExecutionError::IndexOutOfBounds)
     }
 
     pub fn local_set(&mut self, index: u8, value: StackEntry) -> Result<StackEntry, ExecutionError>
     {
-        self.frame.set_local(index as usize, value).ok_or(ExecutionError::IndexOutOfBounds)
+        self.frame
+            .set_local(index as usize, value)
+            .ok_or(ExecutionError::IndexOutOfBounds)
     }
 
     /// Helper function for pulling a given number of parameters out of the bytecode stream.
@@ -162,8 +167,6 @@ pub fn exec_instruction<'a>(
     })
 }
 
-
-
 /*
  * ******************************************************************************
  *                                  HANDLERS
@@ -178,11 +181,9 @@ pub fn exec_instruction<'a>(
 /// into a `u64` format. This behaviour is defined in the `Stackable` trait.
 fn push_numeric<T>(input: &mut HandlerInputInfo, value: T) -> ExecutionResult
 where
-    T: Stackable
+    T: Stackable,
 {
-    input
-        .stack_push(value.into_entry())
-        .map(|_| InstructionResult::Next)
+    input.stack_push(value.into_entry()).map(|_| InstructionResult::Next)
 }
 
 /// Push bytes found from parameters onto the stack
@@ -192,7 +193,10 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Ensures that the number of bytes provided will actually fit
     // within a stack entry
-    if input.params.len() <= Stack::ENTRY_SIZE { return Err(ExecutionError::IllegalParam) }
+    if input.params.len() <= Stack::ENTRY_SIZE
+    {
+        return Err(ExecutionError::IllegalParam);
+    }
 
     let mut bytes = [0; Stack::ENTRY_SIZE]; // This is set to the stack entry size.
     bytes[0..(input.params.len())].copy_from_slice(input.params);
@@ -205,7 +209,10 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Construct the constant table index from the given parameters.
-    let bytes = input.pull_params(size_of::<ConstantTableIndex>())?.first_chunk().ok_or(ExecutionError::MissingParams)?;
+    let bytes = input
+        .pull_params(size_of::<ConstantTableIndex>())?
+        .first_chunk()
+        .ok_or(ExecutionError::MissingParams)?;
     let index = <ConstantTableIndex>::from_le_bytes(*bytes);
 
     // Copy the constant from the constant table onto the stack.
@@ -225,8 +232,7 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 /// as it throws away whatever the value it found was.
 fn pop(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    input.stack_pop()
-        .map(|_| InstructionResult::Next) // Discard value
+    input.stack_pop().map(|_| InstructionResult::Next) // Discard value
 }
 
 /// Duplicates the value on top of the stack.
@@ -242,7 +248,8 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
     let value1 = input.stack_pop()?;
     let value2 = input.stack_pop()?;
 
-    input.stack_push(value1)
+    input
+        .stack_push(value1)
         .and_then(|_| input.stack_push(value2))
         .map(|_| InstructionResult::Next)
 }
@@ -253,16 +260,14 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let val = input.local_get(index)?;
-    input.stack_push(val)
-        .map(|_| InstructionResult::Next)
+    input.stack_push(val).map(|_| InstructionResult::Next)
 }
 
 /// Stores the value on top of the stack onto the stack
 fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
     let value = input.stack_pop()?;
-    input.local_set(index, value)
-        .map(|_| InstructionResult::Next)
+    input.local_set(index, value).map(|_| InstructionResult::Next)
 }
 
 // Arithmetic Handlers
@@ -270,20 +275,22 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 fn unaryop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
 where
     T: Stackable,
-    F: Fn(T) -> T
+    F: Fn(T) -> T,
 {
     let value = input.stack_pop().map(T::from_entry)?;
-    input.stack_push(op(value).into_entry())
+    input
+        .stack_push(op(value).into_entry())
         .map(|_| InstructionResult::Next)
 }
 
 fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
 where
     T: Stackable,
-    F: Fn(T, T) -> T
+    F: Fn(T, T) -> T,
 {
     let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
-    input.stack_push(op(value1, value2).into_entry())
+    input
+        .stack_push(op(value1, value2).into_entry())
         .map(|_| InstructionResult::Next)
 }
 
@@ -292,10 +299,11 @@ where
 fn convert<I, O>(input: &mut HandlerInputInfo) -> ExecutionResult
 where
     I: Stackable,
-    O: Stackable + StackableConvert<I>
+    O: Stackable + StackableConvert<I>,
 {
     let value = input.stack_pop().map(<I>::from_entry)?;
-    input.stack_push(<O>::convert(value).into_entry())
+    input
+        .stack_push(<O>::convert(value).into_entry())
         .map(|_| InstructionResult::Next)
 }
 

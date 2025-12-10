@@ -86,7 +86,7 @@ impl<'a> ConstantTable<'a>
             Constant::Unsigned32(x) => stack.push(x.into_entry()), // expanded into u64
             Constant::Unsigned64(x) => stack.push(x),
             Constant::Float32(x) => stack.push(x.into_entry()), // expanded and tranmuted into u64
-            Constant::Float64(x) => stack.push(x.into_entry()),        // transmuted into u64
+            Constant::Float64(x) => stack.push(x.into_entry()), // transmuted into u64
             // Strings a represented on the stack with their reference
             Constant::String(string) => stack.push(string.as_ptr().into_entry()),
         })

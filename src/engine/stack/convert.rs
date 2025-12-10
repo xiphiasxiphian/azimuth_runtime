@@ -1,7 +1,7 @@
 use crate::engine::stack::stackable::Stackable;
 
 /// Defines behaviour of converting between stack types
-pub trait StackableConvert<T: Stackable> : Stackable
+pub trait StackableConvert<T: Stackable>: Stackable
 {
     fn convert(from: T) -> Self;
 }
