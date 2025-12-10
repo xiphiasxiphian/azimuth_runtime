@@ -3,7 +3,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Su
 use crate::{
     engine::{
         opcodes::Opcode,
-        stack::{Stack, StackEntry, StackFrame}, stackable::Stackable,
+        stack::{Stack, StackEntry, StackFrame, convert::StackableConvert}, stack::stackable::Stackable,
     },
     loader::constant_table::{ConstantTable, ConstantTableIndex},
 };
@@ -286,6 +286,18 @@ where
         .map(|_| InstructionResult::Next)
 }
 
+// Conversion
+
+fn convert<I, O>(input: &mut HandlerInputInfo) -> ExecutionResult
+where
+    I: Stackable,
+    O: Stackable + StackableConvert<I>
+{
+    let value = input.stack_pop().map(<I>::from_entry)?;
+    input.stack_push(<O>::convert(value).into_entry())
+        .map(|_| InstructionResult::Next)
+}
+
 // Debugging Handlers. Not for actual use
 
 #[expect(
@@ -383,7 +395,7 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Or,            0, binop, <u64>::bitor },
     { Opcode::Xor,           0, binop, <u64>::bitxor },
     { Opcode::Not,           0, unaryop, <u64>::not },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::IConvertF4,    0, &(|x| convert::<u64, f32>(x)) },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },

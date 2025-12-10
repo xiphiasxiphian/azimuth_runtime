@@ -53,6 +53,12 @@ pub enum Opcode
     Or,              // or: Or operation on top 2 values on the stack. [value1], [value2] -> [result]
     Xor,             // xor: Xor operation on top 2 values on the stack. [value1], [value2] -> [result]
     Not,             // not: Not operation on top value of the stack. [value] -> [result]
+    IConvertF4,      // i.convert.f4: Convert from integer to float32. [int] -> [float32]
+    IConvertF8,      // i.convert.f4: Convert from integer to float32. [int] -> [float64]
+    F4ConvertI,      // f4.convert.i: Convert from float32 to integer. [float32] -> [integer]
+    F4ConvertF8,     // f4.convert.f8: Convert from float32 to float32. [float32] -> [float64]
+    F8ConvertI,      // f8.convert.i: Convert from float64 to integer. [float64] -> [integer]
+    F8ConvertF4,     // f8.convert.f4: Convert from float64 to float32. [float64] -> [float64] (SHOULD THIS BE ALLOWED?)
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }

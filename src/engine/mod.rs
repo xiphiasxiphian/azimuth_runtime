@@ -1,7 +1,6 @@
 pub mod opcode_handler;
 pub mod opcodes;
 pub mod stack;
-pub mod stackable;
 
 use crate::{
     engine::{
