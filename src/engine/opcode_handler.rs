@@ -175,12 +175,13 @@ pub fn exec_instruction<'a>(
 /// Push a given number (in the form of `u64`) onto the stack.
 ///
 /// It is expected that any other numeric type (such as `f32` of `f64`) must be converted
-/// into a `u64` format. This can normally be done with `.to_bits()`.
-/// These bits can later be recovered into their original type.
-fn push_numeric(input: &mut HandlerInputInfo, value: u64) -> ExecutionResult
+/// into a `u64` format. This behaviour is defined in the `Stackable` trait.
+fn push_numeric<T>(input: &mut HandlerInputInfo, value: T) -> ExecutionResult
+where
+    T: Stackable
 {
     input
-        .stack_push(value)
+        .stack_push(value.into_entry())
         .map(|_| InstructionResult::Next)
 }
 
@@ -344,14 +345,14 @@ macro_rules! handler {
 // Is it possible to add any sanity checks into this?
 const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Nop,           0, &(|_| Ok(InstructionResult::Next)) },
-    { Opcode::IConst0,       0, push_numeric, 0 },
-    { Opcode::IConst1,       0, push_numeric, 1 },
-    { Opcode::IConst2,       0, push_numeric, 2 },
-    { Opcode::IConst3,       0, push_numeric, 3 },
-    { Opcode::F4Const0,      0, push_numeric, (0.0_f32).to_bits().into() },
-    { Opcode::F4Const1,      0, push_numeric, (1.0_f32).to_bits().into() },
-    { Opcode::F8Const0,      0, push_numeric, (0.0_f64).to_bits() },
-    { Opcode::F8Const1,      0, push_numeric, (1.0_f64).to_bits() },
+    { Opcode::IConst0,       0, push_numeric, 0_u64 },
+    { Opcode::IConst1,       0, push_numeric, 1_u64 },
+    { Opcode::IConst2,       0, push_numeric, 2_u64 },
+    { Opcode::IConst3,       0, push_numeric, 3_u64 },
+    { Opcode::F4Const0,      0, push_numeric, 0.0_f32 },
+    { Opcode::F4Const1,      0, push_numeric, 1.0_f32 },
+    { Opcode::F8Const0,      0, push_numeric, 0.0_f64 },
+    { Opcode::F8Const1,      0, push_numeric, 1.0_f64 },
     { Opcode::IConst,        1, push_bytes },
     { Opcode::IConstW,       2, push_bytes },
     { Opcode::Const,         4, push_constant },
