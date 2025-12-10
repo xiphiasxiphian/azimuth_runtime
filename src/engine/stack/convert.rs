@@ -26,11 +26,14 @@ macro_rules! impl_convert {
     };
 }
 
+// Using i64 to avoid sign loss
 impl_convert! {
-    f32 => u64,
-    f64 => u64,
-    u64 => f32,
+    u64 => i64,
+    i64 => u64,
+    f32 => i64,
+    f64 => i64,
+    i64 => f32,
     f64 => f32,
-    u64 => f64,
+    i64 => f64,
     f32 => f64
 }
