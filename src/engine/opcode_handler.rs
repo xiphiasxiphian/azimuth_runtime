@@ -204,7 +204,7 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Construct the constant table index from the given parameters.
-    let bytes = input.pull_params(4)?.first_chunk().ok_or(ExecutionError::MissingParams)?;
+    let bytes = input.pull_params(size_of::<ConstantTableIndex>())?.first_chunk().ok_or(ExecutionError::MissingParams)?;
     let index = <ConstantTableIndex>::from_le_bytes(*bytes);
 
     // Copy the constant from the constant table onto the stack.
