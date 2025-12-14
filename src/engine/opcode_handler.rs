@@ -1,4 +1,7 @@
-use std::ops::{Add as _, BitAnd as _, BitOr as _, BitXor as _, Div as _, Mul as _, Neg as _, Not as _, Rem as _, Shl as _, Shr as _, Sub as _};
+use std::ops::{
+    Add as _, BitAnd as _, BitOr as _, BitXor as _, Div as _, Mul as _, Neg as _, Not as _, Rem as _, Shl as _,
+    Shr as _, Sub as _,
+};
 
 use crate::{
     engine::{
@@ -311,9 +314,6 @@ where
 
 #[expect(
     clippy::panic_in_result_fn,
-    reason = "This is a debug handler that should never make it to a finished version"
-)]
-#[expect(
     clippy::panic,
     reason = "This is a debug handler that should never make it to a finished version"
 )]

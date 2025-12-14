@@ -24,7 +24,7 @@ impl Stackable for i64
     fn into_entry(self) -> StackEntry
     {
         // The compiler should be intelligent enough to realise this is a no-op
-        <StackEntry>::from_le_bytes(self.to_le_bytes())
+        <StackEntry>::from_le_bytes(self.to_le_bytes()) // Do I actually want to transmute this?
     }
 
     fn from_entry(entry: StackEntry) -> Self
