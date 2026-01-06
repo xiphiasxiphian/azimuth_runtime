@@ -1,0 +1,10 @@
+#0 string main
+
+.symbol 0 4
+.start
+.maxstack 2
+.maxlocal 0
+i.const.1
+i.const.2
+i.sub
+ret
