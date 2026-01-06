@@ -11,7 +11,7 @@ pub enum Opcode
     F8Const0,        // f8.const.0: Push 0.0 onto the stack. -> 0.0
     F8Const1,        // f8.const.1: Push 1.0 onto the stack. -> 1.0
     IConst,          // i.const: Push a given 1 byte onto the stack -> [byte]
-    IConstW,         // i.const.w: Push a given 2 bytes onto the stack. -> [byte1 << 8 | byte2]
+    IConstW,         // i.const.w: Push a given 2 bytes onto the stack. -> [byte2 << 8 | byte1]
     Const,           // const: Push the constant at the given index onto the stack. -> [constant]
     LdArg0,          // ld.arg.0: Load the local variable at index 0 onto the stack. -> [local0]
     LdArg1,          // ld.arg.1: Load the local variable at index 1 onto the stack. -> [local1]
@@ -24,9 +24,41 @@ pub enum Opcode
     StArg3,          // st.arg.3: Store top of the stack into local variable 3. [value] ->
     StArg,           // st.arg: Store top of the stack into local variable. [value] ->
     Pop,             // pop: Discard the top of the stack. [value] ->
-    Dup,             // dup: Duplicate the value on the top of the stack [value] -> [value], [value]
+    Dup,             // dup: Duplicate the value on the top of the stack. [value] -> [value], [value]
+    Swap,            // swap: Swap the top 2 stack entries. [value1], [value2] -> [value2], [value1]
     Ret,             // ret: Return out of the current function. -> !
-    RetVal,          // ret.val: Return with the value top of hte stack. [value] -> !
+    RetVal,          // ret.val: Return with the value top of the stack. [value] -> !
+    IAdd,            // i.add: Add top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Add,           // f4.add: Add top 2 values on the stack as float32. [value1], [value2] -> [result]
+    F8Add,           // f8.add: Add top 2 values on the stack as float64. [value1], [value2] -> [result]
+    ISub,            // i.sub: Subtract top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Sub,           // f4.sub: Subtract top 2 values on the stack as float32. [value1], [value2] -> [result]
+    F8Sub,           // f8.sub: Subtract top 2 values on the stack as float64. [value1], [value2] -> [result]
+    IMul,            // i.mul: Multiply top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Mul,           // f4.mul: Multiply top 2 values on the stack as float32. [value1], [value2] -> [result]
+    F8Mul,           // f8.mul: Multiply top 2 values on the stack as float64. [value1], [value2] -> [result]
+    IDiv,            // i.div: Divide top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Div,           // f4.div: Divide top 2 values on the stack as float32. [value1], [value2] -> [result]
+    F8Div,           // f8.div: Divide top 2 values on the stack as float64. [value1], [value2] -> [result]
+    IRem,            // i.rem: Find remainder of division of top 2 values on the stack as integers. [value1], [value2] -> [result]
+    F4Rem,           // f4.rem: Find remainder of division of top 2 values on the stack as float32. [value1], [value2] -> [result]
+    F8Rem,           // f8.rem: Find remainder of division of top 2 values on the stack as float64. [value1], [value2] -> [result]
+    INeg,            // i.neg: Negate top value on the stack as integer. [value] -> [result]
+    F4Neg,           // f4.neg: Negate top value on the stack as float32. [value] -> [result]
+    F8Neg,           // f8.neg: Negate top value on the stack as float64. [value] -> [result]
+    Shl,             // shl: Logical Shift left of value top of the stack. [value1], [value2] -> [result]
+    Shr,             // shr: Logical Shift Right of value top of the stack. [value1], [value2] -> [result]
+    AShr,            // ashr: Arithmetic Shift Right of value top of the stack. [value1], [value2] -> [result]
+    And,             // and: And operation on top 2 values on the stack. [value1], [value2] -> [result]
+    Or,              // or: Or operation on top 2 values on the stack. [value1], [value2] -> [result]
+    Xor,             // xor: Xor operation on top 2 values on the stack. [value1], [value2] -> [result]
+    Not,             // not: Not operation on top value of the stack. [value] -> [result]
+    IConvertF4,      // i.convert.f4: Convert from integer to float32. [int] -> [float32]
+    IConvertF8,      // i.convert.f4: Convert from integer to float32. [int] -> [float64]
+    F4ConvertI,      // f4.convert.i: Convert from float32 to integer. [float32] -> [integer]
+    F4ConvertF8,     // f4.convert.f8: Convert from float32 to float32. [float32] -> [float64]
+    F8ConvertI,      // f8.convert.i: Convert from float64 to integer. [float64] -> [integer]
+    F8ConvertF4,     // f8.convert.f4: Convert from float64 to float32. [float64] -> [float64] (SHOULD THIS BE ALLOWED?)
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }
