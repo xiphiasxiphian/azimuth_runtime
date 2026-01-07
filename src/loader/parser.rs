@@ -204,7 +204,7 @@ pub struct FunctionInfo
 
 impl FunctionInfo
 {
-    pub fn new<'a>(input: &'a [u8], table: &Table) -> Option<(Self, &'a [u8])>
+    pub fn new<'b>(input: &'b [u8], table: &Table) -> Option<(Self, &'b [u8])>
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
@@ -214,7 +214,7 @@ impl FunctionInfo
 
         let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..)?;
 
-        let (_, descriptor): (&String, u32) = symbol_handler(symbol_operands).and_then(|x| {
+        let (name, descriptor): (&str, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
                 Directive::Symbol(name_index, code_count) =>
@@ -230,7 +230,7 @@ impl FunctionInfo
                     match *name
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        TableEntry::String(ref name_str) => Some((name_str, code_count)),
+                        TableEntry::String(ref name_str) => Some((name_str.as_str(), code_count)),
                         _ => None,
                     }
                 }
