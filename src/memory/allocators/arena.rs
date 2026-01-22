@@ -7,14 +7,16 @@ pub struct ArenaAllocator
     base: NonNull<u8>,
     head_offset: usize,
     capacity: usize,
-    layout: Layout,
+    layout: Option<Layout>,
 }
 
 impl Drop for ArenaAllocator
 {
     fn drop(&mut self)
     {
-        unsafe { dealloc(self.base.as_ptr(), self.layout) };
+        // In case the allocator is working is embedded into a large memory block,
+        // dont try and drop the memory as it is managed by some other structure.
+        if let Some(layout) = self.layout { unsafe { dealloc(self.base.as_ptr(), layout) }; }
     }
 }
 
@@ -29,15 +31,26 @@ impl ArenaAllocator
             base: NonNull::new(data)?,
             head_offset: 0,
             capacity,
-            layout,
+            layout: Some(layout),
         })
+    }
+
+    pub fn from_existing_allocation(base: NonNull<u8>, capacity: usize) -> Self
+    {
+        Self {
+            base,
+            head_offset: 0,
+            capacity,
+            layout: None,
+        }
     }
 
     pub fn raw_alloc(&mut self, size: usize) -> Option<NonNull<u8>>
     {
-        (size + self.head_offset <= self.capacity).then(|| {
+        let adjusted_size = size.next_multiple_of(ALIGNMENT);
+        (adjusted_size + self.head_offset <= self.capacity).then(|| {
             let result = unsafe { self.base.byte_add(self.head_offset) };
-            self.head_offset += size;
+            self.head_offset += adjusted_size;
 
             result
         })
@@ -46,10 +59,9 @@ impl ArenaAllocator
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
         let adjusted_size = size_of_val(&value).next_multiple_of(ALIGNMENT);
-
         (adjusted_size + self.head_offset <= self.capacity).then(|| {
             let ptr: NonNull<T> = unsafe { self.base.byte_add(self.head_offset) }.cast();
-            self.head_offset += size_of_val(&value);
+            self.head_offset += adjusted_size;
 
             unsafe { ptr.write(value) };
             ptr
@@ -153,7 +165,7 @@ mod arena_tests
     {
         let mut arena = ArenaAllocator::with_capacity(1024).unwrap();
 
-        let ptr = arena.alloc([0_u8; 1024]).unwrap();
+        let ptr = arena.raw_alloc(1024).unwrap();
 
         let ptr2 = arena.alloc(12);
         assert_eq!(ptr2, None);
