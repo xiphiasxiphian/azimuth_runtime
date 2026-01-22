@@ -147,4 +147,20 @@ mod arena_tests
 
         assert_eq!(ptr1.as_ptr() as usize, ptr2.as_ptr() as usize);
     }
+
+    #[test]
+    fn overflow()
+    {
+        let mut arena = ArenaAllocator::with_capacity(1024).unwrap();
+
+        let ptr = arena.alloc([0_u8; 1024]).unwrap();
+
+        let ptr2 = arena.alloc(12);
+        assert_eq!(ptr2, None);
+
+        arena.release_all();
+
+        let ptr2 = arena.alloc(12).unwrap();
+        assert_eq!(unsafe { ptr2.read() }, 12);
+    }
 }
