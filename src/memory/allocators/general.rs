@@ -7,6 +7,7 @@ use crate::memory::allocators::ALIGNMENT;
 pub struct GeneralAllocator
 {
     base: NonNull<u8>,
+    base_block: NonNull<BlockHeader>,
     capacity: usize,
     layout: Option<Layout>
 }
@@ -24,10 +25,11 @@ impl GeneralAllocator
     pub fn with_capacity(capacity: usize) -> Option<Self>
     {
         let layout = Layout::from_size_align(capacity, ALIGNMENT).ok()?;
-        let base = unsafe { alloc(layout) };
+        let base = NonNull::new(unsafe { alloc(layout) })?;
 
         Some(Self {
-            base: NonNull::new(base)?,
+            base,
+            base_block: BlockHeader::get_initial(base, capacity),
             capacity,
             layout: Some(layout),
         })
@@ -37,6 +39,7 @@ impl GeneralAllocator
     {
         Self {
             base,
+            base_block: BlockHeader::get_initial(base, capacity),
             capacity,
             layout: None,
         }
@@ -54,14 +57,27 @@ impl GeneralAllocator
 }
 
 
-struct BuddyBlock
+struct BlockHeader
 {
     size: usize,
+    free: bool,
+    age: u8
 }
 
-impl BuddyBlock
+impl BlockHeader
 {
     const ALIGNED_SIZE: usize = size_of::<Self>().next_multiple_of(ALIGNMENT);
+
+    fn get_initial(base: NonNull<u8>, capacity: usize) -> NonNull<Self>
+    {
+        unsafe { base.cast().write(BlockHeader {
+            size: capacity,
+            free: true,
+            age: 0,
+        }) }
+
+        base.cast()
+    }
 
     unsafe fn get_data_pointer<T>(block: NonNull<Self>) -> NonNull<T>
     {
@@ -77,8 +93,7 @@ impl BuddyBlock
 
     unsafe fn next_block_checked(block: NonNull<Self>, limit: NonNull<u8>) -> Option<NonNull<Self>>
     {
-        let offset = unsafe { block.read().size };
-        let init = unsafe { block.byte_add(offset) };
+        let init = unsafe { Self::next_block(block) };
         (init.cast() <= limit).then(|| {
             init
         })
