@@ -1,6 +1,6 @@
 use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
 
-use crate::memory::allocators::ALIGNMENT;
+use crate::memory::allocators::{ALIGNMENT, AllocatorError};
 
 pub struct ArenaAllocator
 {
@@ -22,13 +22,15 @@ impl Drop for ArenaAllocator
 
 impl ArenaAllocator
 {
-    pub fn with_capacity(capacity: usize) -> Option<Self>
+    pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, super::ALIGNMENT).ok()?;
+        let layout = Layout::from_size_align(capacity, super::ALIGNMENT)
+            .map_err(|x| AllocatorError::BadLayout(x))?;
         let data = unsafe { alloc(layout) };
 
-        Some(Self {
-            base: NonNull::new(data)?,
+        Ok(Self {
+            base: NonNull::new(data)
+                .ok_or(AllocatorError::FailedInitialAllocation)?,
             head_offset: 0,
             capacity,
             layout: Some(layout),
