@@ -1,6 +1,6 @@
 use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
 
-use crate::memory::allocators::{ALIGNMENT, AllocatorError};
+use crate::memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT};
 
 pub struct ArenaAllocator
 {
@@ -24,7 +24,7 @@ impl ArenaAllocator
 {
     pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, super::ALIGNMENT)
+        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT)
             .map_err(|x| AllocatorError::BadLayout(x))?;
         let data = unsafe { alloc(layout) };
 
@@ -47,9 +47,9 @@ impl ArenaAllocator
         }
     }
 
-    pub fn raw_alloc(&mut self, size: usize) -> Option<NonNull<u8>>
+    pub fn raw_alloc(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>
     {
-        let adjusted_size = size.next_multiple_of(ALIGNMENT);
+        let adjusted_size = size.next_multiple_of(align);
         (adjusted_size + self.head_offset <= self.capacity).then(|| {
             let result = unsafe { self.base.byte_add(self.head_offset) };
             self.head_offset += adjusted_size;
@@ -60,7 +60,7 @@ impl ArenaAllocator
 
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
-        let adjusted_size = size_of_val(&value).next_multiple_of(ALIGNMENT);
+        let adjusted_size = size_of_val(&value).next_multiple_of(align_of_val(&value));
         (adjusted_size + self.head_offset <= self.capacity).then(|| {
             let ptr: NonNull<T> = unsafe { self.base.byte_add(self.head_offset) }.cast();
             self.head_offset += adjusted_size;
@@ -167,7 +167,7 @@ mod arena_tests
     {
         let mut arena = ArenaAllocator::with_capacity(1024).unwrap();
 
-        let ptr = arena.raw_alloc(1024).unwrap();
+        let ptr = arena.alloc([0_u8; 1024]);
 
         let ptr2 = arena.alloc(12);
         assert_eq!(ptr2, None);

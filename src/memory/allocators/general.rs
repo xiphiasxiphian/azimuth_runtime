@@ -2,7 +2,7 @@
 
 use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
 
-use crate::{common::{ScopeMethods}, guard, memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT}};
+use crate::{common::{ScopeMethods}, guard, memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT}};
 
 pub struct GeneralAllocator<const DEPTH: usize>
 {
@@ -45,7 +45,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
     pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, ALIGNMENT)
+        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT)
             .map_err(|x| AllocatorError::BadLayout(x))?;
 
         let base = NonNull::new(unsafe { alloc(layout) })
@@ -206,34 +206,151 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct BlockHeader
 {
     next: Option<NonNull<Self>>
 }
 
-impl BlockHeader
-{
-
-}
-
 #[cfg(test)]
 mod general_allocator_tests
 {
+    use std::array::from_fn;
+
     use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TestingData
+    {
+        number: i32,
+        character: char,
+        boolean: bool,
+        text: &'static str,
+    }
+
+    impl TestingData
+    {
+        pub fn new(number: i32, character: char, boolean: bool, text: &'static str) -> Self
+        { TestingData { number, character, boolean, text } }
+    }
+
+    const CAPACITY: usize = 1 << 16;
+    const DEPTH: usize = 8;
 
     #[test]
     fn create_allocator()
     {
-        let _ = GeneralAllocator::<16>::with_capacity(4096).unwrap();
+        let _ = GeneralAllocator::<DEPTH>::with_capacity(CAPACITY).unwrap();
     }
 
     #[test]
     fn create_from_existing()
     {
-        let mut base = unsafe { Box::<[u8]>::new_zeroed_slice(4096).assume_init() };
-        let allocator = GeneralAllocator::<16>::from_existing_allocation(NonNull::new(base.as_mut_ptr()).unwrap(), 512);
+        let mut base = unsafe { Box::<[u8]>::new_zeroed_slice(CAPACITY).assume_init() };
+        let allocator = GeneralAllocator::<DEPTH>::from_existing_allocation(NonNull::new(base.as_mut_ptr()).unwrap(), 512);
 
         // Maybe test some allocations here
+    }
+
+    #[test]
+    fn single_allocation()
+    {
+        let mut allocator = GeneralAllocator::<DEPTH>::with_capacity(CAPACITY).unwrap();
+        let ptr = allocator.alloc(TestingData { number: 1, character: 'c', boolean: true, text: "Azimuth" }).unwrap();
+
+        let data = unsafe { ptr.read() };
+
+        assert_eq!(data.number, 1);
+        assert_eq!(data.character, 'c');
+        assert_eq!(data.boolean, true);
+        assert_eq!(data.text, "Azimuth");
+    }
+
+    #[test]
+    fn multiple_allocations()
+    {
+        let mut allocator = GeneralAllocator::<DEPTH>::with_capacity(CAPACITY).unwrap();
+        let ptr1 = allocator.alloc(TestingData { number: 1, character: 'c', boolean: true, text: "Azimuth" }).unwrap();
+        let ptr2 = allocator.alloc(42).unwrap();
+        let ptr3 = allocator.alloc("What is this").unwrap();
+
+        let data1 = unsafe { ptr1.read() };
+        let data2 = unsafe { ptr2.read() };
+        let data3 = unsafe { ptr3.read() };
+
+        assert_eq!(data1.number, 1);
+        assert_eq!(data1.character, 'c');
+        assert_eq!(data1.boolean, true);
+        assert_eq!(data1.text, "Azimuth");
+
+        assert_eq!(data2, 42);
+        assert_eq!(data3, "What is this");
+    }
+
+    #[test]
+    fn basic_deallocation()
+    {
+        let mut allocator = GeneralAllocator::<5>::with_capacity(256).unwrap();
+
+        let ptr = allocator.alloc([0_u8; 256]).unwrap();
+
+        let ptr2 = allocator.alloc(42);
+        assert_eq!(ptr2, None);
+
+        allocator.dealloc(ptr);
+
+        let ptr2 = allocator.alloc(42).unwrap();
+        let data = unsafe { ptr2.read() };
+
+        assert_eq!(data, 42);
+    }
+
+    #[test]
+    fn complex_management()
+    {
+        let mut allocator = GeneralAllocator::<DEPTH>::with_capacity(4096).unwrap();
+
+        let testing_data: [TestingData; 20] = from_fn(|x| {
+            TestingData::new(x as i32, ('a' as u8 + x as u8) as char, (x % 2) != 0, "Azimuth")
+        });
+
+        let mut test_ptrs: [NonNull<TestingData>; 20] = testing_data.clone().map(|x| {
+            allocator.alloc(x).unwrap()
+        });
+
+        let mut integer_ptrs: [NonNull<usize>; 20] = from_fn(|x| allocator.alloc(x + 100).unwrap());
+
+        // Check validity and deallocate odd entries
+        for (i, (correct, test)) in testing_data.iter().zip(test_ptrs).enumerate()
+        {
+            assert_eq!(correct, unsafe { test.as_ref() });
+            if i % 2 == 1 { allocator.dealloc(test); }
+        }
+
+        for (i, integer) in integer_ptrs.iter().enumerate()
+        {
+            assert_eq!(i + 100, unsafe { integer.read() });
+            if i % 2 == 1 { allocator.dealloc(*integer); }
+        }
+
+        // Fill entries back in
+        for i in (1..20).step_by(2)
+        {
+            test_ptrs[i] = allocator.alloc(TestingData::new(42, '!', true, "\0")).unwrap();
+            integer_ptrs[i] = allocator.alloc(42).unwrap();
+        }
+
+        // Check again
+        for (i, (correct, test)) in testing_data.iter().zip(test_ptrs).enumerate()
+        {
+            if i % 2 == 1 { assert_eq!(TestingData::new(42, '!', true, "\0"), unsafe { test.read() }); }
+            else { assert_eq!(correct, unsafe { test.as_ref() }); }
+        }
+
+        for (i, integer) in integer_ptrs.iter().enumerate()
+        {
+            if i % 2 == 1 { assert_eq!(42, unsafe { integer.read() }) }
+            else { assert_eq!(i + 100, unsafe { integer.read() }); }
+        }
     }
 }
