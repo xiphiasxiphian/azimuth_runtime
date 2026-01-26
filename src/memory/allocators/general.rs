@@ -2,7 +2,7 @@
 
 use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
 
-use crate::{common::{self, ScopeMethods}, guard, memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT}};
+use crate::{common::{ScopeMethods}, guard, memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT}};
 
 pub struct GeneralAllocator<const DEPTH: usize>
 {
@@ -37,7 +37,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         Ok(Self {
             base,
             capacity,
-            freelists,s
+            freelists,
             min_block_size,
             layout,
         })
@@ -59,16 +59,58 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         Self::new(base, capacity, None)
     }
 
-    pub fn raw_alloc(&mut self, size: usize) -> Option<NonNull<u8>>
+    pub fn raw_alloc(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>
     {
-        todo!()
+        self.get_allocation_order(size, align)
+            .map(|target| {
+                (target..DEPTH)
+                    .map(|order| {
+                        self.block_pop(order)
+                            .inspect(|block| {
+                                if order > target
+                                {
+                                    unsafe { self.split_block(*block, order, target); }
+                                }
+                            })
+                    })
+                    .find(|x| x.is_some())
+                    .flatten()
+            })
+            .unwrap_or(None)
     }
 
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
-        todo!()
+        self.raw_alloc(size_of_val(&value), align_of_val(&value))
+            .map(|x| x.cast())
+            .inspect(|x| unsafe { x.write(value) })
     }
 
+    pub fn raw_dealloc(&mut self, ptr: NonNull<u8>, size: usize, align: usize)
+    {
+        let initial = self.get_allocation_order(size, align).expect("Invalid Block Deallocation Request");
+
+        let mut block = ptr;
+        for order in initial..DEPTH
+        {
+            if let Some(buddy) = self.find_buddy(order, block)
+            {
+                if self.block_remove(order, block)
+                {
+                    block = block.min(buddy);
+                    continue;
+                }
+            }
+
+            self.block_insert(order, block);
+            return;
+        }
+    }
+
+    pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
+    {
+        self.raw_dealloc(ptr.cast(), size_of::<T>(), align_of::<T>());
+    }
 
     fn get_allocation_size(&self, in_size: usize, alignment: usize) -> Result<usize, AllocatorError>
     {
@@ -119,9 +161,52 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
         self.freelists[order] = Some(new_head);
     }
+
+    fn block_remove(&mut self, order: usize, block: NonNull<u8>) -> bool
+    {
+        let block_ptr: NonNull<BlockHeader> = block.cast();
+        let mut current: &mut Option<NonNull<BlockHeader>> = &mut self.freelists[order];
+
+        while let Some(ptr) = current
+        {
+            if *ptr == block_ptr
+            {
+                *current = unsafe { ptr.read().next };
+                return true;
+            }
+
+            current = unsafe { &mut ((*(ptr.as_ptr())).next)}
+        }
+
+        false
+    }
+
+    unsafe fn split_block(&mut self, block: NonNull<u8>, order: usize, target: usize)
+    {
+        let block_size = self.get_required_block_size(order);
+
+        let mut index = 0;
+        while (order >> index) > target
+        {
+            index += 1;
+
+            let split = unsafe { block.byte_add(block_size >> index) };
+            self.block_insert(order - index, split);
+        }
+    }
+
+    fn find_buddy(&self, order: usize, block: NonNull<u8>) -> Option<NonNull<u8>>
+    {
+        let relative = unsafe { block.byte_offset_from_unsigned(self.base) };
+        let size = self.get_required_block_size(order);
+
+        guard!(size < self.capacity);
+
+        Some(unsafe { self.base.byte_add(relative ^ size) })
+    }
 }
 
-
+#[derive(PartialEq, Eq)]
 struct BlockHeader
 {
     next: Option<NonNull<Self>>
