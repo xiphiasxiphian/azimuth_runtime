@@ -1,18 +1,18 @@
 // A memory manager manages a block of memory as a heap
 
-use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
+use std::{alloc::{Layout, LayoutError, alloc, dealloc}, array, ptr::NonNull};
 
-use crate::memory::allocators::ALIGNMENT;
+use crate::memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT};
 
-pub struct GeneralAllocator
+pub struct GeneralAllocator<const DEPTH: usize>
 {
     base: NonNull<u8>,
-    base_block: NonNull<BlockHeader>,
     capacity: usize,
+    freelists: [*mut BlockHeader; DEPTH],
     layout: Option<Layout>
 }
 
-impl Drop for GeneralAllocator
+impl<const N: usize> Drop for GeneralAllocator<N>
 {
     fn drop(&mut self)
     {
@@ -20,29 +20,51 @@ impl Drop for GeneralAllocator
     }
 }
 
-impl GeneralAllocator
+impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 {
-    pub fn with_capacity(capacity: usize) -> Option<Self>
+    fn new(base: NonNull<u8>, capacity: usize, layout: Option<Layout>) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, ALIGNMENT).ok()?;
-        let base = NonNull::new(unsafe { alloc(layout) })?;
+        let min_block_size = capacity >> (DEPTH - 1);
 
-        Some(Self {
-            base,
-            base_block: BlockHeader::get_initial(base, capacity),
-            capacity,
-            layout: Some(layout),
-        })
+        if base.as_ptr() as usize & (MIN_PAGE_ALIGNMENT - 1) != 0
+        {
+            return Err(AllocatorError::BadConstraints);
+        }
+
+        if capacity < min_block_size
+        {
+            return Err(AllocatorError::BadConstraints);
+        }
+
+        if min_block_size < size_of::<BlockHeader>()
+        {
+            return Err(AllocatorError::BadConstraints);
+        }
+
+        if !capacity.is_power_of_two()
+        {
+            return Err(AllocatorError::BadConstraints);
+        }
+
+        let freelists: [*mut BlockHeader; DEPTH] = [std::ptr::null_mut(); DEPTH];
+
+
+    }
+
+    pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
+    {
+        let layout = Layout::from_size_align(capacity, ALIGNMENT)
+            .map_err(|x| AllocatorError::BadLayout(x))?;
+
+        let base = NonNull::new(unsafe { alloc(layout) })
+            .ok_or(AllocatorError::FailedInitialAllocation)?;
+
+        Self::new::<DEPTH>(base, capacity, Some(layout))
     }
 
     pub fn from_existing_allocation(base: NonNull<u8>, capacity: usize) -> Self
     {
-        Self {
-            base,
-            base_block: BlockHeader::get_initial(base, capacity),
-            capacity,
-            layout: None,
-        }
+
     }
 
     pub fn raw_alloc(&mut self, size: usize) -> Option<NonNull<u8>>
@@ -59,45 +81,12 @@ impl GeneralAllocator
 
 struct BlockHeader
 {
-    size: usize,
-    free: bool,
-    age: u8
+    next: Option<NonNull<Self>>
 }
 
 impl BlockHeader
 {
-    const ALIGNED_SIZE: usize = size_of::<Self>().next_multiple_of(ALIGNMENT);
 
-    fn get_initial(base: NonNull<u8>, capacity: usize) -> NonNull<Self>
-    {
-        unsafe { base.cast().write(BlockHeader {
-            size: capacity,
-            free: true,
-            age: 0,
-        }) }
-
-        base.cast()
-    }
-
-    unsafe fn get_data_pointer<T>(block: NonNull<Self>) -> NonNull<T>
-    {
-        let initial: NonNull<T> = unsafe { block.byte_add(Self::ALIGNED_SIZE).cast() };
-        initial
-    }
-
-    unsafe fn next_block(block: NonNull<Self>) -> NonNull<Self>
-    {
-        let offset = unsafe { block.read().size };
-        unsafe { block.byte_add(offset) }
-    }
-
-    unsafe fn next_block_checked(block: NonNull<Self>, limit: NonNull<u8>) -> Option<NonNull<Self>>
-    {
-        let init = unsafe { Self::next_block(block) };
-        (init.cast() <= limit).then(|| {
-            init
-        })
-    }
 }
 
 #[cfg(test)]
