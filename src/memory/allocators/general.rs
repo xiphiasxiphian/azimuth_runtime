@@ -8,7 +8,7 @@ pub struct GeneralAllocator<const DEPTH: usize>
 {
     base: NonNull<u8>,
     capacity: usize,
-    freelists: [*mut BlockHeader; DEPTH],
+    freelists: [Option<NonNull<BlockHeader>>; DEPTH],
     min_block_size: usize,
     layout: Option<Layout>,
 }
@@ -32,13 +32,12 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         guard!(min_block_size >= size_of::<BlockHeader>(), AllocatorError::BadConstraints);
         guard!(capacity.is_power_of_two(), AllocatorError::BadConstraints);
 
-        let freelists: [*mut BlockHeader; DEPTH]
-            = [std::ptr::null_mut(); DEPTH].also_mut(|x| { x[DEPTH - 1] = base.as_ptr() as *mut BlockHeader} );
+        let freelists = [None; DEPTH].also_mut(|x| { x[DEPTH - 1] = Some(base.cast())} );
 
         Ok(Self {
             base,
             capacity,
-            freelists,
+            freelists,s
             min_block_size,
             layout,
         })
@@ -83,6 +82,42 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
         guard!(size <= self.capacity, AllocatorError::BadRequest);
         Ok(size)
+    }
+
+    fn get_allocation_order(&self, size: usize, align: usize) -> Result<usize, AllocatorError>
+    {
+        self.get_allocation_size(size, align)
+            .map(|x| (x.ilog2() - self.min_block_size.ilog2()) as usize)
+    }
+
+    const fn get_required_block_size(&self, order: usize) -> usize
+    {
+        1 << (self.min_block_size.ilog2() as usize + order)
+    }
+
+    fn block_pop(&mut self, order: usize) -> Option<NonNull<u8>>
+    {
+        self.freelists[order]
+            .inspect(|blk| {
+                // Alter free list
+                if order != self.freelists.len() - 1
+                {
+                    self.freelists[order] = unsafe { blk.read().next }
+                }
+                else
+                {
+                    self.freelists[order] = None
+                }
+            })
+            .map(|x| x.cast())
+    }
+
+    fn block_insert(&mut self, order: usize, block: NonNull<u8>)
+    {
+        let new_head = block.cast();
+        unsafe { new_head.write(BlockHeader { next: self.freelists[order] }); }
+
+        self.freelists[order] = Some(new_head);
     }
 }
 
