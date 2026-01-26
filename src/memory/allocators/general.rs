@@ -2,14 +2,15 @@
 
 use std::{alloc::{Layout, LayoutError, alloc, dealloc}, array, ptr::NonNull};
 
-use crate::memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT};
+use crate::{common::ScopeMethods, memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT}};
 
 pub struct GeneralAllocator<const DEPTH: usize>
 {
     base: NonNull<u8>,
     capacity: usize,
     freelists: [*mut BlockHeader; DEPTH],
-    layout: Option<Layout>
+    min_block_size: usize,
+    layout: Option<Layout>,
 }
 
 impl<const N: usize> Drop for GeneralAllocator<N>
@@ -46,9 +47,16 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
             return Err(AllocatorError::BadConstraints);
         }
 
-        let freelists: [*mut BlockHeader; DEPTH] = [std::ptr::null_mut(); DEPTH];
+        let freelists: [*mut BlockHeader; DEPTH]
+            = [std::ptr::null_mut(); DEPTH].also_mut(|x| { x[DEPTH - 1] = base.as_ptr() as *mut BlockHeader} );
 
-
+        Ok(Self {
+            base,
+            capacity,
+            freelists,
+            min_block_size,
+            layout,
+        })
     }
 
     pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
@@ -59,12 +67,12 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         let base = NonNull::new(unsafe { alloc(layout) })
             .ok_or(AllocatorError::FailedInitialAllocation)?;
 
-        Self::new::<DEPTH>(base, capacity, Some(layout))
+        Self::new(base, capacity, Some(layout))
     }
 
-    pub fn from_existing_allocation(base: NonNull<u8>, capacity: usize) -> Self
+    pub fn from_existing_allocation(base: NonNull<u8>, capacity: usize) -> Result<Self, AllocatorError>
     {
-
+        Self::new(base, capacity, None)
     }
 
     pub fn raw_alloc(&mut self, size: usize) -> Option<NonNull<u8>>
