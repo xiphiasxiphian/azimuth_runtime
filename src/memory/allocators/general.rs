@@ -1,8 +1,8 @@
 // A memory manager manages a block of memory as a heap
 
-use std::{alloc::{Layout, LayoutError, alloc, dealloc}, array, ptr::NonNull};
+use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
 
-use crate::{common::ScopeMethods, memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT}};
+use crate::{common::{self, ScopeMethods}, guard, memory::allocators::{ALIGNMENT, AllocatorError, MIN_PAGE_ALIGNMENT}};
 
 pub struct GeneralAllocator<const DEPTH: usize>
 {
@@ -27,25 +27,10 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     {
         let min_block_size = capacity >> (DEPTH - 1);
 
-        if base.as_ptr() as usize & (MIN_PAGE_ALIGNMENT - 1) != 0
-        {
-            return Err(AllocatorError::BadConstraints);
-        }
-
-        if capacity < min_block_size
-        {
-            return Err(AllocatorError::BadConstraints);
-        }
-
-        if min_block_size < size_of::<BlockHeader>()
-        {
-            return Err(AllocatorError::BadConstraints);
-        }
-
-        if !capacity.is_power_of_two()
-        {
-            return Err(AllocatorError::BadConstraints);
-        }
+        guard!(base.as_ptr() as usize & (MIN_PAGE_ALIGNMENT - 1) == 0, AllocatorError::BadConstraints);
+        guard!(capacity >= min_block_size, AllocatorError::BadConstraints);
+        guard!(min_block_size >= size_of::<BlockHeader>(), AllocatorError::BadConstraints);
+        guard!(capacity.is_power_of_two(), AllocatorError::BadConstraints);
 
         let freelists: [*mut BlockHeader; DEPTH]
             = [std::ptr::null_mut(); DEPTH].also_mut(|x| { x[DEPTH - 1] = base.as_ptr() as *mut BlockHeader} );
@@ -84,6 +69,21 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     {
         todo!()
     }
+
+
+    fn get_allocation_size(&self, in_size: usize, alignment: usize) -> Result<usize, AllocatorError>
+    {
+        guard!(alignment.is_power_of_two(), AllocatorError::BadRequest);
+        guard!(alignment <= MIN_PAGE_ALIGNMENT, AllocatorError::BadRequest);
+
+        let mut size = in_size;
+
+        if alignment > size { size = alignment; }
+        size = size.max(self.min_block_size).next_power_of_two();
+
+        guard!(size <= self.capacity, AllocatorError::BadRequest);
+        Ok(size)
+    }
 }
 
 
@@ -105,14 +105,14 @@ mod general_allocator_tests
     #[test]
     fn create_allocator()
     {
-        let _ = GeneralAllocator::with_capacity(1024).unwrap();
+        let _ = GeneralAllocator::<16>::with_capacity(4096).unwrap();
     }
 
     #[test]
     fn create_from_existing()
     {
-        let mut base = unsafe { Box::<[u8]>::new_zeroed_slice(1024).assume_init() };
-        let allocator = GeneralAllocator::from_existing_allocation(NonNull::new(base.as_mut_ptr()).unwrap(), 512);
+        let mut base = unsafe { Box::<[u8]>::new_zeroed_slice(4096).assume_init() };
+        let allocator = GeneralAllocator::<16>::from_existing_allocation(NonNull::new(base.as_mut_ptr()).unwrap(), 512);
 
         // Maybe test some allocations here
     }

@@ -1,4 +1,4 @@
-use crate::{engine::opcodes::Opcode, loader::runnable::Runnable};
+use crate::{engine::opcodes::Opcode, guard, loader::runnable::Runnable};
 
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
 pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
@@ -244,12 +244,9 @@ impl FunctionInfo
         // Loop through the bytes until it doesn't represent a directive anymore
         while let &[Directive::OPCODE, x, ref res @ ..] = remaining
         {
-            if x == Directive::SYMBOL
-            {
-                // This means that there has been a second symbol directive which isnt
-                // legal
-                return None;
-            }
+            // This means that there has been a second symbol directive which isnt
+            // legal
+            guard!(x == Directive::SYMBOL);
 
             // Parse the found directive
             let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;

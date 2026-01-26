@@ -12,5 +12,6 @@ pub enum AllocatorError
     InvalidHeapSize,
     BadLayout(LayoutError),
     FailedInitialAllocation,
-    BadConstraints
+    BadConstraints,
+    BadRequest,
 }
