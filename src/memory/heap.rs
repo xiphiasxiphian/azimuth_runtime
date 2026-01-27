@@ -117,6 +117,13 @@ impl Heap
     }
 
 
-    fn find_ptr(&self, )
+    fn find_ptr(&self, ptr: NonNull<u8>) -> Option<PoolType>
+    {
+        // This isnt a great implementation but will do for now
+        if self.infant.contains(ptr) { Some(PoolType::Infant) }
+        else if self.teen.iter().any(|x| x.contains(ptr)) { Some(PoolType::Teen) }
+        else if self.adult.contains(ptr) { Some(PoolType::Adult) }
+        else { None }
+    }
 
 }
