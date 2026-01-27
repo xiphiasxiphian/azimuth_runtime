@@ -39,7 +39,7 @@ static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = 
         ("f8.const.1", &[]),
         ("i.const", &[OperandType::Unsigned8]),
         ("i.const.w", &[OperandType::Unsigned16]),
-        ("const",  &[OperandType::Unsigned32]),
+        ("const", &[OperandType::Unsigned32]),
         ("ld.arg.0", &[]),
         ("ld.arg.1", &[]),
         ("ld.arg.2", &[]),
@@ -88,12 +88,7 @@ static OPCODES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = 
         ("f8.convert.f4", &[]),
     ];
 
-    HashMap::from_iter(
-        data
-            .into_iter()
-            .zip(0..)
-            .map(|((code, ops), num)| (code, (num, ops)))
-    )
+    HashMap::from_iter(data.into_iter().zip(0..).map(|((code, ops), num)| (code, (num, ops))))
 });
 
 static DIRECTIVES: LazyLock<HashMap<&'static str, (u8, &'static [OperandType])>> = LazyLock::new(|| {

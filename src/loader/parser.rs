@@ -1,4 +1,4 @@
-use crate::{engine::opcodes::Opcode, loader::runnable::Runnable};
+use crate::{engine::opcodes::Opcode, guard, loader::runnable::Runnable};
 
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
 pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);
@@ -204,7 +204,7 @@ pub struct FunctionInfo
 
 impl FunctionInfo
 {
-    pub fn new<'a>(input: &'a [u8], table: &Table) -> Option<(Self, &'a [u8])>
+    pub fn new<'b>(input: &'b [u8], table: &Table) -> Option<(Self, &'b [u8])>
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
@@ -214,7 +214,7 @@ impl FunctionInfo
 
         let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..)?;
 
-        let (_, descriptor): (&String, u32) = symbol_handler(symbol_operands).and_then(|x| {
+        let (name, descriptor): (&str, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
                 Directive::Symbol(name_index, code_count) =>
@@ -230,7 +230,7 @@ impl FunctionInfo
                     match *name
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        TableEntry::String(ref name_str) => Some((name_str, code_count)),
+                        TableEntry::String(ref name_str) => Some((name_str.as_str(), code_count)),
                         _ => None,
                     }
                 }
@@ -244,12 +244,9 @@ impl FunctionInfo
         // Loop through the bytes until it doesn't represent a directive anymore
         while let &[Directive::OPCODE, x, ref res @ ..] = remaining
         {
-            if x == Directive::SYMBOL
-            {
-                // This means that there has been a second symbol directive which isnt
-                // legal
-                return None;
-            }
+            // This means that there has been a second symbol directive which isnt
+            // legal
+            guard!(x == Directive::SYMBOL);
 
             // Parse the found directive
             let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
