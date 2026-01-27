@@ -26,10 +26,11 @@ impl Ratio
     }
 }
 
+#[derive(Clone, Copy)]
 enum PoolType
 {
     Infant,
-    Teen,
+    Teen(usize),
     Adult
 }
 
@@ -116,12 +117,23 @@ impl Heap
             })
     }
 
+    pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
+    {
+        match self.get_pool(ptr.cast())
+        {
+            None => { /* Pointer isn't managed by this heap */ }
+            Some(PoolType::Infant) => { /* Do nothing */ }
+            Some(PoolType::Teen(index)) => self.teen[index].dealloc(ptr),
+            Some(PoolType::Adult) => self.adult.dealloc(ptr),
+        }
+    }
 
-    fn find_ptr(&self, ptr: NonNull<u8>) -> Option<PoolType>
+
+    fn get_pool(&self, ptr: NonNull<u8>) -> Option<PoolType>
     {
         // This isnt a great implementation but will do for now
         if self.infant.contains(ptr) { Some(PoolType::Infant) }
-        else if self.teen.iter().any(|x| x.contains(ptr)) { Some(PoolType::Teen) }
+        else if let Some((index, _)) = self.teen.iter().enumerate().find(|(_, x)| x.contains(ptr)) { Some(PoolType::Teen(index)) }
         else if self.adult.contains(ptr) { Some(PoolType::Adult) }
         else { None }
     }
