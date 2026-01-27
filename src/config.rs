@@ -1,9 +1,12 @@
 use std::env::args;
 
 use crate::{
-    engine::{Runner, RunnerError, stack::Stack},
+    engine::{Runner, RunnerError},
     loader::Loader,
-    memory::heap::{Heap, HeapError},
+    memory::{
+        heap::{Heap, HeapError},
+        stack::Stack,
+    },
 };
 
 #[derive(Debug, Clone)]

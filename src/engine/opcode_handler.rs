@@ -4,12 +4,12 @@ use std::ops::{
 };
 
 use crate::{
-    engine::{
-        opcodes::Opcode,
+    engine::opcodes::Opcode,
+    loader::constant_table::{ConstantTable, ConstantTableIndex},
+    memory::{
         stack::stackable::Stackable,
         stack::{Stack, StackEntry, StackFrame, convert::StackableConvert},
     },
-    loader::constant_table::{ConstantTable, ConstantTableIndex},
 };
 
 /// Contains information given to each instruction handler

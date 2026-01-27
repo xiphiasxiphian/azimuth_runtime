@@ -1,13 +1,10 @@
 pub mod opcode_handler;
 pub mod opcodes;
-pub mod stack;
 
 use crate::{
-    engine::{
-        opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
-        stack::Stack,
-    },
+    engine::opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
     loader::Loader,
+    memory::stack::Stack,
 };
 
 #[derive(Debug, Clone, Copy)]

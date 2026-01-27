@@ -1,4 +1,4 @@
-use crate::engine::stack::StackEntry;
+use crate::memory::stack::StackEntry;
 
 pub trait Stackable: Copy
 {

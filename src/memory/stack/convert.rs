@@ -5,7 +5,7 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_possible_wrap)]
 
-use crate::engine::stack::stackable::Stackable;
+use crate::memory::stack::stackable::Stackable;
 
 /// Defines behaviour of converting between stack types
 pub trait StackableConvert<T: Stackable>: Stackable
