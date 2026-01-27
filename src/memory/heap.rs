@@ -1,4 +1,8 @@
-use std::{alloc::{Layout, LayoutError, alloc}, array::from_fn, ptr::NonNull};
+use std::{
+    alloc::{Layout, LayoutError, alloc},
+    array::from_fn,
+    ptr::NonNull,
+};
 
 use crate::memory::allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator};
 
@@ -31,9 +35,10 @@ enum PoolType
 {
     Infant,
     Teen(usize),
-    Adult
+    Adult,
 }
 
+#[derive(Debug, Clone)]
 pub enum HeapError
 {
     InvalidLayout(LayoutError),
@@ -62,24 +67,26 @@ impl Heap
 
         let total_capacity = infant_capacity + teen_capacity + adult_capacity;
 
-        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN)
-            .map_err(|x| HeapError::InvalidLayout(x))?;
+        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN).map_err(|x| HeapError::InvalidLayout(x))?;
 
-        let base = NonNull::new(unsafe { alloc(layout) }).ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
+        let base = NonNull::new(unsafe { alloc(layout) })
+            .ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
         let infant_base = base;
         let teen_base = unsafe { infant_base.byte_add(infant_capacity) };
         let adult_base = unsafe { teen_base.byte_add(teen_capacity) };
 
         let infant = ArenaAllocator::from_existing_allocation(infant_base, infant_capacity);
-        let teen =
-            from_fn::<Option<GeneralAllocator<_>>, TEEN_COUNT, _>(|x| GeneralAllocator::from_existing_allocation(
+        let teen = from_fn::<Option<GeneralAllocator<_>>, TEEN_COUNT, _>(|x| {
+            GeneralAllocator::from_existing_allocation(
                 unsafe { teen_base.byte_add((teen_capacity * x) / TEEN_COUNT) },
-                teen_capacity / TEEN_COUNT).ok()
+                teen_capacity / TEEN_COUNT,
             )
-            .into_iter()
-            .collect::<Option<Vec<_>>>()
-            .and_then(|a| a.try_into().ok())
-            .ok_or(HeapError::CannotProvision(AllocatorError::BadConstraints))?;
+            .ok()
+        })
+        .into_iter()
+        .collect::<Option<Vec<_>>>()
+        .and_then(|a| a.try_into().ok())
+        .ok_or(HeapError::CannotProvision(AllocatorError::BadConstraints))?;
 
         let adult = GeneralAllocator::from_existing_allocation(adult_base, adult_capacity)
             .map_err(|x| HeapError::CannotProvision(x))?;
@@ -89,7 +96,7 @@ impl Heap
             layout,
             infant,
             teen,
-            adult
+            adult,
         })
     }
 
@@ -98,44 +105,62 @@ impl Heap
         // allocation first attempt
         let ptr = self.infant.raw_alloc(size, align);
 
-        if let Some(_) = ptr { return ptr; }
+        // If the first allocation succeeded, then we can just return it and not
+        // have to worry about GC
+        if let Some(_) = ptr
+        {
+            return ptr;
+        }
 
         // Minor GC
+        // TODO
 
-        // Allocation retry
+        // Allocation retry.
+        // If this allocation fails, its because something as truly gone wrong
         self.infant.raw_alloc(size, align)
     }
 
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
-        self.raw_alloc(size_of_val(&value), align_of_val(&value))
-            .map(|x| {
-                let new_ptr = x.cast();
-                unsafe { new_ptr.write(value) };
+        self.raw_alloc(size_of_val(&value), align_of_val(&value)).map(|x| {
+            let new_ptr = x.cast();
+            unsafe { new_ptr.write(value) };
 
-                new_ptr
-            })
+            new_ptr
+        })
     }
 
     pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
     {
         match self.get_pool(ptr.cast())
         {
-            None => { /* Pointer isn't managed by this heap */ }
-            Some(PoolType::Infant) => { /* Do nothing */ }
+            None =>
+            { /* Pointer isn't managed by this heap */ }
+            Some(PoolType::Infant) =>
+            { /* Do nothing */ }
             Some(PoolType::Teen(index)) => self.teen[index].dealloc(ptr),
             Some(PoolType::Adult) => self.adult.dealloc(ptr),
         }
     }
 
-
     fn get_pool(&self, ptr: NonNull<u8>) -> Option<PoolType>
     {
         // This isnt a great implementation but will do for now
-        if self.infant.contains(ptr) { Some(PoolType::Infant) }
-        else if let Some((index, _)) = self.teen.iter().enumerate().find(|(_, x)| x.contains(ptr)) { Some(PoolType::Teen(index)) }
-        else if self.adult.contains(ptr) { Some(PoolType::Adult) }
-        else { None }
+        if self.infant.contains(ptr)
+        {
+            Some(PoolType::Infant)
+        }
+        else if let Some((index, _)) = self.teen.iter().enumerate().find(|(_, x)| x.contains(ptr))
+        {
+            Some(PoolType::Teen(index))
+        }
+        else if self.adult.contains(ptr)
+        {
+            Some(PoolType::Adult)
+        }
+        else
+        {
+            None
+        }
     }
-
 }

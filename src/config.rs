@@ -3,6 +3,7 @@ use std::env::args;
 use crate::{
     engine::{Runner, RunnerError, stack::Stack},
     loader::Loader,
+    memory::heap::{Heap, HeapError},
 };
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,7 @@ pub enum ConfigError
     InvalidOperand(String),
     LoaderInitError,
     StackInitError,
+    HeapInitError(HeapError),
     RunnerError(RunnerError),
 }
 
@@ -22,11 +24,13 @@ pub enum ConfigError
 struct Flags
 {
     stack_size: usize,
+    heap_size: usize,
 }
 
 impl Flags
 {
     const DEFAULT_STACK_SIZE: usize = 1024;
+    const DEFAULT_HEAP_SIZE: usize = 1 << 24;
 }
 
 // Config the defaults for all the optional parameters
@@ -36,6 +40,7 @@ impl Default for Flags
     {
         Self {
             stack_size: Self::DEFAULT_STACK_SIZE,
+            heap_size: Self::DEFAULT_HEAP_SIZE,
         }
     }
 }
@@ -90,7 +95,8 @@ impl Config
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);
 
-        // Init Heap: TODO
+        // Init Heap
+        let mut heap = Heap::with_capacity(self.flags.heap_size).map_err(|x| ConfigError::HeapInitError(x));
 
         // Pass information to runner
         let mut runner = Runner::new(&mut stack, &loader);
