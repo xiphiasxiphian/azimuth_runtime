@@ -130,6 +130,11 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         self.raw_dealloc(ptr.cast(), size_of::<T>(), align_of::<T>());
     }
 
+    pub fn contains(&self, ptr: NonNull<u8>) -> bool
+    {
+        (self.base..(unsafe { self.base.byte_add(self.capacity) })).contains(&ptr)
+    }
+
     fn get_allocation_size(&self, in_size: usize, alignment: usize) -> Result<usize, AllocatorError>
     {
         guard!(alignment.is_power_of_two(), AllocatorError::BadRequest);
