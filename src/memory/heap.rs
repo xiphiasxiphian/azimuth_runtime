@@ -13,12 +13,18 @@ const TEEN_ALLOCATOR_DEPTH: usize = 16;
 
 const ADULT_ALLOCATOR_DEPTH: usize = 16;
 
-struct Ratio(usize, usize);
+struct Ratio(u32, u32);
 const YOUNG_OLD_RATIO: Ratio = Ratio(1, 2);
 const INFANT_TEEN_RATIO: Ratio = Ratio(15, 1);
 
 impl Ratio
 {
+    #[expect(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "who cares lol"
+    )]
     pub const fn split(&self, value: usize) -> (usize, usize)
     {
         let total = self.0 + self.1;
@@ -85,11 +91,11 @@ impl Heap
         })
         .into_iter()
         .collect::<Option<Vec<_>>>()
-        .and_then(|a| a.try_into().ok())
+        .and_then(|teens| teens.try_into().ok())
         .ok_or(HeapError::CannotProvision(AllocatorError::BadConstraints))?;
 
         let adult = GeneralAllocator::from_existing_allocation(adult_base, adult_capacity)
-            .map_err(|x| HeapError::CannotProvision(x))?;
+            .map_err(HeapError::CannotProvision)?;
 
         Ok(Self {
             base,
@@ -107,7 +113,7 @@ impl Heap
 
         // If the first allocation succeeded, then we can just return it and not
         // have to worry about GC
-        if let Some(_) = ptr
+        if ptr.is_some()
         {
             return ptr;
         }
@@ -134,9 +140,7 @@ impl Heap
     {
         match self.get_pool(ptr.cast())
         {
-            None =>
-            { /* Pointer isn't managed by this heap */ }
-            Some(PoolType::Infant) =>
+            None | Some(PoolType::Infant) =>
             { /* Do nothing */ }
             Some(PoolType::Teen(index)) => self.teen[index].dealloc(ptr),
             Some(PoolType::Adult) => self.adult.dealloc(ptr),
@@ -150,7 +154,7 @@ impl Heap
         {
             Some(PoolType::Infant)
         }
-        else if let Some((index, _)) = self.teen.iter().enumerate().find(|(_, x)| x.contains(ptr))
+        else if let Some((index, _)) = self.teen.iter().enumerate().find(|&(_, x)| x.contains(ptr))
         {
             Some(PoolType::Teen(index))
         }
