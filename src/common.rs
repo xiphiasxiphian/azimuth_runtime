@@ -53,9 +53,15 @@ impl<T> ScopeMethods for T
 #[macro_export]
 macro_rules! guard {
     ($check:expr) => {
-        if !($check) { return None; }
+        if !($check)
+        {
+            return None;
+        }
     };
     ($check:expr, $ret:expr) => {
-        if !($check) { return Err($ret); }
+        if !($check)
+        {
+            return Err($ret);
+        }
     };
 }

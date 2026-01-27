@@ -1,4 +1,7 @@
-use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
+use std::{
+    alloc::{Layout, alloc, dealloc},
+    ptr::NonNull,
+};
 
 use crate::memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT};
 
@@ -16,7 +19,10 @@ impl Drop for ArenaAllocator
     {
         // In case the allocator is working is embedded into a large memory block,
         // dont try and drop the memory as it is managed by some other structure.
-        if let Some(layout) = self.layout { unsafe { dealloc(self.base.as_ptr(), layout) }; }
+        if let Some(layout) = self.layout
+        {
+            unsafe { dealloc(self.base.as_ptr(), layout) };
+        }
     }
 }
 
@@ -24,13 +30,11 @@ impl ArenaAllocator
 {
     pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT)
-            .map_err(|x| AllocatorError::BadLayout(x))?;
+        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT).map_err(|x| AllocatorError::BadLayout(x))?;
         let data = unsafe { alloc(layout) };
 
         Ok(Self {
-            base: NonNull::new(data)
-                .ok_or(AllocatorError::FailedInitialAllocation)?,
+            base: NonNull::new(data).ok_or(AllocatorError::FailedInitialAllocation)?,
             head_offset: 0,
             capacity,
             layout: Some(layout),
@@ -99,7 +103,14 @@ mod arena_tests
     fn single_allocation()
     {
         let mut arena = ArenaAllocator::with_capacity(1024).unwrap();
-        let ptr = arena.alloc(TestingData { number: 1, character: 'a', boolean: false, text: "Hello!" }).unwrap();
+        let ptr = arena
+            .alloc(TestingData {
+                number: 1,
+                character: 'a',
+                boolean: false,
+                text: "Hello!",
+            })
+            .unwrap();
 
         unsafe {
             assert_eq!(ptr.read().boolean, false);
@@ -130,10 +141,16 @@ mod arena_tests
         let boolean = arena.alloc(true).unwrap();
         let string = arena.alloc("Hello World!").unwrap();
         let character = arena.alloc('b').unwrap();
-        let testing_data = arena.alloc(TestingData { number: 1, character: 'a', boolean: false, text: "Hello!" }).unwrap();
+        let testing_data = arena
+            .alloc(TestingData {
+                number: 1,
+                character: 'a',
+                boolean: false,
+                text: "Hello!",
+            })
+            .unwrap();
 
-        unsafe
-        {
+        unsafe {
             assert_eq!(integer.read(), 5);
             assert_eq!(boolean.read(), true);
             assert_eq!(string.read(), "Hello World!");

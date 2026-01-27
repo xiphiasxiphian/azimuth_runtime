@@ -1,8 +1,15 @@
 // A memory manager manages a block of memory as a heap
 
-use std::{alloc::{Layout, alloc, dealloc}, ptr::NonNull};
+use std::{
+    alloc::{Layout, alloc, dealloc},
+    ptr::NonNull,
+};
 
-use crate::{common::{ScopeMethods}, guard, memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT}};
+use crate::{
+    common::ScopeMethods,
+    guard,
+    memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT},
+};
 
 pub struct GeneralAllocator<const DEPTH: usize>
 {
@@ -17,7 +24,12 @@ impl<const N: usize> Drop for GeneralAllocator<N>
 {
     fn drop(&mut self)
     {
-        if let Some(layout) = self.layout { unsafe { dealloc(self.base.as_ptr(), layout); } }
+        if let Some(layout) = self.layout
+        {
+            unsafe {
+                dealloc(self.base.as_ptr(), layout);
+            }
+        }
     }
 }
 
@@ -27,12 +39,18 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     {
         let min_block_size = capacity >> (DEPTH - 1);
 
-        guard!(base.as_ptr() as usize & (MIN_PAGE_ALIGNMENT - 1) == 0, AllocatorError::BadConstraints);
+        guard!(
+            base.as_ptr() as usize & (MIN_PAGE_ALIGNMENT - 1) == 0,
+            AllocatorError::BadConstraints
+        );
         guard!(capacity >= min_block_size, AllocatorError::BadConstraints);
-        guard!(min_block_size >= size_of::<BlockHeader>(), AllocatorError::BadConstraints);
+        guard!(
+            min_block_size >= size_of::<BlockHeader>(),
+            AllocatorError::BadConstraints
+        );
         guard!(capacity.is_power_of_two(), AllocatorError::BadConstraints);
 
-        let freelists = [None; DEPTH].also_mut(|x| { x[DEPTH - 1] = Some(base.cast())} );
+        let freelists = [None; DEPTH].also_mut(|x| x[DEPTH - 1] = Some(base.cast()));
 
         Ok(Self {
             base,
@@ -45,11 +63,9 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
     pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT)
-            .map_err(|x| AllocatorError::BadLayout(x))?;
+        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT).map_err(|x| AllocatorError::BadLayout(x))?;
 
-        let base = NonNull::new(unsafe { alloc(layout) })
-            .ok_or(AllocatorError::FailedInitialAllocation)?;
+        let base = NonNull::new(unsafe { alloc(layout) }).ok_or(AllocatorError::FailedInitialAllocation)?;
 
         Self::new(base, capacity, Some(layout))
     }
@@ -65,13 +81,14 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
             .map(|target| {
                 (target..DEPTH)
                     .map(|order| {
-                        self.block_pop(order)
-                            .inspect(|block| {
-                                if order > target
-                                {
-                                    unsafe { self.split_block(*block, order, target); }
+                        self.block_pop(order).inspect(|block| {
+                            if order > target
+                            {
+                                unsafe {
+                                    self.split_block(*block, order, target);
                                 }
-                            })
+                            }
+                        })
                     })
                     .find(|x| x.is_some())
                     .flatten()
@@ -88,7 +105,9 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
     pub fn raw_dealloc(&mut self, ptr: NonNull<u8>, size: usize, align: usize)
     {
-        let initial = self.get_allocation_order(size, align).expect("Invalid Block Deallocation Request");
+        let initial = self
+            .get_allocation_order(size, align)
+            .expect("Invalid Block Deallocation Request");
 
         let mut block = ptr;
         for order in initial..DEPTH
@@ -119,7 +138,10 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
         let mut size = in_size;
 
-        if alignment > size { size = alignment; }
+        if alignment > size
+        {
+            size = alignment;
+        }
         size = size.max(self.min_block_size).next_power_of_two();
 
         guard!(size <= self.capacity, AllocatorError::BadRequest);
@@ -157,7 +179,11 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     fn block_insert(&mut self, order: usize, block: NonNull<u8>)
     {
         let new_head = block.cast();
-        unsafe { new_head.write(BlockHeader { next: self.freelists[order] }); }
+        unsafe {
+            new_head.write(BlockHeader {
+                next: self.freelists[order],
+            });
+        }
 
         self.freelists[order] = Some(new_head);
     }
@@ -175,7 +201,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
                 return true;
             }
 
-            current = unsafe { &mut ((*(ptr.as_ptr())).next)}
+            current = unsafe { &mut ((*(ptr.as_ptr())).next) }
         }
 
         false
@@ -209,7 +235,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 #[derive(Debug, PartialEq, Eq)]
 struct BlockHeader
 {
-    next: Option<NonNull<Self>>
+    next: Option<NonNull<Self>>,
 }
 
 #[cfg(test)]
@@ -231,7 +257,14 @@ mod general_allocator_tests
     impl TestingData
     {
         pub fn new(number: i32, character: char, boolean: bool, text: &'static str) -> Self
-        { TestingData { number, character, boolean, text } }
+        {
+            TestingData {
+                number,
+                character,
+                boolean,
+                text,
+            }
+        }
     }
 
     const CAPACITY: usize = 1 << 16;
@@ -247,7 +280,7 @@ mod general_allocator_tests
     fn create_from_existing()
     {
         let mut base = unsafe { Box::<[u8]>::new_zeroed_slice(CAPACITY).assume_init() };
-        let allocator = GeneralAllocator::<DEPTH>::from_existing_allocation(NonNull::new(base.as_mut_ptr()).unwrap(), 512);
+        let _ = GeneralAllocator::<DEPTH>::from_existing_allocation(NonNull::new(base.as_mut_ptr()).unwrap(), CAPACITY);
 
         // Maybe test some allocations here
     }
@@ -256,7 +289,14 @@ mod general_allocator_tests
     fn single_allocation()
     {
         let mut allocator = GeneralAllocator::<DEPTH>::with_capacity(CAPACITY).unwrap();
-        let ptr = allocator.alloc(TestingData { number: 1, character: 'c', boolean: true, text: "Azimuth" }).unwrap();
+        let ptr = allocator
+            .alloc(TestingData {
+                number: 1,
+                character: 'c',
+                boolean: true,
+                text: "Azimuth",
+            })
+            .unwrap();
 
         let data = unsafe { ptr.read() };
 
@@ -270,7 +310,14 @@ mod general_allocator_tests
     fn multiple_allocations()
     {
         let mut allocator = GeneralAllocator::<DEPTH>::with_capacity(CAPACITY).unwrap();
-        let ptr1 = allocator.alloc(TestingData { number: 1, character: 'c', boolean: true, text: "Azimuth" }).unwrap();
+        let ptr1 = allocator
+            .alloc(TestingData {
+                number: 1,
+                character: 'c',
+                boolean: true,
+                text: "Azimuth",
+            })
+            .unwrap();
         let ptr2 = allocator.alloc(42).unwrap();
         let ptr3 = allocator.alloc("What is this").unwrap();
 
@@ -310,13 +357,10 @@ mod general_allocator_tests
     {
         let mut allocator = GeneralAllocator::<DEPTH>::with_capacity(4096).unwrap();
 
-        let testing_data: [TestingData; 20] = from_fn(|x| {
-            TestingData::new(x as i32, ('a' as u8 + x as u8) as char, (x % 2) != 0, "Azimuth")
-        });
+        let testing_data: [TestingData; 20] =
+            from_fn(|x| TestingData::new(x as i32, ('a' as u8 + x as u8) as char, (x % 2) != 0, "Azimuth"));
 
-        let mut test_ptrs: [NonNull<TestingData>; 20] = testing_data.clone().map(|x| {
-            allocator.alloc(x).unwrap()
-        });
+        let mut test_ptrs: [NonNull<TestingData>; 20] = testing_data.clone().map(|x| allocator.alloc(x).unwrap());
 
         let mut integer_ptrs: [NonNull<usize>; 20] = from_fn(|x| allocator.alloc(x + 100).unwrap());
 
@@ -324,13 +368,19 @@ mod general_allocator_tests
         for (i, (correct, test)) in testing_data.iter().zip(test_ptrs).enumerate()
         {
             assert_eq!(correct, unsafe { test.as_ref() });
-            if i % 2 == 1 { allocator.dealloc(test); }
+            if i % 2 == 1
+            {
+                allocator.dealloc(test);
+            }
         }
 
         for (i, integer) in integer_ptrs.iter().enumerate()
         {
             assert_eq!(i + 100, unsafe { integer.read() });
-            if i % 2 == 1 { allocator.dealloc(*integer); }
+            if i % 2 == 1
+            {
+                allocator.dealloc(*integer);
+            }
         }
 
         // Fill entries back in
@@ -343,14 +393,26 @@ mod general_allocator_tests
         // Check again
         for (i, (correct, test)) in testing_data.iter().zip(test_ptrs).enumerate()
         {
-            if i % 2 == 1 { assert_eq!(TestingData::new(42, '!', true, "\0"), unsafe { test.read() }); }
-            else { assert_eq!(correct, unsafe { test.as_ref() }); }
+            if i % 2 == 1
+            {
+                assert_eq!(TestingData::new(42, '!', true, "\0"), unsafe { test.read() });
+            }
+            else
+            {
+                assert_eq!(correct, unsafe { test.as_ref() });
+            }
         }
 
         for (i, integer) in integer_ptrs.iter().enumerate()
         {
-            if i % 2 == 1 { assert_eq!(42, unsafe { integer.read() }) }
-            else { assert_eq!(i + 100, unsafe { integer.read() }); }
+            if i % 2 == 1
+            {
+                assert_eq!(42, unsafe { integer.read() })
+            }
+            else
+            {
+                assert_eq!(i + 100, unsafe { integer.read() });
+            }
         }
     }
 }
