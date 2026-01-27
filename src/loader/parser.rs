@@ -246,7 +246,7 @@ impl FunctionInfo
         {
             // This means that there has been a second symbol directive which isnt
             // legal
-            guard!(x == Directive::SYMBOL);
+            guard!(x != Directive::SYMBOL);
 
             // Parse the found directive
             let &(operand_count, handler) = Directive::HANDLERS.get(<usize>::from(x))?;
