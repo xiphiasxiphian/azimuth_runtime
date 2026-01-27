@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    common::ScopeMethods,
+    common::ScopeMethods as _,
     guard,
     memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT},
 };
@@ -90,7 +90,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
                             }
                         })
                     })
-                    .find(|x| x.is_some())
+                    .find(Option::is_some)
                     .flatten()
             })
             .unwrap_or(None)
@@ -99,10 +99,11 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
         self.raw_alloc(size_of_val(&value), align_of_val(&value))
-            .map(|x| x.cast())
+            .map(NonNull::cast)
             .inspect(|x| unsafe { x.write(value) })
     }
 
+    #[expect(clippy::expect_used, reason = "If somehow the align and size, it doesn't make sense")]
     pub fn raw_dealloc(&mut self, ptr: NonNull<u8>, size: usize, align: usize)
     {
         let initial = self
@@ -113,12 +114,10 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         for order in initial..DEPTH
         {
             if let Some(buddy) = self.find_buddy(order, block)
+                && self.block_remove(order, block)
             {
-                if self.block_remove(order, block)
-                {
-                    block = block.min(buddy);
-                    continue;
-                }
+                block = block.min(buddy);
+                continue;
             }
 
             self.block_insert(order, block);
@@ -164,16 +163,16 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         self.freelists[order]
             .inspect(|blk| {
                 // Alter free list
-                if order != self.freelists.len() - 1
+                if order == self.freelists.len() - 1
                 {
-                    self.freelists[order] = unsafe { blk.read().next }
+                    self.freelists[order] = None;
                 }
                 else
                 {
-                    self.freelists[order] = None
+                    self.freelists[order] = unsafe { blk.read().next };
                 }
             })
-            .map(|x| x.cast())
+            .map(NonNull::cast)
     }
 
     fn block_insert(&mut self, order: usize, block: NonNull<u8>)
@@ -183,7 +182,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
             new_head.write(BlockHeader {
                 next: self.freelists[order],
             });
-        }
+        };
 
         self.freelists[order] = Some(new_head);
     }
@@ -193,9 +192,9 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         let block_ptr: NonNull<BlockHeader> = block.cast();
         let mut current: &mut Option<NonNull<BlockHeader>> = &mut self.freelists[order];
 
-        while let Some(ptr) = current
+        while let &mut Some(ptr) = current
         {
-            if *ptr == block_ptr
+            if ptr == block_ptr
             {
                 *current = unsafe { ptr.read().next };
                 return true;

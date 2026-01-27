@@ -1,51 +1,51 @@
 pub trait ScopeMethods
 {
-    fn scope<F, R>(self, f: F) -> R
+    fn scope<F, R>(self, func: F) -> R
     where
         F: FnOnce(&Self) -> R;
 
-    fn scope_mut<F, R>(self, f: F) -> R
+    fn scope_mut<F, R>(self, func: F) -> R
     where
         F: FnOnce(&mut Self) -> R;
 
-    fn also<F>(self, f: F) -> Self
+    fn also<F>(self, func: F) -> Self
     where
         F: FnOnce(&Self);
 
-    fn also_mut<F>(self, f: F) -> Self
+    fn also_mut<F>(self, func: F) -> Self
     where
         F: FnOnce(&mut Self);
 }
 
 impl<T> ScopeMethods for T
 {
-    fn scope<F, R>(self, f: F) -> R
+    fn scope<F, R>(self, func: F) -> R
     where
         F: FnOnce(&Self) -> R,
     {
-        f(&self)
+        func(&self)
     }
 
-    fn scope_mut<F, R>(mut self, f: F) -> R
+    fn scope_mut<F, R>(mut self, func: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
-        f(&mut self)
+        func(&mut self)
     }
 
-    fn also<F>(self, f: F) -> T
+    fn also<F>(self, func: F) -> T
     where
         F: FnOnce(&Self),
     {
-        f(&self);
+        func(&self);
         self
     }
 
-    fn also_mut<F>(mut self, f: F) -> T
+    fn also_mut<F>(mut self, func: F) -> T
     where
         F: FnOnce(&mut Self),
     {
-        f(&mut self);
+        func(&mut self);
         self
     }
 }
