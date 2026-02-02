@@ -3,7 +3,7 @@
 
 use crate::{
     loader::parser::{Table, TableEntry},
-    memory::stack::{StackFrame, stackable::Stackable as _},
+    memory::stack::{StackFrame, entry::StackEntry},
 };
 
 pub type ConstantTableIndex = u32;
@@ -59,6 +59,20 @@ impl<'a> Constant<'a>
             TableEntry::Float(x) => Self::Float32(x),
             TableEntry::Double(x) => Self::Float64(x),
             TableEntry::String(ref string) => Self::String(string.as_str()),
+        }
+    }
+}
+
+impl<'a> From<Constant<'a>> for StackEntry
+{
+    fn from(value: Constant<'a>) -> Self {
+        match value
+        {
+            Constant::Unsigned32(x) => x.into(),
+            Constant::Unsigned64(x) => x.into(),
+            Constant::Float32(x) => x.into(),
+            Constant::Float64(x) => x.into(),
+            Constant::String(x) => x.as_ptr().into()
         }
     }
 }

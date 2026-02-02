@@ -1,10 +1,11 @@
+use crate::memory::stack::entry::StackEntry;
+
 pub mod convert;
 pub mod stackable;
+pub mod entry;
 
 // Stack size is set at initiation and is hard coded somewhere.
 // Theoretically this could become a config value at some point in the future
-
-pub type StackEntry = u64;
 
 #[derive(Debug)]
 pub struct Stack
@@ -37,7 +38,7 @@ impl Stack
     pub fn new(capacity: usize) -> Self
     {
         Stack {
-            stack: vec![0; capacity],
+            stack: vec![StackEntry::Unsigned(0); capacity],
         }
     }
 
@@ -78,7 +79,7 @@ impl Stack
 #[derive(Debug)]
 pub struct StackFrame<'a>
 {
-    origin: &'a mut Stack, //
+    origin: &'a mut Stack,
     locals_base: usize,
     stack_base: usize,
     stack_pointer: usize,
@@ -139,7 +140,7 @@ impl<'a> StackFrame<'a>
 
     /// Push value onto the stack.
     ///
-    /// ### Possibles Errors
+    /// ### Possible Errors
     /// Stack Overflow - returns `false`
     pub fn push(&mut self, value: StackEntry) -> bool
     {
@@ -257,8 +258,8 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.push(10);
-        frame.push(20);
+        frame.push(10_usize.into());
+        frame.push(20_usize.into());
 
         assert_eq!(frame.pop().unwrap(), 20);
         assert_eq!(frame.pop().unwrap(), 10);
@@ -271,7 +272,7 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.push(1 << 33);
+        frame.push(StackEntry::from::<usize>(1 << 33));
 
         assert_eq!(frame.pop().unwrap(), 1 << 33);
         assert!(frame.pop().is_none());
@@ -283,8 +284,8 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.set_local(0, 10);
-        frame.set_local(1, 1 << 33);
+        frame.set_local(0, StackEntry::from::<usize>(10));
+        frame.set_local(1, StackEntry::from::<usize>(1 << 33));
 
         assert_eq!(frame.get_local(0), Some(10));
         assert_eq!(frame.get_local(1), Some(1 << 33));
