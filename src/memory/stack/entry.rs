@@ -1,4 +1,6 @@
-use std::ptr::NonNull;
+use std::{ops::{Add, Div, Mul, Sub}, ptr::NonNull};
+
+use crate::memory::stack::convert::StackableConvert;
 
 #[derive(Clone, Copy)]
 pub enum StackEntry
@@ -6,11 +8,37 @@ pub enum StackEntry
     Unsigned(usize),
     Signed(isize),
     Character(char),
-    Boolean(bool),
     Float(f32),
     Double(f64),
     Reference(Option<NonNull<u8>>)
 }
+
+macro_rules! impl_elementwise_trait {
+    ($($id:ident($t:expr => $($r:tt),+)),*) => {
+        impl StackEntry
+        {
+            $(
+                fn $id(&self, other: &Self) -> Option<Self>
+                {
+                    match (*self, *other)
+                    {
+                        $(
+                            (Self::$r(x), Self::$r(y)) => Some(Self::$r($t(x, y))),
+                        )+
+                        _ => None
+                    }
+                }
+            )*
+        }
+    };
+}
+
+impl_elementwise_trait!(
+    try_add(Add::add => Unsigned, Signed, Float, Double),
+    try_sub(Sub::sub => Unsigned, Signed, Float, Double),
+    try_mul(Mul::mul => Unsigned, Signed, Float, Double),
+    try_div(Div::div => Unsigned, Signed, Float, Double)
+);
 
 impl StackEntry
 {
@@ -26,12 +54,21 @@ impl StackEntry
         Some(op(first, second).into())
     }
 
-    fn try_map<T, F>(&self, op: F) -> Option<Self>
+    fn try_map<T1, T2, F>(&self, op: F) -> Option<Self>
     where
-        Self: TryInto<T>,
-        T: Into<StackEntry>,
-        F: Fn(T) -> T
+        Self: TryInto<T1>,
+        T2: Into<StackEntry>,
+        F: Fn(T1) -> T2
     {
         Some(op(self.try_into().ok()?).into())
+    }
+
+    fn cast<F, T>(&self) -> Option<Self>
+    where
+        Self: TryInto<F>,
+        T: Into<Self>,
+        T: StackableConvert<F>,
+    {
+        Some(<T>::convert(self.try_into()?).into())
     }
 }
