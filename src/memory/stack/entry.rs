@@ -1,4 +1,7 @@
-use std::{ops::{Add, Div, Mul, Sub}, ptr::NonNull};
+use std::{ops::{
+    Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl,
+    Shr, Sub,
+}, ptr::NonNull};
 
 use crate::memory::stack::convert::StackableConvert;
 
@@ -12,33 +15,6 @@ pub enum StackEntry
     Double(f64),
     Reference(Option<NonNull<u8>>)
 }
-
-macro_rules! impl_elementwise_trait {
-    ($($id:ident($t:expr => $($r:tt),+)),*) => {
-        impl StackEntry
-        {
-            $(
-                fn $id(&self, other: &Self) -> Option<Self>
-                {
-                    match (*self, *other)
-                    {
-                        $(
-                            (Self::$r(x), Self::$r(y)) => Some(Self::$r($t(x, y))),
-                        )+
-                        _ => None
-                    }
-                }
-            )*
-        }
-    };
-}
-
-impl_elementwise_trait!(
-    try_add(Add::add => Unsigned, Signed, Float, Double),
-    try_sub(Sub::sub => Unsigned, Signed, Float, Double),
-    try_mul(Mul::mul => Unsigned, Signed, Float, Double),
-    try_div(Div::div => Unsigned, Signed, Float, Double)
-);
 
 impl StackEntry
 {
@@ -69,6 +45,81 @@ impl StackEntry
         T: Into<Self>,
         T: StackableConvert<F>,
     {
-        Some(<T>::convert(self.try_into()?).into())
+        self.try_map(<T>::convert)
     }
 }
+
+macro_rules! impl_elementwise_trait {
+    ($($id:ident($t:expr => $($r:tt),+)),*) => {
+        impl StackEntry
+        {
+            $(
+                fn $id(&self, other: &Self) -> Option<Self>
+                {
+                    match (*self, *other)
+                    {
+                        $(
+                            (Self::$r(x), Self::$r(y)) => Some(Self::$r($t(x, y))),
+                        )+
+                        _ => None
+                    }
+                }
+            )*
+        }
+    };
+    (~ $($id:ident($t:expr => $($r:tt),+)),*) => {
+        impl StackEntry
+        {
+            $(
+                fn $id(&self) -> Option<Self>
+                {
+                    match *self
+                    {
+                        $(
+                            Self::$r(x) => Some(Self::$r($t(x))),
+                        )+
+                        _ => None
+                    }
+                }
+            )*
+        }
+    };
+    (~~ $($id:ident($t:expr => $($r:tt),+)),*) => {
+        impl StackEntry
+        {
+            $(
+                fn $id(&self, y: usize) -> Option<Self>
+                {
+                    match *self
+                    {
+                        $(
+                            Self::$r(x) => Some(Self::$r($t(x, y))),
+                        )+
+                        _ => None
+                    }
+                }
+            )*
+        }
+    };
+}
+
+impl_elementwise_trait!(
+    try_add(Add::add => Unsigned, Signed, Float, Double),
+    try_sub(Sub::sub => Unsigned, Signed, Float, Double),
+    try_mul(Mul::mul => Unsigned, Signed, Float, Double),
+    try_div(Div::div => Unsigned, Signed, Float, Double),
+    try_rem(Rem::rem => Unsigned, Signed, Float, Double),
+    try_bitor(BitOr::bitor => Unsigned, Signed, Float, Double),
+    try_bitand(BitAnd::bitand => Unsigned, Signed, Float, Double),
+    try_bitxor(BitXor::bitxor => Unsigned, Signed, Float, Double)
+);
+
+impl_elementwise_trait!(~
+    try_not(Not::not => Unsigned, Signed, Float, Double),
+    try_neg(Neg::neg => Unsigned, Signed, Float, Double)
+);
+
+impl_elementwise_trait!(~~
+    try_shr(Shr::shr => Unsigned, Signed, Float, Double),
+    try_shl(Shr::shl => Unsigned, Signed, Float, Double)
+);
