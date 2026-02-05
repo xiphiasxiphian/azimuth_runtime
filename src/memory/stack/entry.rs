@@ -13,7 +13,7 @@ pub enum StackEntry
     Character(char),
     Float(f32),
     Double(f64),
-    Reference(Option<NonNull<u8>>)
+    Reference(Option<NonNull<u8>>),
 }
 
 impl StackEntry
