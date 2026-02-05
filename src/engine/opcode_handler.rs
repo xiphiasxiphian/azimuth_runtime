@@ -6,10 +6,7 @@ use std::ops::{
 use crate::{
     engine::opcodes::Opcode,
     loader::constant_table::{ConstantTable, ConstantTableIndex},
-    memory::{
-        stack::stackable::Stackable,
-        stack::{Stack, StackEntry, StackFrame, convert::StackableConvert},
-    },
+    memory::stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
 };
 
 /// Contains information given to each instruction handler
@@ -75,9 +72,9 @@ impl HandlerInputInfo<'_, '_, '_>
             .ok_or(ExecutionError::MissingParams)
     }
 
-    fn stack_pop_many<const N: usize>(&mut self) -> Result<[u64; N], ExecutionError>
+    fn stack_pop_many<const N: usize>(&mut self) -> Result<[StackEntry; N], ExecutionError>
     {
-        let mut values = [0; N];
+        let mut values = [StackEntry::Unsigned(0); N];
         for val in &mut values
         {
             *val = self.stack_pop()?;
@@ -124,6 +121,7 @@ pub enum ExecutionError
     EmptyStack,
     StackOverflow,
     IndexOutOfBounds,
+    TypeMismatch,
 }
 
 type ExecutionResult = Result<InstructionResult, ExecutionError>;
@@ -184,15 +182,15 @@ pub fn exec_instruction<'a>(
 /// into a `u64` format. This behaviour is defined in the `Stackable` trait.
 fn push_numeric<T>(input: &mut HandlerInputInfo, value: T) -> ExecutionResult
 where
-    T: Stackable,
+    T: Into<StackEntry>,
 {
-    input.stack_push(value.into_entry()).map(|()| InstructionResult::Next)
+    input.stack_push(value.into()).map(|()| InstructionResult::Next)
 }
 
 /// Push bytes found from parameters onto the stack
 ///
 /// The number of bytes must be less than `Stack::ENTRY_SIZE`
-fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
+fn push_bytes<>(input: &mut HandlerInputInfo) -> ExecutionResult
 {
     // Ensures that the number of bytes provided will actually fit
     // within a stack entry
@@ -205,7 +203,7 @@ fn push_bytes(input: &mut HandlerInputInfo) -> ExecutionResult
     bytes[0..(input.params.len())].copy_from_slice(input.params);
 
     // Defer to just pushing a normal numeric value
-    push_numeric(input, <StackEntry>::from_le_bytes(bytes))
+    push_numeric(input, <u64>::from_le_bytes(bytes).into())
 }
 
 /// Gets a constant from the constant table and pushes it to the stack.
@@ -275,38 +273,38 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
 // Arithmetic Handlers
 
-fn unaryop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
-where
-    T: Stackable,
-    F: Fn(T) -> T,
-{
-    let value = input.stack_pop().map(T::from_entry)?;
-    input
-        .stack_push(op(value).into_entry())
-        .map(|()| InstructionResult::Next)
-}
+// fn unaryop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
+// where
+//     T: Into<StackEntry> + TryFrom<StackEntry>,
+//     F: Fn(T) -> T,
+// {
+//     let value = input.stack_pop().map(T::from)?;
+//     input
+//         .stack_push(op(value).into_entry())
+//         .map(|()| InstructionResult::Next)
+// }
 
-fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
-where
-    T: Stackable,
-    F: Fn(T, T) -> T,
-{
-    let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
-    input
-        .stack_push(op(value1, value2).into_entry())
-        .map(|()| InstructionResult::Next)
-}
+// fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
+// where
+//     T: Into<StackEntry>,
+//     F: Fn(T, T) -> T,
+// {
+//     let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
+//     input
+//         .stack_push(op(value1, value2).into_entry())
+//         .map(|()| InstructionResult::Next)
+// }
 
 // Conversion
 
 fn convert<I, O>(input: &mut HandlerInputInfo) -> ExecutionResult
 where
-    I: Stackable,
-    O: Stackable + StackableConvert<I>,
+    I: TryFrom<StackEntry>,
+    O: Into<StackEntry> + StackableConvert<I>,
 {
-    let value = input.stack_pop().map(<I>::from_entry)?;
+    let value = input.stack_pop()?;
     input
-        .stack_push(<O>::convert(value).into_entry())
+        .stack_push(value.cast::<I, O>().ok_or(ExecutionError::TypeMismatch)?)
         .map(|()| InstructionResult::Next)
 }
 
@@ -404,7 +402,7 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Or,            0, binop, <u64>::bitor },
     { Opcode::Xor,           0, binop, <u64>::bitxor },
     { Opcode::Not,           0, unaryop, <u64>::not },
-    { Opcode::IConvertF4,    0, &(|x| convert::<i64, f32>(x)) }, // Using i64 to avoid sign loss
+    { Opcode::IConvertF4,    0, &(|x| convert::<i, f32>(x)) }, // Using i64 to avoid sign loss
     { Opcode::IConvertF8,    0, &(|x| convert::<i64, f64>(x)) },
     { Opcode::F4ConvertI,    0, &(|x| convert::<f32, i64>(x)) },
     { Opcode::F4ConvertF8,   0, &(|x| convert::<f32, f64>(x)) },

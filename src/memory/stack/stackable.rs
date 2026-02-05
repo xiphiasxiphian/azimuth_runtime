@@ -28,10 +28,9 @@ macro_rules! impl_into_entry {
 }
 
 impl_into_entry!(
-    usize => Unsigned,
-    isize => Signed,
+    u64 => Unsigned,
+    i64 => Signed,
     char => Character,
-    bool => Boolean,
     f32 => Float,
     f64 => Double,
     Option<NonNull<u8>> => Reference

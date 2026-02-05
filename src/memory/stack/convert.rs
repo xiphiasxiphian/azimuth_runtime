@@ -8,7 +8,7 @@
 use crate::memory::stack::entry::StackEntry;
 
 /// Defines behaviour of converting between stack types
-pub trait StackableConvert<T: Into<StackEntry>>: Into<StackEntry>
+pub trait StackableConvert<T: TryFrom<StackEntry>>: Into<StackEntry>
 {
     fn convert(from: T) -> Self;
 }
@@ -29,12 +29,12 @@ macro_rules! impl_convert {
 
 // Using i64 to avoid sign loss
 impl_convert! {
-    usize => isize,
-    isize => usize,
-    f32 => isize,
-    f64 => isize,
-    isize => f32,
+    u64 => i64,
+    i64 => u64,
+    f32 => i64,
+    f64 => i64,
+    i64 => f32,
     f64 => f32,
-    isize => f64,
+    i64 => f64,
     f32 => f64
 }

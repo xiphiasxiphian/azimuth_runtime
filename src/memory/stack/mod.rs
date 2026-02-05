@@ -33,7 +33,7 @@ impl Stack
     ///
     /// Using 64-bit means that there aren't wasted clock cycles on having
     /// to stitch 64-bit values back together when stored on a 32-bit stack.
-    pub const ENTRY_SIZE: usize = size_of::<StackEntry>();
+    pub const ENTRY_SIZE: usize = size_of::<u64>();
 
     pub fn new(capacity: usize) -> Self
     {
@@ -258,11 +258,11 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.push(10_usize.into());
-        frame.push(20_usize.into());
+        frame.push(10_u64.into());
+        frame.push(20_u64.into());
 
-        assert_eq!(frame.pop().unwrap(), 20);
-        assert_eq!(frame.pop().unwrap(), 10);
+        assert_eq!(frame.pop().unwrap(), StackEntry::Unsigned(20));
+        assert_eq!(frame.pop().unwrap(), StackEntry::Unsigned(10));
         assert!(frame.pop().is_none());
     }
 
@@ -272,9 +272,9 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.push(StackEntry::from::<usize>(1 << 33));
+        frame.push(StackEntry::Unsigned(1 << 33));
 
-        assert_eq!(frame.pop().unwrap(), 1 << 33);
+        assert_eq!(frame.pop().unwrap(), StackEntry::Unsigned(1 << 33));
         assert!(frame.pop().is_none());
     }
 
@@ -284,10 +284,10 @@ mod stack_tests
         let mut stack = Stack::new(1024);
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
-        frame.set_local(0, StackEntry::from::<usize>(10));
-        frame.set_local(1, StackEntry::from::<usize>(1 << 33));
+        frame.set_local(0, 10_u64.into());
+        frame.set_local(1, StackEntry::from((1 << 33) as u64));
 
-        assert_eq!(frame.get_local(0), Some(10));
-        assert_eq!(frame.get_local(1), Some(1 << 33));
+        assert_eq!(frame.get_local(0), Some(StackEntry::Unsigned(10)));
+        assert_eq!(frame.get_local(1), Some(StackEntry::Unsigned(1 << 33)));
     }
 }
