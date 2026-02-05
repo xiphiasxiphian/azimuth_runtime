@@ -53,9 +53,9 @@ macro_rules! impl_elementwise_trait {
         impl StackEntry
         {
             $(
-                fn $id(&self, other: &Self) -> Option<Self>
+                pub fn $id(self, other: Self) -> Option<Self>
                 {
-                    match (*self, *other)
+                    match (self, other)
                     {
                         $(
                             (Self::$r(x), Self::$r(y)) => Some(Self::$r($t(x, y))),
@@ -70,7 +70,7 @@ macro_rules! impl_elementwise_trait {
         impl StackEntry
         {
             $(
-                fn $id(self) -> Option<Self>
+                pub fn $id(self) -> Option<Self>
                 {
                     match self
                     {
@@ -83,16 +83,16 @@ macro_rules! impl_elementwise_trait {
             )*
         }
     };
-    (~~ $($id:ident($t:expr => $($r:tt),+)),*) => {
+    (~~$o:tt $($id:ident($t:expr => $($r:tt),+)),*) => {
         impl StackEntry
         {
             $(
-                fn $id(self, y: usize) -> Option<Self>
+                pub fn $id(self, other: Self) -> Option<Self>
                 {
-                    match self
+                    match (self, other)
                     {
                         $(
-                            Self::$r(x) => Some(Self::$r($t(x, y))),
+                            (Self::$r(x), Self::$o(y)) => Some(Self::$r($t(x, y))),
                         )+
                         _ => None
                     }
@@ -118,7 +118,7 @@ impl_elementwise_trait!(~
     try_neg(Neg::neg => Signed, Float, Double)
 );
 
-impl_elementwise_trait!(~~
+impl_elementwise_trait!(~~ Unsigned
     try_shr(Shr::shr => Unsigned, Signed),
     try_shl(Shl::shl => Unsigned, Signed)
 );

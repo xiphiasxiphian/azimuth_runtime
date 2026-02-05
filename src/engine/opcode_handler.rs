@@ -203,7 +203,7 @@ fn push_bytes<>(input: &mut HandlerInputInfo) -> ExecutionResult
     bytes[0..(input.params.len())].copy_from_slice(input.params);
 
     // Defer to just pushing a normal numeric value
-    push_numeric(input, <u64>::from_le_bytes(bytes).into())
+    push_numeric(input, <u64>::from_le_bytes(bytes))
 }
 
 /// Gets a constant from the constant table and pushes it to the stack.
@@ -273,27 +273,25 @@ fn store_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 
 // Arithmetic Handlers
 
-// fn unaryop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
-// where
-//     T: Into<StackEntry> + TryFrom<StackEntry>,
-//     F: Fn(T) -> T,
-// {
-//     let value = input.stack_pop().map(T::from)?;
-//     input
-//         .stack_push(op(value).into_entry())
-//         .map(|()| InstructionResult::Next)
-// }
+fn unaryop<F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
+where
+    F: Fn(StackEntry) -> Option<StackEntry>,
+{
+    let value = input.stack_pop()?;
+    input
+        .stack_push(op(value).ok_or(ExecutionError::TypeMismatch)?)
+        .map(|()| InstructionResult::Next)
+}
 
-// fn binop<T, F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
-// where
-//     T: Into<StackEntry>,
-//     F: Fn(T, T) -> T,
-// {
-//     let [value1, value2] = input.stack_pop_many::<2>()?.map(T::from_entry);
-//     input
-//         .stack_push(op(value1, value2).into_entry())
-//         .map(|()| InstructionResult::Next)
-// }
+fn binop<F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
+where
+    F: Fn(StackEntry, StackEntry) -> Option<StackEntry>,
+{
+    let [value1, value2] = input.stack_pop_many::<2>()?;
+    input
+        .stack_push(op(value1, value2).ok_or(ExecutionError::TypeMismatch)?)
+        .map(|()| InstructionResult::Next)
+}
 
 // Conversion
 
@@ -377,37 +375,37 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Swap,          0, swap },
     { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
     { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
-    { Opcode::IAdd,          0, binop, <u64>::wrapping_add },
-    { Opcode::F4Add,         0, binop, <f32>::add },
-    { Opcode::F8Add,         0, binop, <f64>::add },
-    { Opcode::ISub,          0, binop, <u64>::wrapping_sub },
-    { Opcode::F4Sub,         0, binop, <f32>::sub },
-    { Opcode::F8Sub,         0, binop, <f64>::sub },
-    { Opcode::IMul,          0, binop, <u64>::wrapping_mul },
-    { Opcode::F4Mul,         0, binop, <f32>::mul },
-    { Opcode::F8Mul,         0, binop, <f64>::mul },
-    { Opcode::IDiv,          0, binop, <u64>::div },
-    { Opcode::F4Div,         0, binop, <f32>::div },
-    { Opcode::F8Div,         0, binop, <f64>::div },
-    { Opcode::IRem,          0, binop, <u64>::rem },
-    { Opcode::F4Rem,         0, binop, <f32>::rem },
-    { Opcode::F8Rem,         0, binop, <f64>::rem },
-    { Opcode::INeg,          0, unaryop, <i64>::neg },
-    { Opcode::F4Neg,         0, unaryop, <f32>::neg },
-    { Opcode::F8Neg,         0, unaryop, <f64>::neg },
-    { Opcode::Shl,           0, binop, <u64>::shl },
-    { Opcode::Shr,           0, binop, <u64>::shr },
-    { Opcode::AShr,          0, binop, <i64>::shr },
-    { Opcode::And,           0, binop, <u64>::bitand },
-    { Opcode::Or,            0, binop, <u64>::bitor },
-    { Opcode::Xor,           0, binop, <u64>::bitxor },
-    { Opcode::Not,           0, unaryop, <u64>::not },
-    { Opcode::IConvertF4,    0, &(|x| convert::<i, f32>(x)) }, // Using i64 to avoid sign loss
+    { Opcode::Add,           0, binop, <StackEntry>::try_add },
+    { Opcode::Sub,           0, binop, <StackEntry>::try_sub },
+    { Opcode::Mul,           0, binop, <StackEntry>::try_mul },
+    { Opcode::Div,           0, binop, <StackEntry>::try_div },
+    { Opcode::Rem,           0, binop, <StackEntry>::try_rem },
+    { Opcode::Shl,           0, binop, <StackEntry>::try_shl },
+    { Opcode::Shr,           0, binop, <StackEntry>::try_shr },
+    { Opcode::And,           0, binop, <StackEntry>::try_bitand },
+    { Opcode::Or,            0, binop, <StackEntry>::try_bitor },
+    { Opcode::Xor,           0, binop, <StackEntry>::try_bitxor },
+    { Opcode::Not,           0, unaryop, <StackEntry>::try_not },
+    { Opcode::IConvertF4,    0, &(|x| convert::<i64, f32>(x)) }, // Using i64 to avoid sign loss
     { Opcode::IConvertF8,    0, &(|x| convert::<i64, f64>(x)) },
     { Opcode::F4ConvertI,    0, &(|x| convert::<f32, i64>(x)) },
     { Opcode::F4ConvertF8,   0, &(|x| convert::<f32, f64>(x)) },
     { Opcode::F8ConvertI,    0, &(|x| convert::<f64, i64>(x)) },
     { Opcode::F8ConvertF4,   0, &(|x| convert::<f64, f32>(x)) },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
