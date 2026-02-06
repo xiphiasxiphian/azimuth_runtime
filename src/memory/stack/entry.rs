@@ -18,11 +18,11 @@ pub enum StackEntry
 
 impl StackEntry
 {
-    pub fn try_binary_operation<T, F>(self, other: Self, op: F) -> Option<Self>
+    pub fn try_binary_operation<I1, I2, O, F>(self, other: Self, op: F) -> Option<Self>
     where
-        Self: TryInto<T>,
-        T: Into<StackEntry>,
-        F: Fn(T, T) -> T
+        Self: TryInto<I1> + TryInto<I2>,
+        O: Into<StackEntry>,
+        F: Fn(I1, I2) -> O
     {
         let first = self.try_into().ok()?;
         let second = other.try_into().ok()?;
@@ -48,77 +48,105 @@ impl StackEntry
     }
 }
 
-macro_rules! impl_elementwise_trait {
-    ($($id:ident($t:expr => $($r:tt),+)),*) => {
-        impl StackEntry
-        {
-            $(
-                pub fn $id(self, other: Self) -> Option<Self>
-                {
-                    match (self, other)
-                    {
-                        $(
-                            (Self::$r(x), Self::$r(y)) => Some(Self::$r($t(x, y))),
-                        )+
-                        _ => None
-                    }
-                }
-            )*
-        }
-    };
-    (~ $($id:ident($t:expr => $($r:tt),+)),*) => {
-        impl StackEntry
-        {
-            $(
-                pub fn $id(self) -> Option<Self>
-                {
-                    match self
-                    {
-                        $(
-                            Self::$r(x) => Some(Self::$r($t(x))),
-                        )+
-                        _ => None
-                    }
-                }
-            )*
-        }
-    };
-    (~~$o:tt $($id:ident($t:expr => $($r:tt),+)),*) => {
-        impl StackEntry
-        {
-            $(
-                pub fn $id(self, other: Self) -> Option<Self>
-                {
-                    match (self, other)
-                    {
-                        $(
-                            (Self::$r(x), Self::$o(y)) => Some(Self::$r($t(x, y))),
-                        )+
-                        _ => None
-                    }
-                }
-            )*
+
+// ---------------------------------------------------------------------------
+// 1. ARITHMETIC MACRO (Add, Sub, Mul, Div, Rem)
+//    - Integers: uses `wrapping_<method>` (e.g., wrapping_add)
+//    - Floats: uses standard operators (e.g., +)
+// ---------------------------------------------------------------------------
+macro_rules! impl_arithmetic {
+    ($trait:ident, $fn:ident, $int_op:expr, $float_op:expr) => {
+        impl $trait for StackEntry {
+            type Output = Option<Self>;
+
+            fn $fn(self, other: Self) -> Self::Output {
+                // 1. Try Unsigned (u64)
+                self.try_binary_operation::<u64, u64, u64, _>(other, $int_op)
+                // 2. Try Signed (i64)
+                    .or_else(|| self.try_binary_operation::<i64, i64, i64, _>(other, $int_op))
+                // 3. Try Float (f32) - Note: standard ops like + work as closures
+                    .or_else(|| self.try_binary_operation::<f32, f32, f32, _>(other, $float_op))
+                // 4. Try Double (f64)
+                    .or_else(|| self.try_binary_operation::<f64, f64, f64, _>(other, $float_op))
+            }
         }
     };
 }
 
-impl_elementwise_trait!(
-    try_add(Add::add => Unsigned, Signed, Float, Double),
-    try_sub(Sub::sub => Unsigned, Signed, Float, Double),
-    try_mul(Mul::mul => Unsigned, Signed, Float, Double),
-    try_div(Div::div => Unsigned, Signed, Float, Double),
-    try_rem(Rem::rem => Unsigned, Signed, Float, Double),
-    try_bitor(BitOr::bitor => Unsigned, Signed),
-    try_bitand(BitAnd::bitand => Unsigned, Signed),
-    try_bitxor(BitXor::bitxor => Unsigned, Signed)
-);
+// Implementations
+impl_arithmetic!(Add, add, |a, b| a.wrapping_add(b), |a, b| a + b);
+impl_arithmetic!(Sub, sub, |a, b| a.wrapping_sub(b), |a, b| a - b);
+impl_arithmetic!(Mul, mul, |a, b| a.wrapping_mul(b), |a, b| a * b);
+impl_arithmetic!(Div, div, |a, b| a.wrapping_div(b), |a, b| a / b);
+impl_arithmetic!(Rem, rem, |a, b| a.wrapping_rem(b), |a, b| a % b);
 
-impl_elementwise_trait!(~
-    try_not(Not::not => Unsigned, Signed),
-    try_neg(Neg::neg => Signed, Float, Double)
-);
 
-impl_elementwise_trait!(~~ Unsigned
-    try_shr(Shr::shr => Unsigned, Signed),
-    try_shl(Shl::shl => Unsigned, Signed)
-);
+// ---------------------------------------------------------------------------
+// 2. BITWISE MACRO (BitAnd, BitOr, BitXor)
+//    - Integers Only. Floats return None.
+// ---------------------------------------------------------------------------
+macro_rules! impl_bitwise {
+    ($trait:ident, $fn:ident, $op:expr) => {
+        impl $trait for StackEntry {
+            type Output = Option<Self>;
+
+            fn $fn(self, other: Self) -> Self::Output {
+                self.try_binary_operation::<u64, u64, u64, _>(other, $op)
+                    .or_else(|| self.try_binary_operation::<i64, i64, i64, _>(other, $op))
+            }
+        }
+    };
+}
+
+impl_bitwise!(BitAnd, bitand, |a, b| a & b);
+impl_bitwise!(BitOr, bitor, |a, b| a | b);
+impl_bitwise!(BitXor, bitxor, |a, b| a ^ b);
+
+
+// ---------------------------------------------------------------------------
+// 3. SHIFT MACRO (Shl, Shr)
+//    - Integers Only.
+//    - Special Case: shifts require the RHS to be cast to u32.
+// ---------------------------------------------------------------------------
+macro_rules! impl_shift {
+    ($trait:ident, $fn:ident, $method:ident) => {
+        impl $trait for StackEntry {
+            type Output = Option<Self>;
+
+            fn $fn(self, other: Self) -> Self::Output {
+                // Case 1: Unsigned << Unsigned
+                self.try_binary_operation::<u64, u64, u64, _>(other, |a, b| a.$method(b as u32))
+                // Case 2: Signed << Signed
+                    .or_else(|| self.try_binary_operation::<i64, i64, i64, _>(other, |a, b| a.$method(b as u32)))
+                // Note: If you want to allow Shifting Signed by Unsigned, you would add more chains here.
+            }
+        }
+    };
+}
+
+impl_shift!(Shl, shl, wrapping_shl);
+impl_shift!(Shr, shr, wrapping_shr);
+
+
+// ---------------------------------------------------------------------------
+// 4. UNARY MACRO (Not, Neg)
+//    - Not (!): Integers only.
+//    - Neg (-): Signed Ints (wrapping), Floats (standard).
+// ---------------------------------------------------------------------------
+
+impl Not for StackEntry {
+    type Output = Option<Self>;
+    fn not(self) -> Self::Output {
+        self.try_map::<u64, u64, _>(|a| !a)
+            .or_else(|| self.try_map::<i64, i64, _>(|a| !a))
+    }
+}
+
+impl Neg for StackEntry {
+    type Output = Option<Self>;
+    fn neg(self) -> Self::Output {
+        self.try_map::<i64, i64, _>(|a| a.wrapping_neg()) // Signed Int
+            .or_else(|| self.try_map::<f32, f32, _>(|a| -a)) // Float
+            .or_else(|| self.try_map::<f64, f64, _>(|a| -a)) // Double
+    }
+}

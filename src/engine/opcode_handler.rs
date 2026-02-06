@@ -1,14 +1,12 @@
 use std::ops::{
-    Add as _, BitAnd as _, BitOr as _, BitXor as _, Div as _, Mul as _, Neg as _, Not as _, Rem as _, Shl as _,
-    Shr as _, Sub as _,
+    Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl,
+    Shr, Sub,
 };
 
 use num_traits::FromBytes;
 
 use crate::{
-    engine::opcodes::Opcode,
-    loader::constant_table::{ConstantTable, ConstantTableIndex},
-    memory::stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
+    engine::opcodes::Opcode, guard, loader::constant_table::{ConstantTable, ConstantTableIndex}, memory::stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}
 };
 
 /// Contains information given to each instruction handler
@@ -179,9 +177,6 @@ pub fn exec_instruction<'a>(
 // Basic Stack Handlers
 
 /// Push a given number (in the form of `u64`) onto the stack.
-///
-/// It is expected that any other numeric type (such as `f32` of `f64`) must be converted
-/// into a `u64` format. This behaviour is defined in the `Stackable` trait.
 fn push_numeric<T>(input: &mut HandlerInputInfo, value: T) -> ExecutionResult
 where
     T: Into<StackEntry>,
@@ -191,17 +186,15 @@ where
 
 /// Push bytes found from parameters onto the stack
 ///
-/// The number of bytes must be less than `Stack::ENTRY_SIZE`
+/// The number of bytes must be less than `Stack::ENTRY_SIZE`, as
+/// that is the max size of an integer
 fn push_bytes<T>(input: &mut HandlerInputInfo) -> ExecutionResult
 where
     T: Into<StackEntry> + FromBytes<Bytes = [u8; Stack::ENTRY_SIZE]>
 {
     // Ensures that the number of bytes provided will actually fit
     // within a stack entry
-    if input.params.len() > Stack::ENTRY_SIZE
-    {
-        return Err(ExecutionError::IllegalParam);
-    }
+    guard!(input.params.len() <= Stack::ENTRY_SIZE, ExecutionError::IllegalParam);
 
     let mut bytes = [0; Stack::ENTRY_SIZE]; // This is set to the stack entry size.
     bytes[0..(input.params.len())].copy_from_slice(input.params);
@@ -379,18 +372,18 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Swap,          0, swap },
     { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
     { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
-    { Opcode::Add,           0, binop, <StackEntry>::try_add },
-    { Opcode::Sub,           0, binop, <StackEntry>::try_sub },
-    { Opcode::Mul,           0, binop, <StackEntry>::try_mul },
-    { Opcode::Div,           0, binop, <StackEntry>::try_div },
-    { Opcode::Rem,           0, binop, <StackEntry>::try_rem },
-    { Opcode::Neg,           0, unaryop, <StackEntry>::try_not },
-    { Opcode::Shl,           0, binop, <StackEntry>::try_shl },
-    { Opcode::Shr,           0, binop, <StackEntry>::try_shr },
-    { Opcode::And,           0, binop, <StackEntry>::try_bitand },
-    { Opcode::Or,            0, binop, <StackEntry>::try_bitor },
-    { Opcode::Xor,           0, binop, <StackEntry>::try_bitxor },
-    { Opcode::Not,           0, unaryop, <StackEntry>::try_not },
+    { Opcode::Add,           0, &(|x| binop(x, Add::add)) },
+    { Opcode::Sub,           0, &(|x| binop(x, Sub::sub)) },
+    { Opcode::Mul,           0, &(|x| binop(x, Mul::mul)) },
+    { Opcode::Div,           0, &(|x| binop(x, Div::div)) },
+    { Opcode::Rem,           0, &(|x| binop(x, Rem::rem)) },
+    { Opcode::Neg,           0, &(|x| unaryop(x, Neg::neg)) },
+    { Opcode::Shl,           0, &(|x| binop(x, Shl::shl)) },
+    { Opcode::Shr,           0, &(|x| binop(x, Shr::shr)) },
+    { Opcode::And,           0, &(|x| binop(x, BitAnd::bitand)) },
+    { Opcode::Or,            0, &(|x| binop(x, BitOr::bitor)) },
+    { Opcode::Xor,           0, &(|x| binop(x, BitXor::bitxor)) },
+    { Opcode::Not,           0, &(|x| unaryop(x, Not::not)) },
     { Opcode::IConvertF4,    0, &(|x| convert::<i64, f32>(x)) }, // Using i64 to avoid sign loss
     { Opcode::IConvertF8,    0, &(|x| convert::<i64, f64>(x)) },
     { Opcode::F4ConvertI,    0, &(|x| convert::<f32, i64>(x)) },
