@@ -3,6 +3,8 @@ use std::ops::{
     Shr as _, Sub as _,
 };
 
+use num_traits::FromBytes;
+
 use crate::{
     engine::opcodes::Opcode,
     loader::constant_table::{ConstantTable, ConstantTableIndex},
@@ -190,11 +192,13 @@ where
 /// Push bytes found from parameters onto the stack
 ///
 /// The number of bytes must be less than `Stack::ENTRY_SIZE`
-fn push_bytes<>(input: &mut HandlerInputInfo) -> ExecutionResult
+fn push_bytes<T>(input: &mut HandlerInputInfo) -> ExecutionResult
+where
+    T: Into<StackEntry> + FromBytes<Bytes = [u8; Stack::ENTRY_SIZE]>
 {
     // Ensures that the number of bytes provided will actually fit
     // within a stack entry
-    if input.params.len() <= Stack::ENTRY_SIZE
+    if input.params.len() > Stack::ENTRY_SIZE
     {
         return Err(ExecutionError::IllegalParam);
     }
@@ -203,7 +207,7 @@ fn push_bytes<>(input: &mut HandlerInputInfo) -> ExecutionResult
     bytes[0..(input.params.len())].copy_from_slice(input.params);
 
     // Defer to just pushing a normal numeric value
-    push_numeric(input, <u64>::from_le_bytes(bytes))
+    push_numeric(input, <T>::from_le_bytes(&bytes))
 }
 
 /// Gets a constant from the constant table and pushes it to the stack.
@@ -357,8 +361,8 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::F4Const1,      0, push_numeric, 1.0_f32 },
     { Opcode::F8Const0,      0, push_numeric, 0.0_f64 },
     { Opcode::F8Const1,      0, push_numeric, 1.0_f64 },
-    { Opcode::IConst,        1, push_bytes },
-    { Opcode::IConstW,       2, push_bytes },
+    { Opcode::IConst,        1, &(|x| push_bytes::<i64>(x)) },
+    { Opcode::IConstW,       2, &(|x| push_bytes::<u64>(x)) },
     { Opcode::Const,         4, push_constant },
     { Opcode::LdArg0,        0, load_local, 0 },
     { Opcode::LdArg1,        0, load_local, 1 },
