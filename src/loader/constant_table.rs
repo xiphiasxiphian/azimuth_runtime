@@ -74,7 +74,7 @@ impl<'a> From<Constant<'a>> for StackEntry
             Constant::Unsigned64(x) => x.into(),
             Constant::Float32(x) => x.into(),
             Constant::Float64(x) => x.into(),
-            Constant::String(x) => NonNull::new(x.as_ptr() as *mut u8).into()
+            Constant::String(x) => NonNull::new(x.as_ptr().cast_mut()).into()
         }
     }
 }

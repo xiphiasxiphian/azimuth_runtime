@@ -1,3 +1,11 @@
+// The narrowing primitive conversion behaviour here is desired
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::min_ident_chars)]
+
 use std::{ops::{
     Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl,
     Shr, Sub,
@@ -59,12 +67,13 @@ macro_rules! impl_arithmetic {
         impl $trait for StackEntry {
             type Output = Option<Self>;
 
+            #[expect(clippy::redundant_closure_for_method_calls, reason = "Trait stuff")]
             fn $fn(self, other: Self) -> Self::Output {
                 // 1. Try Unsigned (u64)
                 self.try_binary_operation::<u64, u64, u64, _>(other, $int_op)
                 // 2. Try Signed (i64)
                     .or_else(|| self.try_binary_operation::<i64, i64, i64, _>(other, $int_op))
-                // 3. Try Float (f32) - Note: standard ops like + work as closures
+                // 3. Try Float (f32)
                     .or_else(|| self.try_binary_operation::<f32, f32, f32, _>(other, $float_op))
                 // 4. Try Double (f64)
                     .or_else(|| self.try_binary_operation::<f64, f64, f64, _>(other, $float_op))
@@ -137,16 +146,16 @@ impl_shift!(Shr, shr, wrapping_shr);
 impl Not for StackEntry {
     type Output = Option<Self>;
     fn not(self) -> Self::Output {
-        self.try_map::<u64, u64, _>(|a| !a)
-            .or_else(|| self.try_map::<i64, i64, _>(|a| !a))
+        self.try_map::<u64, u64, _>(Not::not)
+            .or_else(|| self.try_map::<i64, i64, _>(Not::not))
     }
 }
 
 impl Neg for StackEntry {
     type Output = Option<Self>;
     fn neg(self) -> Self::Output {
-        self.try_map::<i64, i64, _>(|a| a.wrapping_neg()) // Signed Int
-            .or_else(|| self.try_map::<f32, f32, _>(|a| -a)) // Float
-            .or_else(|| self.try_map::<f64, f64, _>(|a| -a)) // Double
+        self.try_map::<i64, i64, _>(i64::wrapping_neg) // Signed Int
+            .or_else(|| self.try_map::<f32, f32, _>(Neg::neg)) // Float
+            .or_else(|| self.try_map::<f64, f64, _>(Neg::neg)) // Double
     }
 }

@@ -30,7 +30,7 @@ impl ArenaAllocator
 {
     pub fn with_capacity(capacity: usize) -> Result<Self, AllocatorError>
     {
-        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT).map_err(|x| AllocatorError::BadLayout(x))?;
+        let layout = Layout::from_size_align(capacity, MIN_PAGE_ALIGNMENT).map_err(AllocatorError::BadLayout)?;
         let data = unsafe { alloc(layout) };
 
         Ok(Self {

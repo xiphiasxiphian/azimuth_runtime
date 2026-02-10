@@ -73,7 +73,7 @@ impl Heap
 
         let total_capacity = infant_capacity + teen_capacity + adult_capacity;
 
-        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN).map_err(|x| HeapError::InvalidLayout(x))?;
+        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN).map_err(HeapError::InvalidLayout)?;
 
         let base = NonNull::new(unsafe { alloc(layout) })
             .ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
