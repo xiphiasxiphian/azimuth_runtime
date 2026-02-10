@@ -1,12 +1,12 @@
-use std::ops::{
-    Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl,
-    Shr, Sub,
-};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 use num_traits::FromBytes;
 
 use crate::{
-    engine::opcodes::Opcode, guard, loader::constant_table::{ConstantTable, ConstantTableIndex}, memory::stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}
+    engine::opcodes::Opcode,
+    guard,
+    loader::constant_table::{ConstantTable, ConstantTableIndex},
+    memory::stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
 };
 
 /// Contains information given to each instruction handler
@@ -190,7 +190,7 @@ where
 /// that is the max size of an integer
 fn push_bytes<T>(input: &mut HandlerInputInfo) -> ExecutionResult
 where
-    T: Into<StackEntry> + FromBytes<Bytes = [u8; Stack::ENTRY_SIZE]>
+    T: Into<StackEntry> + FromBytes<Bytes = [u8; Stack::ENTRY_SIZE]>,
 {
     // Ensures that the number of bytes provided will actually fit
     // within a stack entry

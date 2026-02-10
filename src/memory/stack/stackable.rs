@@ -1,5 +1,6 @@
 use std::ptr::NonNull;
-use crate::memory::stack::{entry::StackEntry};
+
+use crate::memory::stack::entry::StackEntry;
 
 pub struct EntryExtractionError;
 macro_rules! impl_into_entry {

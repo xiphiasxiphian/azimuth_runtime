@@ -67,14 +67,15 @@ impl<'a> Constant<'a>
 
 impl<'a> From<Constant<'a>> for StackEntry
 {
-    fn from(value: Constant<'a>) -> Self {
+    fn from(value: Constant<'a>) -> Self
+    {
         match value
         {
             Constant::Unsigned32(x) => <u64>::from(x).into(),
             Constant::Unsigned64(x) => x.into(),
             Constant::Float32(x) => x.into(),
             Constant::Float64(x) => x.into(),
-            Constant::String(x) => NonNull::new(x.as_ptr().cast_mut()).into()
+            Constant::String(x) => NonNull::new(x.as_ptr().cast_mut()).into(),
         }
     }
 }
