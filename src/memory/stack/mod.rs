@@ -52,6 +52,11 @@ impl Stack
         (locals_size + stack_size <= self.stack.len())
             .then(|| StackFrame::new(self, 0, locals_size, locals_size + stack_size))
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &StackEntry>
+    {
+        self.stack.iter()
+    }
 }
 
 /// A frame within the stack.

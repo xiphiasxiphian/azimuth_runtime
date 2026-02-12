@@ -4,7 +4,7 @@ use crate::{
     engine::{Runner, RunnerError},
     loader::Loader,
     memory::{
-        heap::{Heap, HeapError},
+        heap::heap::{Heap, HeapError},
         stack::Stack,
     },
 };
