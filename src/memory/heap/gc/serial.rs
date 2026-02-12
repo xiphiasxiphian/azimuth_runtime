@@ -8,9 +8,9 @@ impl GarbageCollector for Serial
 {
     fn mark(stack: &Stack, heap: &Heap) -> impl Iterator<Item = NonNull<u8>>
     {
-        let initial_pointers = stack.iter().filter_map(|x| match x {
+        stack.iter().filter_map(|x| match x {
             &StackEntry::Reference(y) => y,
             _ => None
-        }).collect::<Vec<_>>();
+        })
     }
 }
