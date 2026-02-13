@@ -1,4 +1,4 @@
-use crate::loader::parser::Directive;
+use crate::loader::parser::function::Directive;
 
 pub struct Runnable<'a>
 {

@@ -2,7 +2,7 @@ use std::{fs::read, io};
 
 use crate::loader::{
     constant_table::ConstantTable,
-    parser::{Directive, FileLayout, FunctionInfo},
+    parser::{FileLayout, function::{Directive, FunctionInfo}},
     runnable::Runnable,
 };
 
