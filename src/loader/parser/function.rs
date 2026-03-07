@@ -1,4 +1,4 @@
-use crate::{engine::opcodes::Opcode, guard, loader::{parser::{Table, TableEntry, bytes_to_numeric}, runnable::Runnable}};
+use crate::{engine::opcodes::Opcode, guard, loader::{parser::{bytes_to_numeric, table::{Table, TableEntry}}, runnable::Runnable}};
 
 type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>; // Creates a handler
 
@@ -172,12 +172,12 @@ mod function_info_tests
             0x03,
             0x04,
         ];
-        let table = Table {
-            entries: vec![
-                TableEntry::String("main".into()), // name index
+        let table = Table::new(
+            vec![
+                TableEntry::String("main"), // name index
                 TableEntry::Integer(4),            // descriptor index
             ],
-        };
+        );
 
         let (function, rem) = FunctionInfo::new(&data, &table).expect("Failed to parse simple function");
         assert_eq!(function.directives.len(), 0); // Doesn't include symbol directive
