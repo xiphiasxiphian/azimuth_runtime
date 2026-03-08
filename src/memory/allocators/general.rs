@@ -75,9 +75,9 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         Self::new(base, capacity, None)
     }
 
-    pub fn raw_alloc(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>
+    pub fn raw_alloc(&mut self, layout: Layout) -> Option<NonNull<u8>>
     {
-        self.get_allocation_order(size, align)
+        self.get_allocation_order(layout.size(), layout.align())
             .map(|target| {
                 (target..DEPTH)
                     .map(|order| {
@@ -98,7 +98,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
-        self.raw_alloc(size_of_val(&value), align_of_val(&value))
+        self.raw_alloc(Layout::for_value(&value))
             .map(NonNull::cast)
             .inspect(|x| unsafe { x.write(value) })
     }
@@ -128,6 +128,16 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
     {
         self.raw_dealloc(ptr.cast(), size_of::<T>(), align_of::<T>());
+    }
+
+    pub fn copy_from_nonoverlapping<T: Copy>(&mut self, value: &T) -> Option<NonNull<T>>
+    {
+        let space = self.raw_alloc(Layout::for_value(value))?.cast();
+        unsafe {
+            space.copy_from_nonoverlapping(NonNull::from_ref(value), 1)
+        };
+
+        Some(space)
     }
 
     pub fn contains(&self, ptr: NonNull<u8>) -> bool

@@ -72,7 +72,7 @@ impl FunctionInfo
                     match *name
                     {
                         // The name should refer to a String, and the descriptor should refer to an Integer
-                        TableEntry::String(ref name_str) => Some((name_str.as_str(), code_count)),
+                        TableEntry::String(name_str) => Some((name_str, code_count)),
                         _ => None,
                     }
                 }
