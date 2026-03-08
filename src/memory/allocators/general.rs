@@ -130,14 +130,14 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         self.raw_dealloc(ptr.cast(), size_of::<T>(), align_of::<T>());
     }
 
-    pub fn copy_from_nonoverlapping<T: Copy>(&mut self, value: &T) -> Option<NonNull<T>>
+    pub fn copy_bytes<'a>(&'a mut self, src: &[u8]) -> Option<NonNull<[u8]>>
     {
-        let space = self.raw_alloc(Layout::for_value(value))?.cast();
+        let dest = self.raw_alloc(Layout::for_value(src))?;
         unsafe {
-            space.copy_from_nonoverlapping(NonNull::from_ref(value), 1)
+            dest.as_ptr().copy_from_nonoverlapping(src.as_ptr(), src.len());
         };
 
-        Some(space)
+        Some(NonNull::slice_from_raw_parts(dest, src.len()))
     }
 
     pub fn contains(&self, ptr: NonNull<u8>) -> bool

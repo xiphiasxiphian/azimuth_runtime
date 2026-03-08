@@ -68,7 +68,7 @@ impl<'d> Datumspace<'d>
         // Move the id into the datumspace for permenant storage
         let id_str: &'d str = unsafe {
             let dest = self.constants
-                .copy_from_nonoverlapping(&table_id.as_bytes())
+                .copy_bytes(&table_id.as_bytes())
                 .ok_or(DatumspaceError::AllocationFailure)?;
             str::from_utf8_unchecked(dest.as_ref())
         };
@@ -95,7 +95,7 @@ impl<'d> Datumspace<'d>
                 TableEntry::String(file_str) => {
                     let str_bytes = file_str.as_bytes();
                     let dest_ptr = self.constants
-                        .copy_from_nonoverlapping(&str_bytes)
+                        .copy_bytes(&str_bytes)
                         .ok_or(DatumspaceError::AllocationFailure)?;
 
                     unsafe {
@@ -120,7 +120,7 @@ impl<'d> Datumspace<'d>
 
         self.mapping
             .insert(id_str, NonNull::from_ref(entries).cast())
-            .map_or_else(move || Ok(entries), |_| Err(DatumspaceError::Duplication))
+            .map_or_else(|| Ok(entries), |_| Err(DatumspaceError::Duplication))
     }
 
     // pub fn push_type<'b>(&mut self, bytes: &'b [u8]) -> Result<&'a TypeInfo<'a>, DatumspaceError>
