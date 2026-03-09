@@ -6,13 +6,12 @@ use crate::loader::{
     runnable::Runnable,
 };
 
-pub mod constant_table;
 pub(super) mod parser;
 pub mod runnable;
 
-pub struct Loader
+pub struct Loader<'file>
 {
-    layout: FileLayout,
+    layout: FileLayout<'file>,
 }
 
 #[derive(Debug)]

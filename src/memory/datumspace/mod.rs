@@ -1,8 +1,9 @@
 pub mod types;
+pub mod constant_table;
 
 use std::{alloc::Layout, collections::HashMap, ptr::NonNull};
 
-use crate::{loader::parser::table::{Table, TableEntry}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::types::TypeInfo}};
+use crate::{loader::parser::table::{Table, TableEntry}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::{Constant}, types::TypeInfo}}};
 
 /*
  +---------------------+       +-------------------------+       +-------------------------+
@@ -33,12 +34,17 @@ enum DatumspaceError
     Duplication,
 }
 
+enum DatumEntry<'a>
+{
+    ConstantTable(&'a [Constant<'a>]),
+}
+
 struct Datumspace<'a>
 {
     types: DatumAllocator,
     functions: DatumAllocator,
     constants: DatumAllocator,
-    mapping: HashMap<&'a str, NonNull<u8>>
+    mapping: HashMap<&'a str, DatumEntry<'a>>
 }
 
 impl<'d> Datumspace<'d>
@@ -60,7 +66,7 @@ impl<'d> Datumspace<'d>
 
     /// Takes the transient Table (tied to the file) and deep-copies
     /// the data into the Datumspace's custom allocator.
-    pub fn load_constants<'file, I>(&mut self, table: I, table_id: &'file str) -> Result<&'d [TableEntry<'d>], DatumspaceError>
+    pub fn load_constants<'file, I>(&mut self, table: I, table_id: &'file str) -> Result<&'d [Constant<'d>], DatumspaceError>
     where
         I: ExactSizeIterator<Item = &'file TableEntry<'file>>,
         'd: 'file
@@ -79,17 +85,17 @@ impl<'d> Datumspace<'d>
         let array_layout = Layout::array::<TableEntry>(count).map_err(|_| DatumspaceError::AllocationFailure)?;
         let array_ptr = self.constants
             .raw_alloc(array_layout)
-            .map(|x| x.cast::<TableEntry<'d>>())
+            .map(|x| x.cast::<Constant<'d>>())
             .ok_or(DatumspaceError::AllocationFailure)?;
 
         // Copy data over
         for (i, entry) in table.enumerate() {
             let permanent_entry = match entry {
                 // Primitives are just copied by value
-                TableEntry::Integer(v) => TableEntry::Integer(*v),
-                TableEntry::Long(v) => TableEntry::Long(*v),
-                TableEntry::Float(v) => TableEntry::Float(*v),
-                TableEntry::Double(v) => TableEntry::Double(*v),
+                TableEntry::Integer(v) => Constant::Unsigned32(*v),
+                TableEntry::Long(v) => Constant::Unsigned64(*v),
+                TableEntry::Float(v) => Constant::Float32(*v),
+                TableEntry::Double(v) => Constant::Float64(*v),
 
                 // Strings require a deep copy into datumspace
                 TableEntry::String(file_str) => {
@@ -101,8 +107,7 @@ impl<'d> Datumspace<'d>
                     unsafe {
                         // Reconstitute the string slice with the Datumspace lifetime ('d)
                         let permanent_str = str::from_utf8_unchecked(dest_ptr.as_ref());
-
-                        TableEntry::String(permanent_str)
+                        Constant::String(permanent_str)
                     }
                 }
             };
@@ -119,34 +124,20 @@ impl<'d> Datumspace<'d>
         };
 
         self.mapping
-            .insert(id_str, NonNull::from_ref(entries).cast())
+            .insert(id_str, DatumEntry::ConstantTable(entries))
             .map_or_else(|| Ok(entries), |_| Err(DatumspaceError::Duplication))
     }
 
-    // pub fn push_type<'b>(&mut self, bytes: &'b [u8]) -> Result<&'a TypeInfo<'a>, DatumspaceError>
-    // {
-    //     // In general this means cloning in the required information for the type, as the references
-    //     // will refer to the memory occupied by the file being open - as soon as the file is closed
-    //     // this reference wont exist anymore.
-
-    //     let ty = TypeInfo::from_bytes(bytes)
-    //         .ok_or(DatumspaceError::InvalidStructure)
-    //         .and_then(|(ty, rem)| {
-    //             if rem.len() > 0 { return Err(DatumspaceError::LeftOverBytes) }
-    //             Ok(ty)
-    //         })?;
-
-    //     let data = self.types.alloc(ty)
-    //         .ok_or(DatumspaceError::AllocationFailure)?;
-
-    //     assert!(data.is_aligned());
-
-    //     // self.mapping
-    //     //     .insert(unsafe { data.as_ref().id() }, data.cast())
-    //     //     .map_or_else(|| Ok(unsafe { data.as_ref() }), |_| Err(DatumspaceError::Duplication))
-
-    //     todo!()
-    // }
+    pub fn get_constant(&self, id: &str, index: usize) -> Option<&Constant<'d>>
+    {
+        match self.mapping.get(id)
+        {
+            Some(&DatumEntry::ConstantTable(consts)) => {
+                consts.get(index)
+            }
+            _ => None
+        }
+    }
 
     // pub fn get_type(&'d self, id: &str) -> Option<&'d TypeInfo<'d>>
     // {
