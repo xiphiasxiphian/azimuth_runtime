@@ -1,5 +1,6 @@
 pub mod types;
 pub mod constant_table;
+pub mod runnable;
 
 use std::{alloc::Layout, collections::HashMap, ptr::NonNull};
 
@@ -32,11 +33,15 @@ enum DatumspaceError
     InvalidStructure,
     AllocationFailure,
     Duplication,
+    UnexpectedDatumtype,
+    ResourceDoesntExist,
 }
 
 enum DatumEntry<'a>
 {
     ConstantTable(&'a [Constant<'a>]),
+    Function(),
+    Type(),
 }
 
 struct Datumspace<'a>
@@ -128,28 +133,17 @@ impl<'d> Datumspace<'d>
             .map_or_else(|| Ok(entries), |_| Err(DatumspaceError::Duplication))
     }
 
-    pub fn get_constant(&self, id: &str, index: usize) -> Option<&Constant<'d>>
+    pub fn push_function(&mut self, table_id: &str, id_index: usize, )
+
+    pub fn get_constant(&self, id: &str, index: usize) -> Result<&Constant<'d>, DatumspaceError>
     {
         match self.mapping.get(id)
         {
             Some(&DatumEntry::ConstantTable(consts)) => {
-                consts.get(index)
+                consts.get(index).ok_or(DatumspaceError::ResourceDoesntExist)
             }
-            _ => None
+            Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
+            None => Err(DatumspaceError::ResourceDoesntExist)
         }
     }
-
-    // pub fn get_type(&'d self, id: &str) -> Option<&'d TypeInfo<'d>>
-    // {
-    //     self.mapping
-    //         .get(id)
-    //         .map(|&slice| unsafe {
-    //             let typeinfo: NonNull<TypeInfo> = slice.cast();
-
-    //             // Ensure I haven't fucked up
-    //             assert!(typeinfo.is_aligned());
-
-    //             typeinfo.as_ref()
-    //         })
-    // }
 }
