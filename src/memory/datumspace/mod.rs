@@ -4,7 +4,7 @@ pub mod runnable;
 
 use std::{alloc::Layout, collections::HashMap, ptr::NonNull};
 
-use crate::{loader::parser::table::{Table, TableEntry}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::{Constant}, types::TypeInfo}}};
+use crate::{loader::parser::{function::FunctionInfo, table::{Table, TableEntry}}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::Constant, runnable::Runnable, types::TypeInfo}}};
 
 /*
  +---------------------+       +-------------------------+       +-------------------------+
@@ -40,7 +40,7 @@ enum DatumspaceError
 enum DatumEntry<'a>
 {
     ConstantTable(&'a [Constant<'a>]),
-    Function(),
+    Function(&'a Runnable<'a>),
     Type(),
 }
 
@@ -133,9 +133,23 @@ impl<'d> Datumspace<'d>
             .map_or_else(|| Ok(entries), |_| Err(DatumspaceError::Duplication))
     }
 
-    pub fn push_function(&mut self, table_id: &str, id_index: usize, )
+    pub fn push_function<'file>(&'d mut self, table_id: &str, function: &'file FunctionInfo<'file>) -> Result<&'d Runnable<'d>, DatumspaceError>
+    {
+        let name = self.get_constant(table_id, function.name_index)
+            .and_then(|x| match x {
+                &Constant::String(nm) => Ok(nm),
+                _ => Err(DatumspaceError::UnexpectedDatumtype)
+            })?;
 
-    pub fn get_constant(&self, id: &str, index: usize) -> Result<&Constant<'d>, DatumspaceError>
+
+        let runnable = Runnable::from_parsed_data(&mut self.functions, &function.directives, function.code)?;
+
+        self.mapping
+            .insert(name, DatumEntry::Function(runnable))
+            .map_or_else(|| Ok(runnable), |_| Err(DatumspaceError::Duplication))
+    }
+
+    pub fn get_constant(&self, id: &str, index: usize) -> Result<&'d Constant<'d>, DatumspaceError>
     {
         match self.mapping.get(id)
         {

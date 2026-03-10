@@ -1,4 +1,4 @@
-use crate::{engine::opcodes::Opcode, guard, loader::{parser::{bytes_to_numeric, table::{Table, TableEntry}}, runnable::Runnable}};
+use crate::{engine::opcodes::Opcode, guard, loader::parser::{bytes_to_numeric, table::{Table, TableEntry}}, memory::datumspace::runnable::Runnable};
 
 type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>; // Creates a handler
 
@@ -32,21 +32,16 @@ impl Directive
 }
 
 #[derive(Debug)]
-pub struct FunctionInfo
+pub struct FunctionInfo<'file>
 {
-    directives: Vec<Directive>,
-
-    // In the future this code section will be able to be a byte slice
-    // (&[u8]) rather than an owned vector as the actual data will be stored in
-    // metaspace somewhere.
-    // However, as metaspace doesnt exist yet, right now it has to be
-    // owned.
-    code: Vec<u8>,
+    pub name_index: usize,
+    pub directives: Vec<Directive>,
+    pub code: &'file [u8],
 }
 
-impl FunctionInfo
+impl<'file> FunctionInfo<'file>
 {
-    pub fn new<'b>(input: &'b [u8], table: &Table) -> Option<(Self, &'b [u8])>
+    pub fn new(input: &'file [u8]) -> Option<(Self, &'file [u8])>
     {
         // Get symbol directive. The symbol directive
         // should be Directive 0, so get its entry in the handler array
@@ -56,25 +51,12 @@ impl FunctionInfo
 
         let symbol_operands = symbol_directive.get(Directive::HEADER_SIZE..)?;
 
-        let (name, descriptor): (&str, u32) = symbol_handler(symbol_operands).and_then(|x| {
+        let (name_index, descriptor): (u32, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
                 Directive::Symbol(name_index, code_count) =>
                 {
-                    // Even thought the name is not needed here, it is
-                    // important still to verify that it is a valid constant pool entry,
-                    // and does in fact refer to a string entry
-
-                    // Get the name and descriptor from the constant pool.
-                    // This will also check whether the given indices are in fact valid.
-                    let name = table.get(name_index)?;
-
-                    match *name
-                    {
-                        // The name should refer to a String, and the descriptor should refer to an Integer
-                        TableEntry::String(name_str) => Some((name_str, code_count)),
-                        _ => None,
-                    }
+                    Some((name_index, code_count))
                 }
                 _ => None, // Something has gone really wrong if this triggers
             }
@@ -103,40 +85,37 @@ impl FunctionInfo
             clippy::expect_used,
             reason = "Running this program on a less than 32-bit architecture isn't supported"
         )]
-        let (code_slice, remaining) = remaining.split_at_checked(
-            descriptor
-                .try_into()
-                .expect("Running on a none 32-bit or 64-bit architecture. How? Why?"),
-        )?;
+        {
+            let (code_slice, remaining) = remaining.split_at_checked(
+                descriptor
+                    .try_into()
+                    .expect("Running on a none 32-bit or 64-bit architecture. How? Why?"),
+            )?;
 
-        Some((
-            Self {
-                directives,
-                code: code_slice.to_vec(),
-            },
-            remaining,
-        ))
+            Some((
+                Self {
+                    name_index: <usize>::try_from(name_index).expect("Running on a none 32-bit or 64-bit architecture. How? Why?"),
+                    directives,
+                    code: code_slice,
+                },
+                remaining,
+            ))
+        }
     }
 
-    pub fn get_all_functions<'a>(input: &'a [u8], table: &Table) -> Option<(Vec<Self>, &'a [u8])>
+    pub fn get_all_functions(input: &'file [u8]) -> Option<(Vec<Self>, &'file [u8])>
     {
         let mut functions = vec![];
         let mut remaining = input;
         while let &[Directive::OPCODE, Directive::SYMBOL, ..] = remaining
         // There is another function to read
         {
-            let (function, rem) = Self::new(remaining, table)?;
+            let (function, rem) = Self::new(remaining)?;
             functions.push(function);
             remaining = rem;
         }
 
         Some((functions, remaining))
-    }
-
-    /// Turn a raw parsed `FunctionInfo` into a usable `Runnable`, with safety checks
-    pub fn into_runnable(&self) -> Option<Runnable<'_>>
-    {
-        Runnable::from_parsed_data(&self.directives, &self.code)
     }
 
     pub fn has_directive(&self, directive: Directive) -> bool
@@ -179,7 +158,7 @@ mod function_info_tests
             ],
         );
 
-        let (function, rem) = FunctionInfo::new(&data, &table).expect("Failed to parse simple function");
+        let (function, rem) = FunctionInfo::new(&data).expect("Failed to parse simple function");
         assert_eq!(function.directives.len(), 0); // Doesn't include symbol directive
         assert_eq!(function.code, vec![0x01, 0x02, 0x03, 0x04]);
         assert!(rem.is_empty());

@@ -54,7 +54,7 @@ pub struct FileLayout<'a>
     version: u8,
     constant_count: u32,
     constant_pool: Table<'a>,
-    functions: Vec<FunctionInfo>,
+    functions: &'a [FunctionInfo<'a>],
 }
 
 impl<'a> FileLayout<'a>
