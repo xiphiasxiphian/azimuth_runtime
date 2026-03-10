@@ -157,7 +157,17 @@ impl<'d> Datumspace<'d>
                 consts.get(index).ok_or(DatumspaceError::ResourceDoesntExist)
             }
             Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
-            None => Err(DatumspaceError::ResourceDoesntExist)
+            None => Err(DatumspaceError::ResourceDoesntExist),
+        }
+    }
+
+    pub fn get_runnable(&self, id: &str) -> Result<&'d Runnable<'d>, DatumspaceError>
+    {
+        match self.mapping.get(id)
+        {
+            Some(&DatumEntry::Function(runnable)) => Ok(runnable),
+            Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
+            None => Err(DatumspaceError::ResourceDoesntExist),
         }
     }
 }
