@@ -1,51 +1,47 @@
-use std::{fs::read, io};
+use std::{fs::{File, read}, io, path::{Path, PathBuf}};
 
-use crate::loader::{
-    constant_table::ConstantTable,
-    parser::{FileLayout, function::{Directive, FunctionInfo}},
-    runnable::Runnable,
-};
+use crate::{loader::parser::FileLayout, memory::{allocators::AllocatorError, datumspace::{Datumspace, runnable::Runnable}}};
 
 pub(super) mod parser;
-pub mod runnable;
 
-pub struct Loader<'file>
+const DEFAULT_CAPACITY: usize = 1 << 24; // 16 MiB
+
+pub struct Loader<'a>
 {
-    layout: FileLayout<'file>,
+    datumspace: Datumspace<'a>,
+    base: &'a Path,
 }
 
 #[derive(Debug)]
 pub enum LoaderError
 {
     FileReadError(io::Error),
-    LayoutError,
+    AllocatorError(AllocatorError),
 }
 
 // This is a temporary solution that just statically loads the
 // entire file at once.
 // In the future this will happen dynamically where required.
-impl Loader
+impl<'a> Loader<'a>
 {
-    pub fn from_file(filename: &str) -> Result<Self, LoaderError>
+    pub fn new(base: &'a str) -> Result<Self, LoaderError>
     {
-        let file_contents = read(filename).map_err(LoaderError::FileReadError)?;
-        let layout = FileLayout::from_bytes(&file_contents).ok_or(LoaderError::LayoutError)?;
-
-        Ok(Self { layout })
+        Ok(
+            Self {
+                datumspace: Datumspace::with_capacity(DEFAULT_CAPACITY).map_err(|x| LoaderError::AllocatorError(x))?,
+                base: Path::new(base),
+            }
+        )
     }
 
-    // Get the entry point (aka function marked with .start)
-    pub fn get_entry_point(&self) -> Option<Runnable<'_>>
+    pub fn get_entrypoint(&mut self, filename: &str) -> Result<(), LoaderError>
     {
-        self.layout
-            .functions()
-            .iter()
-            .find(|x| x.has_directive(Directive::Start))
-            .and_then(FunctionInfo::into_runnable)
+        let bytes = std::fs::read(self.base.join(filename)).map_err(|x| LoaderError::FileReadError(x))?;
+        let layout = FileLayout::from_bytes(&bytes);
     }
 
-    pub fn get_constant_table(&self) -> ConstantTable<'_>
+    pub fn get_function(path: &str) -> Result<&'a Runnable<'a>, LoaderError>
     {
-        ConstantTable::from_parsed_table(self.layout.constants())
+        todo!()
     }
 }

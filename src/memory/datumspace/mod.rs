@@ -1,10 +1,11 @@
 pub mod types;
 pub mod constant_table;
 pub mod runnable;
+mod datum;
 
 use std::{alloc::Layout, collections::HashMap, ptr::NonNull};
 
-use crate::{loader::parser::{function::FunctionInfo, table::{Table, TableEntry}}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::Constant, runnable::Runnable, types::TypeInfo}}};
+use crate::{loader::parser::{function::{Directive, FunctionInfo}, table::{Table, TableEntry}}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::Constant, datum::{DatumPage, DatumPageHeader, align_up}, runnable::Runnable, types::TypeInfo}}};
 
 /*
  +---------------------+       +-------------------------+       +-------------------------+
@@ -27,7 +28,7 @@ use crate::{loader::parser::{function::FunctionInfo, table::{Table, TableEntry}}
 const ALLOCATOR_DEPTH: usize = 8;
 type DatumAllocator = GeneralAllocator<ALLOCATOR_DEPTH>;
 
-enum DatumspaceError
+pub enum DatumspaceError
 {
     LeftOverBytes,
     InvalidStructure,
@@ -44,11 +45,9 @@ enum DatumEntry<'a>
     Type(),
 }
 
-struct Datumspace<'a>
+pub struct Datumspace<'a>
 {
-    types: DatumAllocator,
-    functions: DatumAllocator,
-    constants: DatumAllocator,
+    allocator: DatumAllocator,
     mapping: HashMap<&'a str, DatumEntry<'a>>
 }
 
@@ -56,97 +55,137 @@ impl<'d> Datumspace<'d>
 {
     pub fn with_capacity(min_capacity: usize) -> Result<Self, AllocatorError>
     {
-        let adjusted_capacity = min_capacity.next_power_of_two();
-        let individual_capacity = adjusted_capacity / 4; // For now just split in half. This might be revisited at some point
-
         Ok(
             Self {
-                types: DatumAllocator::with_capacity(individual_capacity)?,
-                functions: DatumAllocator::with_capacity(individual_capacity * 2)?,
-                constants: DatumAllocator::with_capacity(individual_capacity)?,
+                allocator: DatumAllocator::with_capacity(min_capacity)?,
                 mapping: HashMap::new(),
             }
         )
     }
 
-    /// Takes the transient Table (tied to the file) and deep-copies
-    /// the data into the Datumspace's custom allocator.
-    pub fn load_constants<'file, I>(&mut self, table: I, table_id: &'file str) -> Result<&'d [Constant<'d>], DatumspaceError>
+    pub fn load_datum<'file>(
+        &'d mut self,
+        table_id: &'file str,
+        table: &[&'file TableEntry<'file>],
+        functions: &'file [FunctionInfo<'file>],
+    ) -> Result<DatumPage<'d>, DatumspaceError>
     where
-        I: ExactSizeIterator<Item = &'file TableEntry<'file>>,
         'd: 'file
     {
-        // Move the id into the datumspace for permenant storage
-        let id_str: &'d str = unsafe {
-            let dest = self.constants
-                .copy_bytes(&table_id.as_bytes())
-                .ok_or(DatumspaceError::AllocationFailure)?;
-            str::from_utf8_unchecked(dest.as_ref())
+        let page_layout = Self::calculate_page_size(table_id, table, functions)?;
+        let base: NonNull<u8> = self.allocator.raw_alloc(page_layout).ok_or(DatumspaceError::AllocationFailure)?;
+
+        // Construct header based on know values
+        let header = DatumPageHeader {
+            id_len: table_id.len() as u32,
+            constants_len: table.len() as u32,
+            functions_len: functions.len() as u32,
         };
 
-        let count = table.len();
+        // Write header to start of block
+        unsafe { base.cast().write(header) };
 
-        // Allocate space for the array of entries itself in our allocator
-        let array_layout = Layout::array::<TableEntry>(count).map_err(|_| DatumspaceError::AllocationFailure)?;
-        let array_ptr = self.constants
-            .raw_alloc(array_layout)
-            .map(|x| x.cast::<Constant<'d>>())
-            .ok_or(DatumspaceError::AllocationFailure)?;
+        // We maintain a byte cursor for blobs (strings, directives, bytecode)
+        // that starts after the fixed-size arrays and walks forward.
+        let const_offset = align_up(
+            size_of::<DatumPageHeader>() + table_id.len(),
+            align_of::<Constant>(),
+        );
 
-        // Copy data over
-        for (i, entry) in table.enumerate() {
-            let permanent_entry = match entry {
-                // Primitives are just copied by value
+        let fn_offset = align_up(
+            const_offset + table.len() * size_of::<Constant>(),
+            align_of::<Runnable>(),
+        );
+
+        // Blob cursor begins after the functions array
+        let mut blob_cursor = fn_offset + functions.len() * size_of::<Runnable>();
+
+        // Write id to start
+        unsafe {
+            let id_dest = base.byte_add(size_of::<DatumPageHeader>());
+            std::ptr::copy_nonoverlapping(table_id.as_ptr(), id_dest.as_ptr(), table_id.len());
+        };
+
+        // Write constants
+        let const_base = unsafe { base.byte_add(const_offset).cast() };
+
+        for (i, entry) in table.iter().enumerate()
+        {
+            let constant: Constant<'d> = match entry {
                 TableEntry::Integer(v) => Constant::Unsigned32(*v),
-                TableEntry::Long(v) => Constant::Unsigned64(*v),
-                TableEntry::Float(v) => Constant::Float32(*v),
-                TableEntry::Double(v) => Constant::Float64(*v),
-
-                // Strings require a deep copy into datumspace
-                TableEntry::String(file_str) => {
-                    let str_bytes = file_str.as_bytes();
-                    let dest_ptr = self.constants
-                        .copy_bytes(&str_bytes)
-                        .ok_or(DatumspaceError::AllocationFailure)?;
-
+                TableEntry::Long(v)    => Constant::Unsigned64(*v),
+                TableEntry::Float(v)   => Constant::Float32(*v),
+                TableEntry::Double(v)  => Constant::Float64(*v),
+                TableEntry::String(s)  => {
+                    // Write blob at cursor, produce a 'd slice into the page
+                    let blob_ptr = unsafe { base.byte_add(blob_cursor) };
                     unsafe {
-                        // Reconstitute the string slice with the Datumspace lifetime ('d)
-                        let permanent_str = str::from_utf8_unchecked(dest_ptr.as_ref());
-                        Constant::String(permanent_str)
+                        blob_ptr.copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut _), s.len());
                     }
+                    let permanent: &'d str = unsafe {
+                        str::from_utf8_unchecked(
+                            NonNull::slice_from_raw_parts(blob_ptr, s.len()).as_ref()
+                        )
+                    };
+                    blob_cursor += s.len();
+                    Constant::String(permanent)
                 }
             };
+            unsafe { const_base.add(i).write(constant) };
+        }
 
-            // Write the permanent entry into our allocated array
-            unsafe {
-                array_ptr.as_ptr().add(i).write(permanent_entry);
+        // Write functions
+        let fn_base  = unsafe { base.byte_add(fn_offset).cast::<Runnable<'d>>() };
+        let constants: &'d [Constant<'d>] = unsafe {
+            std::slice::from_raw_parts(const_base.as_ptr(), table.len())
+        };
+
+        for (i, info) in functions.iter().enumerate()
+        {
+            // Resolve name from the constants we just wrote
+            let name = match constants.get(info.name_index) {
+                Some(Constant::String(s)) => *s,
+                Some(_) => return Err(DatumspaceError::UnexpectedDatumtype),
+                None    => return Err(DatumspaceError::ResourceDoesntExist),
+            };
+
+            // Write directives blob
+            blob_cursor = align_up(blob_cursor, align_of::<Directive>());
+            let dir_ptr  = unsafe { base.byte_add(blob_cursor).cast::<Directive>() };
+            let dir_len  = info.directives.len();
+
+            // TODO: Technically some directives are removed as they are the required ones
+            blob_cursor += dir_len * size_of::<Directive>();
+
+            // Write bytecode blob
+            let code_ptr = unsafe { base.byte_add(blob_cursor) };
+            let code_len = info.code.len();
+
+
+            blob_cursor += code_len;
+
+            // Build the Runnable directly into the page — no allocator call needed
+            // since directives and bytecode now live in the page block itself.
+            let runnable = unsafe {
+                Runnable::from_parsed_data(
+                    fn_base.add(i),
+                    dir_ptr,
+                    code_ptr,
+                    name,
+                    &info.directives,
+                    info.code
+                )?
+            };
+
+            // Register name -> function pointer in the flat lookup map
+            if self.mapping.insert(name, DatumEntry::Function(runnable)).is_some() {
+                return Err(DatumspaceError::Duplication);
             }
         }
 
-        // Store the slice referencing our custom allocator
-        let entries = unsafe {
-            std::slice::from_raw_parts(array_ptr.as_ptr(), count)
-        };
+        let page = unsafe { DatumPage::from_base_ptr(base.as_ptr() as *const _) };
 
-        self.mapping
-            .insert(id_str, DatumEntry::ConstantTable(entries))
-            .map_or_else(|| Ok(entries), |_| Err(DatumspaceError::Duplication))
-    }
-
-    pub fn push_function<'file>(&'d mut self, table_id: &str, function: &'file FunctionInfo<'file>) -> Result<&'d Runnable<'d>, DatumspaceError>
-    {
-        let name = self.get_constant(table_id, function.name_index)
-            .and_then(|x| match x {
-                &Constant::String(nm) => Ok(nm),
-                _ => Err(DatumspaceError::UnexpectedDatumtype)
-            })?;
-
-
-        let runnable = Runnable::from_parsed_data(&mut self.functions, &function.directives, function.code)?;
-
-        self.mapping
-            .insert(name, DatumEntry::Function(runnable))
-            .map_or_else(|| Ok(runnable), |_| Err(DatumspaceError::Duplication))
+        Ok(page)
     }
 
     pub fn get_constant(&self, id: &str, index: usize) -> Result<&'d Constant<'d>, DatumspaceError>
@@ -169,5 +208,40 @@ impl<'d> Datumspace<'d>
             Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
             None => Err(DatumspaceError::ResourceDoesntExist),
         }
+    }
+
+    fn calculate_page_size<'file>(
+        table_id:  &str,
+        table:     &[&'file TableEntry<'file>],
+        functions: &[FunctionInfo<'file>],
+    ) -> Result<Layout, DatumspaceError> {
+        let mut size = size_of::<DatumPageHeader>();
+
+        // id
+        size = align_up(size + table_id.len(), align_of::<Constant>());
+
+        // constants array
+        size += table.len() * size_of::<Constant>();
+
+        // string blobs inside constants
+        for entry in table.iter() {
+            if let TableEntry::String(s) = entry {
+                size = align_up(size + s.len(), align_of::<u8>());
+            }
+        }
+
+        // align up to Runnable before the functions array
+        size = align_up(size, align_of::<Runnable>());
+        size += functions.len() * size_of::<Runnable>();
+
+        // directives + bytecode blobs per function
+        for info in functions.iter() {
+            size = align_up(size, align_of::<Directive>());
+            size += info.directives.len() * size_of::<Directive>();
+            size += info.code.len(); // bytecode is u8, no alignment needed
+        }
+
+        Layout::from_size_align(size, align_of::<DatumPageHeader>())
+            .map_err(|_| DatumspaceError::AllocationFailure)
     }
 }

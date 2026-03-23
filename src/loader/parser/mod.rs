@@ -54,7 +54,7 @@ pub struct FileLayout<'a>
     version: u8,
     constant_count: u32,
     constant_pool: Table<'a>,
-    functions: &'a [FunctionInfo<'a>],
+    functions: Vec<FunctionInfo<'a>>,
 }
 
 impl<'a> FileLayout<'a>
@@ -68,7 +68,7 @@ impl<'a> FileLayout<'a>
         let &version = parser.parse_off(|x| x.split_first())?; // Version Number
         let constant_count = parser.parse_off(|x| split_off!(u32, x))?; // Number of constants
         let constant_pool = parser.parse_off(|x| Table::from_bytes(constant_count as usize, x))?; // Constant Table
-        let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x, &constant_pool))?; // Functions
+        let functions = parser.parse_off(|x| FunctionInfo::get_all_functions(x))?; // Functions
 
         Some(Self {
             magic,
@@ -77,16 +77,6 @@ impl<'a> FileLayout<'a>
             constant_pool,
             functions,
         })
-    }
-
-    pub fn functions(&self) -> &[FunctionInfo]
-    {
-        self.functions.as_slice()
-    }
-
-    pub fn constants(&self) -> &Table
-    {
-        &self.constant_pool
     }
 }
 

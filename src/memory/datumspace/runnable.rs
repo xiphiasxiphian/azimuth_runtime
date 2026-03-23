@@ -4,6 +4,7 @@ use crate::{loader::parser::function::Directive, memory::datumspace::{DatumAlloc
 
 pub struct Runnable<'a>
 {
+    name: &'a str,
     maxstack: usize,
     maxlocals: usize,
     directives: &'a [Directive],
@@ -17,21 +18,22 @@ impl<'a> Runnable<'a>
     /// This also checks the validity of that data. For example, if there
     /// isnt a maxstack or maxlocal directive specifying such data, then
     /// the runnable cannot be constructed.
-    pub fn from_parsed_data<'file>(allocator: &mut DatumAllocator, directives: &'file [Directive], bytecode: &'file [u8]) -> Result<&'a Self, DatumspaceError>
+    pub unsafe fn from_parsed_data<'file>(
+        dst: NonNull<Runnable<'a>>,
+        directive_space: NonNull<Directive>,
+        bytecode_space: NonNull<u8>,
+        name: &'a str,
+        directives: &'file [Directive],
+        bytecode: &'file [u8]
+    ) -> Result<&'a Self, DatumspaceError>
     {
         const REQUIRED_DIRECTIVES_COUNT: usize = 2;
         let directive_count = directives.len() - REQUIRED_DIRECTIVES_COUNT;
-        let directive_byte_count = size_of::<Directive>() * directive_count;
 
-        // Allocate space for this new runnable
-        let total_space = size_of::<Self>() + directive_byte_count + bytecode.len();
-        let layout = Layout::array::<u8>(total_space).map_err(|_| DatumspaceError::AllocationFailure)?;
+        let runnable: NonNull<Runnable> = dst.cast();
 
-        let allocation = allocator.raw_alloc(layout).ok_or(DatumspaceError::AllocationFailure)?;
-
-        let runnable: NonNull<Runnable> = allocation.cast();
-        let directive_space: NonNull<Directive> = unsafe { allocation.byte_add(size_of::<Self>()) }.cast();
-        let bytecode_space: NonNull<u8> = unsafe { directive_space.byte_add(directive_byte_count) }.cast();
+        // Write bytecode in
+        unsafe { bytecode_space.copy_from_nonoverlapping(NonNull::new_unchecked(bytecode.as_ptr() as *mut _), bytecode.len()) };
 
         directives
             .iter()
@@ -58,6 +60,7 @@ impl<'a> Runnable<'a>
                 unsafe {
                     // Construct the runnable based on this data
                     runnable.write(Self {
+                        name,
                         maxstack: max_stack?,
                         maxlocals: max_locals?,
                         directives: std::slice::from_raw_parts(directive_space.as_ptr(), count),
