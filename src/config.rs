@@ -93,7 +93,7 @@ impl Config
         // -- Init Required systems --
 
         // Init Loader (WIP)
-        let loader = Loader::from_file(&self.filename).map_err(|_| ConfigError::LoaderInitError)?;
+        let loader = Loader::new("").map_err(|_| ConfigError::LoaderInitError)?;
 
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);

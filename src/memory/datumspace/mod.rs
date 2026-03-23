@@ -28,6 +28,7 @@ use crate::{loader::parser::{function::{Directive, FunctionInfo}, table::{Table,
 const ALLOCATOR_DEPTH: usize = 8;
 type DatumAllocator = GeneralAllocator<ALLOCATOR_DEPTH>;
 
+#[derive(Clone, Copy, Debug)]
 pub enum DatumspaceError
 {
     LeftOverBytes,
@@ -65,19 +66,19 @@ impl<'d> Datumspace<'d>
 
     pub fn load_datum<'file>(
         &'d mut self,
-        table_id: &'file str,
-        table: &[&'file TableEntry<'file>],
+        id: &'file str,
+        table: &[TableEntry<'file>],
         functions: &'file [FunctionInfo<'file>],
     ) -> Result<DatumPage<'d>, DatumspaceError>
     where
         'd: 'file
     {
-        let page_layout = Self::calculate_page_size(table_id, table, functions)?;
+        let page_layout = Self::calculate_page_size(id, table, functions)?;
         let base: NonNull<u8> = self.allocator.raw_alloc(page_layout).ok_or(DatumspaceError::AllocationFailure)?;
 
         // Construct header based on know values
         let header = DatumPageHeader {
-            id_len: table_id.len() as u32,
+            id_len: id.len() as u32,
             constants_len: table.len() as u32,
             functions_len: functions.len() as u32,
         };
@@ -88,7 +89,7 @@ impl<'d> Datumspace<'d>
         // We maintain a byte cursor for blobs (strings, directives, bytecode)
         // that starts after the fixed-size arrays and walks forward.
         let const_offset = align_up(
-            size_of::<DatumPageHeader>() + table_id.len(),
+            size_of::<DatumPageHeader>() + id.len(),
             align_of::<Constant>(),
         );
 
@@ -103,7 +104,7 @@ impl<'d> Datumspace<'d>
         // Write id to start
         unsafe {
             let id_dest = base.byte_add(size_of::<DatumPageHeader>());
-            std::ptr::copy_nonoverlapping(table_id.as_ptr(), id_dest.as_ptr(), table_id.len());
+            std::ptr::copy_nonoverlapping(id.as_ptr(), id_dest.as_ptr(), id.len());
         };
 
         // Write constants
@@ -190,14 +191,9 @@ impl<'d> Datumspace<'d>
 
     pub fn get_constant(&self, id: &str, index: usize) -> Result<&'d Constant<'d>, DatumspaceError>
     {
-        match self.mapping.get(id)
-        {
-            Some(&DatumEntry::ConstantTable(consts)) => {
-                consts.get(index).ok_or(DatumspaceError::ResourceDoesntExist)
-            }
-            Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
-            None => Err(DatumspaceError::ResourceDoesntExist),
-        }
+        // The main difference here is that the id refers to the datumpage rather than a specific entry in it, as
+        // every page only has one constant table.
+        todo!()
     }
 
     pub fn get_runnable(&self, id: &str) -> Result<&'d Runnable<'d>, DatumspaceError>
@@ -212,7 +208,7 @@ impl<'d> Datumspace<'d>
 
     fn calculate_page_size<'file>(
         table_id:  &str,
-        table:     &[&'file TableEntry<'file>],
+        table:     &[TableEntry<'file>],
         functions: &[FunctionInfo<'file>],
     ) -> Result<Layout, DatumspaceError> {
         let mut size = size_of::<DatumPageHeader>();
@@ -243,5 +239,16 @@ impl<'d> Datumspace<'d>
 
         Layout::from_size_align(size, align_of::<DatumPageHeader>())
             .map_err(|_| DatumspaceError::AllocationFailure)
+    }
+}
+
+#[cfg(test)]
+mod datumspace_tests {
+    use super::*;
+
+    #[test]
+    fn can_create()
+    {
+        assert!(true);
     }
 }
