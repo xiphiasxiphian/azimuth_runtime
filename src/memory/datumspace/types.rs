@@ -5,7 +5,7 @@ use num_traits::FromBytes;
 struct ArrayParserIter<'a, F>
 {
     remaining: &'a [u8],
-    parser: F
+    parser: F,
 }
 
 impl<'a, T, F: Fn(&'a [u8]) -> Option<(T, &'a [u8])>> Iterator for ArrayParserIter<'a, F>
@@ -28,10 +28,7 @@ where
     let length = <L>::from_le_bytes(len_bytes);
 
     let (array_bytes, rem) = rem.split_at_checked(length.into())?;
-    Some((
-        array_bytes,
-        rem
-    ))
+    Some((array_bytes, rem))
 }
 
 fn parse_variable_array<L, T, F, const N: usize>(bytes: &[u8], transform: F) -> Option<(impl Iterator<Item = T>, &[u8])>
@@ -41,7 +38,10 @@ where
 {
     let (array_bytes, rem) = split_array_data::<u16, _>(bytes)?;
     Some((
-        ArrayParserIter { remaining: array_bytes, parser: transform },
+        ArrayParserIter {
+            remaining: array_bytes,
+            parser: transform,
+        },
         rem,
     ))
 }
@@ -51,17 +51,14 @@ where
     L: FromBytes<Bytes = [u8; N]> + Into<usize>,
 {
     let (array_bytes, rem) = split_array_data::<u16, _>(bytes)?;
-    Some((
-        str::from_utf8(array_bytes).ok()?,
-        rem,
-    ))
+    Some((str::from_utf8(array_bytes).ok()?, rem))
 }
 
 #[derive(Clone, Copy)]
 pub struct TypeInfo<'a>
 {
     id: &'a str,
-    raw_field_data: &'a [FieldInfo<'a>]
+    raw_field_data: &'a [FieldInfo<'a>],
 }
 
 #[derive(Clone, Copy)]
@@ -84,9 +81,9 @@ impl<'a> TypeInfo<'a>
         Some((
             Self {
                 id,
-                raw_field_data: &[]
+                raw_field_data: &[],
             },
-            rem
+            rem,
         ))
     }
 
@@ -103,12 +100,6 @@ impl<'a> FieldInfo<'a>
         let (name, rem) = parse_string::<u16, _>(bytes)?;
         let (ty, rem) = parse_string::<u16, _>(rem)?;
 
-        Some((
-            Self {
-                name,
-                ty,
-            },
-            rem,
-        ))
+        Some((Self { name, ty }, rem))
     }
 }

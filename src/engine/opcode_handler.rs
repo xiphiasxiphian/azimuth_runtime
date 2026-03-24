@@ -5,7 +5,10 @@ use num_traits::FromBytes;
 use crate::{
     engine::opcodes::Opcode,
     guard,
-    memory::{datumspace::constant_table::{Constant, ConstantTableIndex}, stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}},
+    memory::{
+        datumspace::constant_table::{Constant, ConstantTableIndex},
+        stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
+    },
 };
 
 /// Contains information given to each instruction handler
@@ -143,11 +146,7 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
     clippy::panic_in_result_fn,
     reason = "If this invariant check fails, the entire config is malformed"
 )]
-pub fn exec_instruction<'a>(
-    bytecode: &'a [u8],
-    frame: &mut StackFrame,
-    constants: &[Constant<'a>]
-) -> ExecutionResult
+pub fn exec_instruction<'a>(bytecode: &'a [u8], frame: &mut StackFrame, constants: &[Constant<'a>]) -> ExecutionResult
 {
     // Get the bytecode out of the stream. As this is "user input", it is critical
     // at all stages to check whether there are actually enough values in the stream
@@ -225,8 +224,7 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
     // the type of constant
-    input.move_constant(index)
-        .map(|_| InstructionResult::Next)
+    input.move_constant(index).map(|_| InstructionResult::Next)
 }
 
 /// Pops a value off the stack, explicitly discarding it

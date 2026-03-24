@@ -1,7 +1,10 @@
 pub mod function;
 pub mod table;
 
-use crate::loader::parser::{function::FunctionInfo, table::{Table, TableEntry}};
+use crate::loader::parser::{
+    function::FunctionInfo,
+    table::{Table, TableEntry},
+};
 
 const MAGIC_STRING: &[u8; 8] = b"azimuth\0";
 pub const MAGIC_NUMBER: u64 = u64::from_le_bytes(*MAGIC_STRING);

@@ -1,6 +1,16 @@
-use std::{fs::{File, read}, io, path::{Path, PathBuf}};
+use std::{
+    fs::{File, read},
+    io,
+    path::{Path, PathBuf},
+};
 
-use crate::{loader::parser::{FileLayout, function::Directive}, memory::{allocators::AllocatorError, datumspace::{Datumspace, DatumspaceError, runnable::Runnable}}};
+use crate::{
+    loader::parser::{FileLayout, function::Directive},
+    memory::{
+        allocators::AllocatorError,
+        datumspace::{Datumspace, DatumspaceError, runnable::Runnable},
+    },
+};
 
 pub(super) mod parser;
 
@@ -29,12 +39,10 @@ impl<'a> Loader<'a>
 {
     pub fn new(base: &'a str) -> Result<Self, LoaderError>
     {
-        Ok(
-            Self {
-                datumspace: Datumspace::with_capacity(DEFAULT_CAPACITY).map_err(|x| LoaderError::AllocatorError(x))?,
-                base: Path::new(base),
-            }
-        )
+        Ok(Self {
+            datumspace: Datumspace::with_capacity(DEFAULT_CAPACITY).map_err(|x| LoaderError::AllocatorError(x))?,
+            base: Path::new(base),
+        })
     }
 
     pub fn get_entrypoint(&'a mut self, filename: &str) -> Result<Option<&Runnable<'a>>, LoaderError>
@@ -42,17 +50,22 @@ impl<'a> Loader<'a>
         let bytes = std::fs::read(self.base.join(filename)).map_err(|x| LoaderError::FileReadError(x))?;
         let layout = FileLayout::from_bytes(&bytes).ok_or(LoaderError::InvalidFileStructure)?;
 
-        let datum_page = self.datumspace.load_datum(
-            self.base.join(filename).to_str().ok_or(LoaderError::InvalidFilepathEncoding)?,
-            layout.constants(),
-            layout.functions(),
-        ).map_err(|x| LoaderError::DatumspaceError(x))?;
+        let datum_page = self
+            .datumspace
+            .load_datum(
+                self.base
+                    .join(filename)
+                    .to_str()
+                    .ok_or(LoaderError::InvalidFilepathEncoding)?,
+                layout.constants(),
+                layout.functions(),
+            )
+            .map_err(|x| LoaderError::DatumspaceError(x))?;
 
-        Ok(
-            datum_page.functions
-                .iter()
-                .find(|x| x.directives().contains(&Directive::Start))
-        )
+        Ok(datum_page
+            .functions
+            .iter()
+            .find(|x| x.directives().contains(&Directive::Start)))
     }
 
     pub fn get_function(path: &str) -> Result<&'a Runnable<'a>, LoaderError>

@@ -33,7 +33,8 @@ impl<'a> Runner<'a>
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
         // Get the entry point. This is the "main" function where execution will start
-        let entry_point = self.loader
+        let entry_point = self
+            .loader
             .get_entrypoint(todo!())
             .map_err(|_| RunnerError::CannotAcquireEntrypoint)?
             .ok_or(RunnerError::CannotAcquireEntrypoint)?;
@@ -57,8 +58,8 @@ impl<'a> Runner<'a>
         // error
         loop
         {
-            let exec_result = exec_instruction(&code[pc..], &mut initial_frame, &[])
-                .map_err(RunnerError::ExecutionError)?;
+            let exec_result =
+                exec_instruction(&code[pc..], &mut initial_frame, &[]).map_err(RunnerError::ExecutionError)?;
 
             match exec_result
             {

@@ -1,6 +1,9 @@
 use std::{alloc::Layout, ptr::NonNull};
 
-use crate::{loader::parser::function::Directive, memory::datumspace::{DatumAllocator, DatumspaceError}};
+use crate::{
+    loader::parser::function::Directive,
+    memory::datumspace::{DatumAllocator, DatumspaceError},
+};
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct Runnable<'a>
@@ -25,7 +28,7 @@ impl<'a> Runnable<'a>
         bytecode_space: NonNull<u8>,
         name: &'a str,
         directives: &'file [Directive],
-        bytecode: &'file [u8]
+        bytecode: &'file [u8],
     ) -> Result<&'a Self, DatumspaceError>
     {
         const REQUIRED_DIRECTIVES_COUNT: usize = 2;
@@ -34,7 +37,9 @@ impl<'a> Runnable<'a>
         let runnable: NonNull<Runnable> = dst.cast();
 
         // Write bytecode in
-        unsafe { bytecode_space.copy_from_nonoverlapping(NonNull::new_unchecked(bytecode.as_ptr() as *mut _), bytecode.len()) };
+        unsafe {
+            bytecode_space.copy_from_nonoverlapping(NonNull::new_unchecked(bytecode.as_ptr() as *mut _), bytecode.len())
+        };
 
         directives
             .iter()
@@ -48,7 +53,10 @@ impl<'a> Runnable<'a>
                     (ms, None, Directive::MaxLocals(x)) => Some((ms, Some(x.into()), count)),
                     (ms, ml, optional) =>
                     {
-                        if count >= directive_count { return None }
+                        if count >= directive_count
+                        {
+                            return None;
+                        }
 
                         unsafe { directive_space.as_ptr().add(count).write(optional) };
                         Some((ms, ml, count + 1))

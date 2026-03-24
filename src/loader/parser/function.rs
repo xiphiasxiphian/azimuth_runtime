@@ -1,4 +1,12 @@
-use crate::{engine::opcodes::Opcode, guard, loader::parser::{bytes_to_numeric, table::{Table, TableEntry}}, memory::datumspace::runnable::Runnable};
+use crate::{
+    engine::opcodes::Opcode,
+    guard,
+    loader::parser::{
+        bytes_to_numeric,
+        table::{Table, TableEntry},
+    },
+    memory::datumspace::runnable::Runnable,
+};
 
 type DirectiveHandler = &'static dyn Fn(&[u8]) -> Option<Directive>; // Creates a handler
 
@@ -54,10 +62,7 @@ impl<'file> FunctionInfo<'file>
         let (name_index, descriptor): (u32, u32) = symbol_handler(symbol_operands).and_then(|x| {
             match x
             {
-                Directive::Symbol(name_index, code_count) =>
-                {
-                    Some((name_index, code_count))
-                }
+                Directive::Symbol(name_index, code_count) => Some((name_index, code_count)),
                 _ => None, // Something has gone really wrong if this triggers
             }
         })?;
@@ -94,7 +99,8 @@ impl<'file> FunctionInfo<'file>
 
             Some((
                 Self {
-                    name_index: <usize>::try_from(name_index).expect("Running on a none 32-bit or 64-bit architecture. How? Why?"),
+                    name_index: <usize>::try_from(name_index)
+                        .expect("Running on a none 32-bit or 64-bit architecture. How? Why?"),
                     directives,
                     code: code_slice,
                 },
@@ -124,7 +130,6 @@ impl<'file> FunctionInfo<'file>
     }
 }
 
-
 #[cfg(test)]
 mod function_info_tests
 {
@@ -151,12 +156,10 @@ mod function_info_tests
             0x03,
             0x04,
         ];
-        let table = Table::new(
-            vec![
-                TableEntry::String("main"), // name index
-                TableEntry::Integer(4),            // descriptor index
-            ],
-        );
+        let table = Table::new(vec![
+            TableEntry::String("main"), // name index
+            TableEntry::Integer(4),     // descriptor index
+        ]);
 
         let (function, rem) = FunctionInfo::new(&data).expect("Failed to parse simple function");
         assert_eq!(function.directives.len(), 0); // Doesn't include symbol directive

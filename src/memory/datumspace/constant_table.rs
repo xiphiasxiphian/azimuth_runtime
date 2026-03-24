@@ -4,7 +4,8 @@
 use std::ptr::NonNull;
 
 use crate::{
-    loader::parser::table::{Table, TableEntry}, memory::stack::{StackFrame, entry::StackEntry}
+    loader::parser::table::{Table, TableEntry},
+    memory::stack::{StackFrame, entry::StackEntry},
 };
 
 pub type ConstantTableIndex = u32;

@@ -1,29 +1,46 @@
-pub mod types;
 pub mod constant_table;
-pub mod runnable;
 mod datum;
+pub mod runnable;
+pub mod types;
 
-use std::{alloc::Layout, collections::{HashMap, hash_map::Entry}, ptr::NonNull};
+use std::{
+    alloc::Layout,
+    collections::{HashMap, hash_map::Entry},
+    ptr::NonNull,
+};
 
-use crate::{loader::parser::{function::{Directive, FunctionInfo}, table::{Table, TableEntry}}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::Constant, datum::{DatumPage, DatumPageHeader, align_up}, runnable::Runnable, types::TypeInfo}}};
+use crate::{
+    loader::parser::{
+        function::{Directive, FunctionInfo},
+        table::{Table, TableEntry},
+    },
+    memory::{
+        allocators::{AllocatorError, general::GeneralAllocator},
+        datumspace::{
+            constant_table::Constant,
+            datum::{DatumPage, DatumPageHeader, align_up},
+            runnable::Runnable,
+            types::TypeInfo,
+        },
+    },
+};
 
 /*
- +---------------------+       +-------------------------+       +-------------------------+
- |     1. File I/O     |       |   2. Transient Parsing  |       | 3. Datumspace Storage   |
- |  (Global Memory)    |       |   (Native Heap/Stack)   |       |  (Custom Allocator)     |
- +---------------------+       +-------------------------+       +-------------------------+
- |                     |       |                         |       |                         |
- |  [u8 Buffer]        |       |  Table<'file>           |       |  Datumspace<'datum>     |
- |  "05 0A 00 00 00..."| ----> |  Vec<TableEntry<'file>> | ----> |  GeneralAllocator       |
- |                     |       |    |-- Integer(42)      |       |    |-- Integer(42)      |
- |                     |       |    |-- String(&str)  ---------+ |    |-- String(&str)     |
- +---------------------+       +-------------------------+     | +-------------------------+
-           |                               |                   |               ^
-           | Drops when file closed        | Drops after phase |               | Bytes copied into
-           v                               v                   +---------------+ allocator memory
-      [Memory Freed]                 [Memory Freed]              (Data lives as long as Datumspace)
- */
-
++---------------------+       +-------------------------+       +-------------------------+
+|     1. File I/O     |       |   2. Transient Parsing  |       | 3. Datumspace Storage   |
+|  (Global Memory)    |       |   (Native Heap/Stack)   |       |  (Custom Allocator)     |
++---------------------+       +-------------------------+       +-------------------------+
+|                     |       |                         |       |                         |
+|  [u8 Buffer]        |       |  Table<'file>           |       |  Datumspace<'datum>     |
+|  "05 0A 00 00 00..."| ----> |  Vec<TableEntry<'file>> | ----> |  GeneralAllocator       |
+|                     |       |    |-- Integer(42)      |       |    |-- Integer(42)      |
+|                     |       |    |-- String(&str)  ---------+ |    |-- String(&str)     |
++---------------------+       +-------------------------+     | +-------------------------+
+          |                               |                   |               ^
+          | Drops when file closed        | Drops after phase |               | Bytes copied into
+          v                               v                   +---------------+ allocator memory
+     [Memory Freed]                 [Memory Freed]              (Data lives as long as Datumspace)
+*/
 
 const ALLOCATOR_DEPTH: usize = 8;
 type DatumAllocator = GeneralAllocator<ALLOCATOR_DEPTH>;
@@ -49,19 +66,17 @@ enum DatumEntry<'a>
 pub struct Datumspace<'a>
 {
     allocator: DatumAllocator,
-    mapping: HashMap<&'a str, DatumEntry<'a>>
+    mapping: HashMap<&'a str, DatumEntry<'a>>,
 }
 
 impl<'d> Datumspace<'d>
 {
     pub fn with_capacity(min_capacity: usize) -> Result<Self, AllocatorError>
     {
-        Ok(
-            Self {
-                allocator: DatumAllocator::with_capacity(min_capacity)?,
-                mapping: HashMap::new(),
-            }
-        )
+        Ok(Self {
+            allocator: DatumAllocator::with_capacity(min_capacity)?,
+            mapping: HashMap::new(),
+        })
     }
 
     pub fn load_datum<'file>(
@@ -71,10 +86,13 @@ impl<'d> Datumspace<'d>
         functions: &'file [FunctionInfo<'file>],
     ) -> Result<DatumPage<'d>, DatumspaceError>
     where
-        'd: 'file
+        'd: 'file,
     {
         let page_layout = Self::calculate_page_size(id, table, functions)?;
-        let base: NonNull<u8> = self.allocator.raw_alloc(page_layout).ok_or(DatumspaceError::AllocationFailure)?;
+        let base: NonNull<u8> = self
+            .allocator
+            .raw_alloc(page_layout)
+            .ok_or(DatumspaceError::AllocationFailure)?;
 
         // Construct header based on know values
         let header = DatumPageHeader {
@@ -88,10 +106,7 @@ impl<'d> Datumspace<'d>
 
         // We maintain a byte cursor for blobs (strings, directives, bytecode)
         // that starts after the fixed-size arrays and walks forward.
-        let const_offset = align_up(
-            size_of::<DatumPageHeader>() + id.len(),
-            align_of::<Constant>(),
-        );
+        let const_offset = align_up(size_of::<DatumPageHeader>() + id.len(), align_of::<Constant>());
 
         let fn_offset = align_up(
             const_offset + table.len() * size_of::<Constant>(),
@@ -114,22 +129,21 @@ impl<'d> Datumspace<'d>
 
         for (i, entry) in table.iter().enumerate()
         {
-            let constant: Constant<'d> = match entry {
+            let constant: Constant<'d> = match entry
+            {
                 TableEntry::Integer(v) => Constant::Unsigned32(*v),
-                TableEntry::Long(v)    => Constant::Unsigned64(*v),
-                TableEntry::Float(v)   => Constant::Float32(*v),
-                TableEntry::Double(v)  => Constant::Float64(*v),
-                TableEntry::String(s)  => {
+                TableEntry::Long(v) => Constant::Unsigned64(*v),
+                TableEntry::Float(v) => Constant::Float32(*v),
+                TableEntry::Double(v) => Constant::Float64(*v),
+                TableEntry::String(s) =>
+                {
                     // Write blob at cursor, produce a 'd slice into the page
                     let blob_ptr = unsafe { base.byte_add(blob_cursor) };
                     unsafe {
                         blob_ptr.copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut _), s.len());
                     }
-                    let permanent: &'d str = unsafe {
-                        str::from_utf8_unchecked(
-                            NonNull::slice_from_raw_parts(blob_ptr, s.len()).as_ref()
-                        )
-                    };
+                    let permanent: &'d str =
+                        unsafe { str::from_utf8_unchecked(NonNull::slice_from_raw_parts(blob_ptr, s.len()).as_ref()) };
                     blob_cursor += s.len();
                     Constant::String(permanent)
                 }
@@ -138,24 +152,23 @@ impl<'d> Datumspace<'d>
         }
 
         // Write functions
-        let fn_base  = unsafe { base.byte_add(fn_offset).cast::<Runnable<'d>>() };
-        let constants: &'d [Constant<'d>] = unsafe {
-            std::slice::from_raw_parts(const_base.as_ptr(), table.len())
-        };
+        let fn_base = unsafe { base.byte_add(fn_offset).cast::<Runnable<'d>>() };
+        let constants: &'d [Constant<'d>] = unsafe { std::slice::from_raw_parts(const_base.as_ptr(), table.len()) };
 
         for (i, info) in functions.iter().enumerate()
         {
             // Resolve name from the constants we just wrote
-            let name = match constants.get(info.name_index) {
+            let name = match constants.get(info.name_index)
+            {
                 Some(Constant::String(s)) => *s,
                 Some(_) => return Err(DatumspaceError::UnexpectedDatumtype),
-                None    => return Err(DatumspaceError::ResourceDoesntExist),
+                None => return Err(DatumspaceError::ResourceDoesntExist),
             };
 
             // Write directives blob
             blob_cursor = align_up(blob_cursor, align_of::<Directive>());
-            let dir_ptr  = unsafe { base.byte_add(blob_cursor).cast::<Directive>() };
-            let dir_len  = info.directives.len();
+            let dir_ptr = unsafe { base.byte_add(blob_cursor).cast::<Directive>() };
+            let dir_len = info.directives.len();
 
             // TODO: Technically some directives are removed as they are the required ones
             blob_cursor += dir_len * size_of::<Directive>();
@@ -164,20 +177,12 @@ impl<'d> Datumspace<'d>
             let code_ptr = unsafe { base.byte_add(blob_cursor) };
             let code_len = info.code.len();
 
-
             blob_cursor += code_len;
 
             // Build the Runnable directly into the page — no allocator call needed
             // since directives and bytecode now live in the page block itself.
             let runnable = unsafe {
-                Runnable::from_parsed_data(
-                    fn_base.add(i),
-                    dir_ptr,
-                    code_ptr,
-                    name,
-                    &info.directives,
-                    info.code
-                )?
+                Runnable::from_parsed_data(fn_base.add(i), dir_ptr, code_ptr, name, &info.directives, info.code)?
             };
 
             // Register name -> function pointer in the flat lookup map
@@ -197,9 +202,7 @@ impl<'d> Datumspace<'d>
 
         match self.mapping.get(id)
         {
-            Some(&DatumEntry::Page(header)) => {
-                Ok( unsafe { header.get_page() }.constants)
-            }
+            Some(&DatumEntry::Page(header)) => Ok(unsafe { header.get_page() }.constants),
             Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
             None => Err(DatumspaceError::ResourceDoesntExist),
         }
@@ -216,10 +219,11 @@ impl<'d> Datumspace<'d>
     }
 
     fn calculate_page_size<'file>(
-        table_id:  &str,
-        table:     &[TableEntry<'file>],
+        table_id: &str,
+        table: &[TableEntry<'file>],
         functions: &[FunctionInfo<'file>],
-    ) -> Result<Layout, DatumspaceError> {
+    ) -> Result<Layout, DatumspaceError>
+    {
         let mut size = size_of::<DatumPageHeader>();
 
         // id
@@ -242,14 +246,14 @@ impl<'d> Datumspace<'d>
         size += functions.len() * size_of::<Runnable>();
 
         // directives + bytecode blobs per function
-        for info in functions.iter() {
+        for info in functions.iter()
+        {
             size = align_up(size, align_of::<Directive>());
             size += info.directives.len() * size_of::<Directive>();
             size += info.code.len(); // bytecode is u8, no alignment needed
         }
 
-        Layout::from_size_align(size, align_of::<DatumPageHeader>())
-            .map_err(|_| DatumspaceError::AllocationFailure)
+        Layout::from_size_align(size, align_of::<DatumPageHeader>()).map_err(|_| DatumspaceError::AllocationFailure)
     }
 
     fn insert_mapping(&mut self, key: &'d str, datumentry: DatumEntry<'d>) -> Result<(), DatumspaceError>
@@ -257,19 +261,24 @@ impl<'d> Datumspace<'d>
         // Use the entry function to prevent overwritting existing data in case of duplication
         match self.mapping.entry(key)
         {
-            Entry::Vacant(entry) => {
+            Entry::Vacant(entry) =>
+            {
                 entry.insert(datumentry);
                 Ok(())
             }
-            Entry::Occupied(_) => Err(DatumspaceError::Duplication)
+            Entry::Occupied(_) => Err(DatumspaceError::Duplication),
         }
     }
 }
 
 #[cfg(test)]
-mod datumspace_tests {
+mod datumspace_tests
+{
     use super::*;
-    use crate::loader::parser::{function::{Directive, FunctionInfo}, table::TableEntry};
+    use crate::loader::parser::{
+        function::{Directive, FunctionInfo},
+        table::TableEntry,
+    };
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -278,9 +287,10 @@ mod datumspace_tests {
 
     /// Builds a table with one string entry (used as the function name) plus
     /// a handful of primitives, covering every Constant variant.
-    fn make_table<'a>(name: &'a str) -> Vec<TableEntry<'a>> {
+    fn make_table<'a>(name: &'a str) -> Vec<TableEntry<'a>>
+    {
         vec![
-            TableEntry::String(name),   // index 0 — used as name_index
+            TableEntry::String(name), // index 0 — used as name_index
             TableEntry::Integer(42),
             TableEntry::Long(9999),
             TableEntry::Float(1.5),
@@ -290,14 +300,13 @@ mod datumspace_tests {
 
     /// Minimal valid directives: MaxStack + MaxLocals are the two required ones.
     /// `from_parsed_data` strips them out, so any extras go into the directive blob.
-    fn make_directives() -> Vec<Directive> {
-        vec![
-            Directive::MaxStack(8),
-            Directive::MaxLocals(4),
-        ]
+    fn make_directives() -> Vec<Directive>
+    {
+        vec![Directive::MaxStack(8), Directive::MaxLocals(4)]
     }
 
-    fn make_function<'a>(name_index: usize, code: &'a [u8]) -> FunctionInfo<'a> {
+    fn make_function<'a>(name_index: usize, code: &'a [u8]) -> FunctionInfo<'a>
+    {
         FunctionInfo {
             name_index,
             directives: make_directives(),
@@ -305,18 +314,21 @@ mod datumspace_tests {
         }
     }
 
-    fn make_datumspace<'a>() -> Datumspace<'a> {
+    fn make_datumspace<'a>() -> Datumspace<'a>
+    {
         Datumspace::with_capacity(TEST_CAPACITY).expect("allocator init failed")
     }
 
     #[test]
-    fn load_datum_happy_path() {
+    fn load_datum_happy_path()
+    {
         let mut ds = make_datumspace();
         let table = make_table("my_func");
         let code = vec![0x01, 0x02, 0x03];
         let functions = vec![make_function(0, &code)];
 
-        let page = ds.load_datum("my_datum", &table, &functions)
+        let page = ds
+            .load_datum("my_datum", &table, &functions)
             .expect("load_datum should succeed");
 
         assert_eq!(page.id, "my_datum");
@@ -325,7 +337,8 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn get_constant_returns_correct_values() {
+    fn get_constant_returns_correct_values()
+    {
         let mut ds = make_datumspace();
         let table = make_table("fn_name");
         let functions = vec![make_function(0, &[0xAB])];
@@ -352,7 +365,8 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn get_runnable_returns_correct_function() {
+    fn get_runnable_returns_correct_function()
+    {
         let mut ds = make_datumspace();
         let table = make_table("entry");
         let code = vec![0xDE, 0xAD, 0xBE, 0xEF];
@@ -368,7 +382,8 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn duplicate_datum_id_is_rejected() {
+    fn duplicate_datum_id_is_rejected()
+    {
         let mut ds = make_datumspace();
         let table = make_table("func");
         let functions = vec![make_function(0, &[0x00])];
@@ -383,7 +398,8 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn duplicate_function_name_across_datums_is_rejected() {
+    fn duplicate_function_name_across_datums_is_rejected()
+    {
         let mut ds = make_datumspace();
 
         // First datum registers "shared_fn"
@@ -400,13 +416,11 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn non_string_name_index_is_rejected() {
+    fn non_string_name_index_is_rejected()
+    {
         let mut ds = make_datumspace();
         // Table where index 0 is an integer, not a string
-        let table = vec![
-            TableEntry::Integer(99),
-            TableEntry::String("real_name"),
-        ];
+        let table = vec![TableEntry::Integer(99), TableEntry::String("real_name")];
         // name_index 0 points at the Integer — should fail
         let functions = vec![make_function(0, &[0x00])];
 
@@ -415,7 +429,8 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn out_of_bounds_name_index_is_rejected() {
+    fn out_of_bounds_name_index_is_rejected()
+    {
         let mut ds = make_datumspace();
         let table = make_table("some_fn"); // 5 entries, indices 0..=4
         // name_index 99 is well out of range
@@ -426,7 +441,8 @@ mod datumspace_tests {
     }
 
     #[test]
-    fn allocation_failure_on_undersized_arena() {
+    fn allocation_failure_on_undersized_arena()
+    {
         // 32 bytes is nowhere near enough for even a minimal page
         let mut ds = Datumspace::with_capacity(32).expect("allocator init failed");
         let table = make_table("fn");

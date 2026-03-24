@@ -80,17 +80,16 @@ impl<'a> Table<'a>
 
     pub fn byte_size(&self) -> usize
     {
-        self.entries
-            .iter()
-            .fold(0, |acc, x| {
-                acc + match x {
-                    TableEntry::Long(x) => size_of_val(x),
-                    TableEntry::Integer(x) => size_of_val(x),
-                    TableEntry::Double(x) => size_of_val(x),
-                    TableEntry::Float(x) => size_of_val(x),
-                    &TableEntry::String(x) => x.len()
-                }
-            })
+        self.entries.iter().fold(0, |acc, x| {
+            acc + match x
+            {
+                TableEntry::Long(x) => size_of_val(x),
+                TableEntry::Integer(x) => size_of_val(x),
+                TableEntry::Double(x) => size_of_val(x),
+                TableEntry::Float(x) => size_of_val(x),
+                &TableEntry::String(x) => x.len(),
+            }
+        })
     }
 }
 
