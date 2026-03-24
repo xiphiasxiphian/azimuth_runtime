@@ -8,7 +8,7 @@ use crate::{
     loader::parser::{FileLayout, function::Directive},
     memory::{
         allocators::AllocatorError,
-        datumspace::{Datumspace, DatumspaceError, runnable::Runnable},
+        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::Runnable},
     },
 };
 
@@ -26,7 +26,7 @@ pub struct Loader<'a>
 pub enum LoaderError
 {
     FileReadError(io::Error),
-    InvalidFilepathEncoding,
+    FailedToFindSymbol,
     InvalidFileStructure,
     AllocatorError(AllocatorError),
     DatumspaceError(DatumspaceError),
@@ -45,23 +45,9 @@ impl<'a> Loader<'a>
         })
     }
 
-    pub fn get_entrypoint(&'a mut self, filename: &str) -> Result<Option<&Runnable<'a>>, LoaderError>
+    pub fn get_entrypoint(&'a mut self, entry_path: &str) -> Result<Option<&'a Runnable<'a>>, LoaderError>
     {
-        let bytes = std::fs::read(self.base.join(filename)).map_err(|x| LoaderError::FileReadError(x))?;
-        let layout = FileLayout::from_bytes(&bytes).ok_or(LoaderError::InvalidFileStructure)?;
-
-        let datum_page = self
-            .datumspace
-            .load_datum(
-                self.base
-                    .join(filename)
-                    .to_str()
-                    .ok_or(LoaderError::InvalidFilepathEncoding)?,
-                layout.constants(),
-                layout.functions(),
-            )
-            .map_err(|x| LoaderError::DatumspaceError(x))?;
-
+        let datum_page = self.get_page(entry_path)?;
         Ok(datum_page
             .functions
             .iter()
@@ -71,5 +57,51 @@ impl<'a> Loader<'a>
     pub fn get_function(path: &str) -> Result<&'a Runnable<'a>, LoaderError>
     {
         todo!()
+    }
+
+    /// Gets a page references to by the symbolic path.
+    /// If this page isn't currently loaded
+    ///
+    fn get_page(&mut self, symbolic: &str) -> Result<DatumPage<'a>, LoaderError>
+    {
+        let (filepath, pagename) = self.extract_from_symbolic(symbolic);
+
+        // Check if page is already loaded
+        if let Ok(page) = self.datumspace.get_page(pagename) { return Ok(page) }
+
+        let bytes = std::fs::read(filepath).map_err(|x| LoaderError::FileReadError(x))?;
+        let layout = FileLayout::from_bytes(&bytes).ok_or(LoaderError::InvalidFileStructure)?;
+
+        Ok(
+            self
+                .datumspace
+                .load_datum(
+                    pagename,
+                    layout.constants(),
+                    layout.functions(),
+                )
+                .map_err(|x| LoaderError::DatumspaceError(x))?
+        )
+    }
+
+    fn extract_from_symbolic<'s>(&self, symbolic: &'s str) -> (PathBuf, &'s str)
+    {
+        /*
+         * In general symbolic paths will take a couple different forms:
+         *
+         * path/to/module::symbol_name -> Relative to the execution base. These will
+         * normally be source files as part of whatever is being ran
+         *
+         *
+         *
+         */
+
+         // Strip off any possible the symbols name
+         let symbolless = symbolic.rsplit_once("::").map_or(symbolic, |(x, _)| x);
+
+         // For now, assume that they are all relative paths.
+         // TODO: Work on internal symbols that require special treatment
+
+         (self.base.join(symbolless), symbolless)
     }
 }

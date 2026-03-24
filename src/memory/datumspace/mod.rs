@@ -1,5 +1,5 @@
 pub mod constant_table;
-mod datum;
+pub mod datum;
 pub mod runnable;
 pub mod types;
 
@@ -195,17 +195,22 @@ impl<'d> Datumspace<'d>
         Ok(page)
     }
 
+    pub fn get_page(&self, id: &str) -> Result<DatumPage<'d>, DatumspaceError>
+    {
+        match self.mapping.get(id)
+        {
+            Some(&DatumEntry::Page(header)) => Ok(unsafe { header.get_page() }),
+            Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
+            None => Err(DatumspaceError::ResourceDoesntExist),
+        }
+    }
+
     pub fn get_constants(&self, id: &str) -> Result<&'d [Constant<'d>], DatumspaceError>
     {
         // The main difference here is that the id refers to the datumpage rather than a specific entry in it, as
         // every page only has one constant table.
 
-        match self.mapping.get(id)
-        {
-            Some(&DatumEntry::Page(header)) => Ok(unsafe { header.get_page() }.constants),
-            Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
-            None => Err(DatumspaceError::ResourceDoesntExist),
-        }
+        self.get_page(id).map(|x| x.constants)
     }
 
     pub fn get_runnable(&self, id: &str) -> Result<&'d Runnable<'d>, DatumspaceError>
