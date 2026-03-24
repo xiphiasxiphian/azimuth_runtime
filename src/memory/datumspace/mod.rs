@@ -3,7 +3,7 @@ pub mod constant_table;
 pub mod runnable;
 mod datum;
 
-use std::{alloc::Layout, collections::HashMap, ptr::NonNull};
+use std::{alloc::Layout, collections::{HashMap, hash_map::Entry}, ptr::NonNull};
 
 use crate::{loader::parser::{function::{Directive, FunctionInfo}, table::{Table, TableEntry}}, memory::{allocators::{AllocatorError, general::GeneralAllocator}, datumspace::{constant_table::Constant, datum::{DatumPage, DatumPageHeader, align_up}, runnable::Runnable, types::TypeInfo}}};
 
@@ -253,11 +253,17 @@ impl<'d> Datumspace<'d>
             .map_err(|_| DatumspaceError::AllocationFailure)
     }
 
-    fn insert_mapping(&mut self, key: &'d str, entry: DatumEntry<'d>) -> Result<(), DatumspaceError>
+    fn insert_mapping(&mut self, key: &'d str, datumentry: DatumEntry<'d>) -> Result<(), DatumspaceError>
     {
-        self.mapping
-            .insert(key, entry)
-            .map_or(Ok(()), |_| Err(DatumspaceError::Duplication))
+        // Use the entry function to prevent overwritting existing data in case of duplication
+        match self.mapping.entry(key)
+        {
+            Entry::Vacant(entry) => {
+                entry.insert(datumentry);
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(DatumspaceError::Duplication)
+        }
     }
 }
 
