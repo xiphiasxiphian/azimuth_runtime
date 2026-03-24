@@ -3,14 +3,14 @@ pub mod opcodes;
 
 use crate::{
     engine::opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
-    loader::Loader,
+    loader::{Loader, LoaderError},
     memory::stack::Stack,
 };
 
 #[derive(Debug, Clone, Copy)]
 pub enum RunnerError
 {
-    MissingEntryPoint,
+    CannotAcquireEntrypoint,
     StackOverflow,
     ExecutionError(ExecutionError),
     ProgramCounterOverflow,
@@ -19,13 +19,13 @@ pub enum RunnerError
 pub struct Runner<'a>
 {
     stack: &'a mut Stack,
-    loader: &'a Loader<'a>,
+    loader: &'a mut Loader<'a>,
     // heap
 }
 
 impl<'a> Runner<'a>
 {
-    pub fn new(stack: &'a mut Stack, loader: &'a Loader) -> Self
+    pub fn new(stack: &'a mut Stack, loader: &'a mut Loader<'a>) -> Self
     {
         Self { stack, loader }
     }
@@ -33,7 +33,11 @@ impl<'a> Runner<'a>
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
         // Get the entry point. This is the "main" function where execution will start
-        let entry_point = self.loader.get_entrypoint().ok_or(RunnerError::MissingEntryPoint)?;
+        let entry_point = self.loader
+            .get_entrypoint(todo!())
+            .map_err(|_| RunnerError::CannotAcquireEntrypoint)?
+            .ok_or(RunnerError::CannotAcquireEntrypoint)?;
+
         let (maxstack, maxlocals) = entry_point.setup_info();
 
         // Initial Frame Creation and creating the constant table from
@@ -43,8 +47,8 @@ impl<'a> Runner<'a>
             .initial_frame(maxlocals, maxstack)
             .ok_or(RunnerError::StackOverflow)?;
 
-        // Convert the directly parsed constant table into a usable one
-        let constant_table = self.loader.get_constant_table();
+        // Get constants
+        let constant_table = todo!();
 
         let code = entry_point.code();
         let mut pc: usize = 0;
@@ -53,7 +57,7 @@ impl<'a> Runner<'a>
         // error
         loop
         {
-            let exec_result = exec_instruction(&code[pc..], &mut initial_frame, &constant_table)
+            let exec_result = exec_instruction(&code[pc..], &mut initial_frame, &[])
                 .map_err(RunnerError::ExecutionError)?;
 
             match exec_result

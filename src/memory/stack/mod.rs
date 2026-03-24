@@ -290,7 +290,7 @@ mod stack_tests
         let mut frame = stack.initial_frame(4, 4).unwrap();
 
         frame.set_local(0, 10_u64.into());
-        frame.set_local(1, StackEntry::from((1 << 33) as u64));
+        frame.set_local(1, StackEntry::from((1 as u64) << 33));
 
         assert_eq!(frame.get_local(0), Some(StackEntry::Unsigned(10)));
         assert_eq!(frame.get_local(1), Some(StackEntry::Unsigned(1 << 33)));

@@ -2,13 +2,14 @@ use std::{alloc::Layout, ptr::NonNull};
 
 use crate::{loader::parser::function::Directive, memory::datumspace::{DatumAllocator, DatumspaceError}};
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct Runnable<'a>
 {
-    name: &'a str,
-    maxstack: usize,
-    maxlocals: usize,
-    directives: &'a [Directive],
-    bytecode: &'a [u8],
+    pub(super) name: &'a str,
+    pub(super) maxstack: usize,
+    pub(super) maxlocals: usize,
+    pub(super) directives: &'a [Directive],
+    pub(super) bytecode: &'a [u8],
 }
 
 impl<'a> Runnable<'a>

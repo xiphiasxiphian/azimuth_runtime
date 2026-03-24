@@ -93,7 +93,7 @@ impl Config
         // -- Init Required systems --
 
         // Init Loader (WIP)
-        let loader = Loader::new("").map_err(|_| ConfigError::LoaderInitError)?;
+        let mut loader = Loader::new("").map_err(|_| ConfigError::LoaderInitError)?;
 
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);
@@ -102,7 +102,7 @@ impl Config
         let mut heap = Heap::with_capacity(self.flags.heap_size).map_err(|x| ConfigError::HeapInitError(x));
 
         // Pass information to runner
-        let mut runner = Runner::new(&mut stack, &loader);
+        let mut runner = Runner::new(&mut stack, &mut loader);
 
         runner.run().map_err(ConfigError::RunnerError)
     }

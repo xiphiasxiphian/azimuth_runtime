@@ -65,7 +65,7 @@ impl<'d> Datumspace<'d>
     }
 
     pub fn load_datum<'file>(
-        &'d mut self,
+        &mut self,
         id: &'file str,
         table: &'file [TableEntry<'file>],
         functions: &'file [FunctionInfo<'file>],
@@ -190,7 +190,7 @@ impl<'d> Datumspace<'d>
         Ok(page)
     }
 
-    pub fn get_constant(&self, id: &str, index: usize) -> Result<&'d Constant<'d>, DatumspaceError>
+    pub fn get_constants(&self, id: &str) -> Result<&'d [Constant<'d>], DatumspaceError>
     {
         // The main difference here is that the id refers to the datumpage rather than a specific entry in it, as
         // every page only has one constant table.
@@ -198,8 +198,7 @@ impl<'d> Datumspace<'d>
         match self.mapping.get(id)
         {
             Some(&DatumEntry::Page(header)) => {
-                let page = unsafe { header.get_page() };
-                page.constants.get(index).ok_or(DatumspaceError::ResourceDoesntExist)
+                Ok( unsafe { header.get_page() }.constants)
             }
             Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
             None => Err(DatumspaceError::ResourceDoesntExist),
@@ -270,10 +269,170 @@ impl<'d> Datumspace<'d>
 #[cfg(test)]
 mod datumspace_tests {
     use super::*;
+    use crate::loader::parser::{function::{Directive, FunctionInfo}, table::TableEntry};
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// A minimal allocator capacity sufficient for all happy-path tests.
+    const TEST_CAPACITY: usize = 4096;
+
+    /// Builds a table with one string entry (used as the function name) plus
+    /// a handful of primitives, covering every Constant variant.
+    fn make_table<'a>(name: &'a str) -> Vec<TableEntry<'a>> {
+        vec![
+            TableEntry::String(name),   // index 0 — used as name_index
+            TableEntry::Integer(42),
+            TableEntry::Long(9999),
+            TableEntry::Float(1.5),
+            TableEntry::Double(2.71),
+        ]
+    }
+
+    /// Minimal valid directives: MaxStack + MaxLocals are the two required ones.
+    /// `from_parsed_data` strips them out, so any extras go into the directive blob.
+    fn make_directives() -> Vec<Directive> {
+        vec![
+            Directive::MaxStack(8),
+            Directive::MaxLocals(4),
+        ]
+    }
+
+    fn make_function<'a>(name_index: usize, code: &'a [u8]) -> FunctionInfo<'a> {
+        FunctionInfo {
+            name_index,
+            directives: make_directives(),
+            code,
+        }
+    }
+
+    fn make_datumspace<'a>() -> Datumspace<'a> {
+        Datumspace::with_capacity(TEST_CAPACITY).expect("allocator init failed")
+    }
 
     #[test]
-    fn can_create()
-    {
-        assert!(true);
+    fn load_datum_happy_path() {
+        let mut ds = make_datumspace();
+        let table = make_table("my_func");
+        let code = vec![0x01, 0x02, 0x03];
+        let functions = vec![make_function(0, &code)];
+
+        let page = ds.load_datum("my_datum", &table, &functions)
+            .expect("load_datum should succeed");
+
+        assert_eq!(page.id, "my_datum");
+        assert_eq!(page.constants.len(), table.len());
+        assert_eq!(page.functions.len(), functions.len());
+    }
+
+    #[test]
+    fn get_constant_returns_correct_values() {
+        let mut ds = make_datumspace();
+        let table = make_table("fn_name");
+        let functions = vec![make_function(0, &[0xAB])];
+
+        ds.load_datum("datum_a", &table, &functions).unwrap();
+
+        // index 0 — the interned string
+        assert!(matches!(
+            ds.get_constants("datum_a").unwrap()[0],
+            Constant::String(s) if s == "fn_name"
+        ));
+
+        // index 1 — integer primitive
+        assert!(matches!(
+            ds.get_constants("datum_a").unwrap()[1],
+            Constant::Unsigned32(42)
+        ));
+
+        // index 2 — long primitive
+        assert!(matches!(
+            ds.get_constants("datum_a").unwrap()[2],
+            Constant::Unsigned64(9999)
+        ));
+    }
+
+    #[test]
+    fn get_runnable_returns_correct_function() {
+        let mut ds = make_datumspace();
+        let table = make_table("entry");
+        let code = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let functions = vec![make_function(0, &code)];
+
+        ds.load_datum("datum_b", &table, &functions).unwrap();
+
+        let runnable = ds.get_runnable("entry").expect("runnable should exist");
+        assert_eq!(runnable.name, "entry");
+        assert_eq!(runnable.bytecode, &[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(runnable.maxstack, 8);
+        assert_eq!(runnable.maxlocals, 4);
+    }
+
+    #[test]
+    fn duplicate_datum_id_is_rejected() {
+        let mut ds = make_datumspace();
+        let table = make_table("func");
+        let functions = vec![make_function(0, &[0x00])];
+
+        ds.load_datum("same_id", &table, &functions).unwrap();
+
+        let table2 = make_table("func2");
+        let functions2 = vec![make_function(0, &[0x01])];
+        let result = ds.load_datum("same_id", &table2, &functions2);
+
+        assert!(matches!(result, Err(DatumspaceError::Duplication)));
+    }
+
+    #[test]
+    fn duplicate_function_name_across_datums_is_rejected() {
+        let mut ds = make_datumspace();
+
+        // First datum registers "shared_fn"
+        let table1 = make_table("shared_fn");
+        let fns1 = vec![make_function(0, &[0x01])];
+        ds.load_datum("datum_one", &table1, &fns1).unwrap();
+
+        // Second datum also tries to register "shared_fn"
+        let table2 = make_table("shared_fn");
+        let fns2 = vec![make_function(0, &[0x02])];
+        let result = ds.load_datum("datum_two", &table2, &fns2);
+
+        assert!(matches!(result, Err(DatumspaceError::Duplication)));
+    }
+
+    #[test]
+    fn non_string_name_index_is_rejected() {
+        let mut ds = make_datumspace();
+        // Table where index 0 is an integer, not a string
+        let table = vec![
+            TableEntry::Integer(99),
+            TableEntry::String("real_name"),
+        ];
+        // name_index 0 points at the Integer — should fail
+        let functions = vec![make_function(0, &[0x00])];
+
+        let result = ds.load_datum("datum_bad_type", &table, &functions);
+        assert!(matches!(result, Err(DatumspaceError::UnexpectedDatumtype)));
+    }
+
+    #[test]
+    fn out_of_bounds_name_index_is_rejected() {
+        let mut ds = make_datumspace();
+        let table = make_table("some_fn"); // 5 entries, indices 0..=4
+        // name_index 99 is well out of range
+        let functions = vec![make_function(99, &[0x00])];
+
+        let result = ds.load_datum("datum_oob", &table, &functions);
+        assert!(matches!(result, Err(DatumspaceError::ResourceDoesntExist)));
+    }
+
+    #[test]
+    fn allocation_failure_on_undersized_arena() {
+        // 32 bytes is nowhere near enough for even a minimal page
+        let mut ds = Datumspace::with_capacity(32).expect("allocator init failed");
+        let table = make_table("fn");
+        let functions = vec![make_function(0, &[0x00])];
+
+        let result = ds.load_datum("datum_oom", &table, &functions);
+        assert!(matches!(result, Err(DatumspaceError::AllocationFailure)));
     }
 }

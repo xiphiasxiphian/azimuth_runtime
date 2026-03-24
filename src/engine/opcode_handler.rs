@@ -5,8 +5,7 @@ use num_traits::FromBytes;
 use crate::{
     engine::opcodes::Opcode,
     guard,
-    loader::constant_table::{ConstantTable, ConstantTableIndex},
-    memory::stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
+    memory::{datumspace::constant_table::{Constant, ConstantTableIndex}, stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}},
 };
 
 /// Contains information given to each instruction handler
@@ -32,7 +31,7 @@ struct HandlerInputInfo<'a, 'b, 'c>
     opcode: u8,
     params: &'a [u8],
     frame: &'b mut StackFrame<'c>,
-    constants: &'b ConstantTable<'a>,
+    constants: &'b [Constant<'a>],
 }
 
 // Bunch of helper functions to make things a bit cleaner
@@ -81,6 +80,14 @@ impl HandlerInputInfo<'_, '_, '_>
         }
 
         Ok(values)
+    }
+
+    fn move_constant(&mut self, index: ConstantTableIndex) -> Result<(), ExecutionError>
+    {
+        self.constants
+            .get(<usize>::try_from(index).map_err(|_| ExecutionError::IndexOutOfBounds)?)
+            .ok_or(ExecutionError::IndexOutOfBounds)
+            .and_then(|x| self.stack_push((*x).into()))
     }
 }
 
@@ -139,7 +146,7 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
 pub fn exec_instruction<'a>(
     bytecode: &'a [u8],
     frame: &mut StackFrame,
-    constants: &ConstantTable<'a>,
+    constants: &[Constant<'a>]
 ) -> ExecutionResult
 {
     // Get the bytecode out of the stream. As this is "user input", it is critical
@@ -206,22 +213,20 @@ where
 /// Gets a constant from the constant table and pushes it to the stack.
 fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
 {
+    const SIZE: usize = size_of::<ConstantTableIndex>();
+
     // Construct the constant table index from the given parameters.
     let bytes = input
         .pull_params(size_of::<ConstantTableIndex>())?
-        .first_chunk()
+        .first_chunk::<SIZE>()
         .ok_or(ExecutionError::MissingParams)?;
     let index = <ConstantTableIndex>::from_le_bytes(*bytes);
 
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
     // the type of constant
-    input
-        .constants
-        .push_entry(input.frame, index)
-        .ok_or(ExecutionError::IndexOutOfBounds)?
-        .then_some(InstructionResult::Next)
-        .ok_or(ExecutionError::StackOverflow)
+    input.move_constant(index)
+        .map(|_| InstructionResult::Next)
 }
 
 /// Pops a value off the stack, explicitly discarding it
