@@ -45,7 +45,7 @@ pub enum Opcode
     F4ConvertI,      // f4.convert.i: Convert from float32 to integer. [float32] -> [integer]
     F4ConvertF8,     // f4.convert.f8: Convert from float32 to float32. [float32] -> [float64]
     F8ConvertI,      // f8.convert.i: Convert from float64 to integer. [float64] -> [integer]
-    F8ConvertF4,     // f8.convert.f4: Convert from float64 to float32. [float64] -> [float64] (SHOULD THIS BE ALLOWED?)
+    F8ConvertF4,     // f8.convert.f4: Convert from float64 to float32. [float64] -> [float62] (SHOULD THIS BE ALLOWED?)
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }

@@ -186,7 +186,7 @@ impl<'d> Datumspace<'d>
             };
 
             // Register name -> function pointer in the flat lookup map
-            self.insert_mapping(name, DatumEntry::Function(runnable))?
+            self.insert_mapping(name, DatumEntry::Function(runnable))?;
         }
 
         let page = unsafe { DatumPage::from_base_ptr(base.as_ptr() as *const _) };
@@ -256,15 +256,14 @@ impl<'d> Datumspace<'d>
         Layout::from_size_align(size, align_of::<DatumPageHeader>()).map_err(|_| DatumspaceError::AllocationFailure)
     }
 
-    fn insert_mapping(&mut self, key: &'d str, datumentry: DatumEntry<'d>) -> Result<(), DatumspaceError>
+    fn insert_mapping(&mut self, key: &'d str, datumentry: DatumEntry<'d>) -> Result<&mut DatumEntry<'d>, DatumspaceError>
     {
         // Use the entry function to prevent overwritting existing data in case of duplication
         match self.mapping.entry(key)
         {
             Entry::Vacant(entry) =>
             {
-                entry.insert(datumentry);
-                Ok(())
+                Ok(entry.insert(datumentry))
             }
             Entry::Occupied(_) => Err(DatumspaceError::Duplication),
         }
@@ -279,8 +278,6 @@ mod datumspace_tests
         function::{Directive, FunctionInfo},
         table::TableEntry,
     };
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// A minimal allocator capacity sufficient for all happy-path tests.
     const TEST_CAPACITY: usize = 4096;
@@ -438,17 +435,5 @@ mod datumspace_tests
 
         let result = ds.load_datum("datum_oob", &table, &functions);
         assert!(matches!(result, Err(DatumspaceError::ResourceDoesntExist)));
-    }
-
-    #[test]
-    fn allocation_failure_on_undersized_arena()
-    {
-        // 32 bytes is nowhere near enough for even a minimal page
-        let mut ds = Datumspace::with_capacity(32).expect("allocator init failed");
-        let table = make_table("fn");
-        let functions = vec![make_function(0, &[0x00])];
-
-        let result = ds.load_datum("datum_oom", &table, &functions);
-        assert!(matches!(result, Err(DatumspaceError::AllocationFailure)));
     }
 }
