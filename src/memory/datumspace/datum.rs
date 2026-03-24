@@ -7,6 +7,14 @@ pub struct DatumPageHeader {
     pub functions_len: u32,
 }
 
+impl DatumPageHeader
+{
+    pub unsafe fn get_page(&self) -> DatumPage
+    {
+        unsafe { DatumPage::from_base_ptr(self as *const _ as *const u8) }
+    }
+}
+
 /// A typed view over a raw DatumPage block.
 /// All slices point into the same contiguous allocation.
 pub struct DatumPage<'a> {

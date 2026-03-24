@@ -41,7 +41,7 @@ pub enum DatumspaceError
 
 enum DatumEntry<'a>
 {
-    ConstantTable(&'a [Constant<'a>]),
+    Page(&'a DatumPageHeader),
     Function(&'a Runnable<'a>),
     Type(),
 }
@@ -67,7 +67,7 @@ impl<'d> Datumspace<'d>
     pub fn load_datum<'file>(
         &'d mut self,
         id: &'file str,
-        table: &[TableEntry<'file>],
+        table: &'file [TableEntry<'file>],
         functions: &'file [FunctionInfo<'file>],
     ) -> Result<DatumPage<'d>, DatumspaceError>
     where
@@ -102,9 +102,11 @@ impl<'d> Datumspace<'d>
         let mut blob_cursor = fn_offset + functions.len() * size_of::<Runnable>();
 
         // Write id to start
-        unsafe {
+        let id: &'d str = unsafe {
             let id_dest = base.byte_add(size_of::<DatumPageHeader>());
             std::ptr::copy_nonoverlapping(id.as_ptr(), id_dest.as_ptr(), id.len());
+
+            str::from_utf8_unchecked(std::slice::from_raw_parts(id_dest.as_ref(), id.len()))
         };
 
         // Write constants
@@ -179,12 +181,11 @@ impl<'d> Datumspace<'d>
             };
 
             // Register name -> function pointer in the flat lookup map
-            if self.mapping.insert(name, DatumEntry::Function(runnable)).is_some() {
-                return Err(DatumspaceError::Duplication);
-            }
+            self.insert_mapping(name, DatumEntry::Function(runnable))?
         }
 
         let page = unsafe { DatumPage::from_base_ptr(base.as_ptr() as *const _) };
+        self.insert_mapping(id, DatumEntry::Page(unsafe { base.cast().as_ref() }))?;
 
         Ok(page)
     }
@@ -193,7 +194,16 @@ impl<'d> Datumspace<'d>
     {
         // The main difference here is that the id refers to the datumpage rather than a specific entry in it, as
         // every page only has one constant table.
-        todo!()
+
+        match self.mapping.get(id)
+        {
+            Some(&DatumEntry::Page(header)) => {
+                let page = unsafe { header.get_page() };
+                page.constants.get(index).ok_or(DatumspaceError::ResourceDoesntExist)
+            }
+            Some(_) => Err(DatumspaceError::UnexpectedDatumtype),
+            None => Err(DatumspaceError::ResourceDoesntExist),
+        }
     }
 
     pub fn get_runnable(&self, id: &str) -> Result<&'d Runnable<'d>, DatumspaceError>
@@ -220,8 +230,10 @@ impl<'d> Datumspace<'d>
         size += table.len() * size_of::<Constant>();
 
         // string blobs inside constants
-        for entry in table.iter() {
-            if let TableEntry::String(s) = entry {
+        for entry in table.iter()
+        {
+            if let TableEntry::String(s) = entry
+            {
                 size = align_up(size + s.len(), align_of::<u8>());
             }
         }
@@ -239,6 +251,13 @@ impl<'d> Datumspace<'d>
 
         Layout::from_size_align(size, align_of::<DatumPageHeader>())
             .map_err(|_| DatumspaceError::AllocationFailure)
+    }
+
+    fn insert_mapping(&mut self, key: &'d str, entry: DatumEntry<'d>) -> Result<(), DatumspaceError>
+    {
+        self.mapping
+            .insert(key, entry)
+            .map_or(Ok(()), |_| Err(DatumspaceError::Duplication))
     }
 }
 

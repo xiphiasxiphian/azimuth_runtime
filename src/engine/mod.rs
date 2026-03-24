@@ -19,7 +19,7 @@ pub enum RunnerError
 pub struct Runner<'a>
 {
     stack: &'a mut Stack,
-    loader: &'a Loader,
+    loader: &'a Loader<'a>,
     // heap
 }
 
@@ -33,7 +33,7 @@ impl<'a> Runner<'a>
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
         // Get the entry point. This is the "main" function where execution will start
-        let entry_point = self.loader.get_entry_point().ok_or(RunnerError::MissingEntryPoint)?;
+        let entry_point = self.loader.get_entrypoint().ok_or(RunnerError::MissingEntryPoint)?;
         let (maxstack, maxlocals) = entry_point.setup_info();
 
         // Initial Frame Creation and creating the constant table from
