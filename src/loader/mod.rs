@@ -1,5 +1,4 @@
 use std::{
-    fs::{File, read},
     io,
     path::{Path, PathBuf},
 };
@@ -54,13 +53,18 @@ impl<'a> Loader<'a>
             .find(|x| x.directives().contains(&Directive::Start)))
     }
 
-    pub fn get_function(path: &str) -> Result<&'a Runnable<'a>, LoaderError>
+    pub fn get_function(&mut self, symbolic: &str) -> Result<&'a Runnable<'a>, LoaderError>
     {
-        todo!()
+        // Ensure the page is loaded
+        let _page = self.get_page(symbolic)?;
+
+        // Get the runnable out of datumspace
+        self.datumspace.get_runnable(symbolic).map_err(LoaderError::DatumspaceError)
     }
 
     /// Gets a page references to by the symbolic path.
-    /// If this page isn't currently loaded
+    /// If this page isn't currently loaded, it will try and find
+    /// the file that corresponds to it, and loads it into datumspace
     ///
     fn get_page(&mut self, symbolic: &str) -> Result<DatumPage<'a>, LoaderError>
     {

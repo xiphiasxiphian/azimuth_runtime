@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 assert_cmd = "2.1.1"
+binrw = "0.15.1"
+bitflags = "2.11.0"
 constcat = "0.6.1"
 datatest-stable = "0.3.3"
 num-traits = "0.2.19"

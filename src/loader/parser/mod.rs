@@ -1,5 +1,6 @@
 pub mod function;
 pub mod table;
+mod layout;
 
 use crate::loader::parser::{
     function::FunctionInfo,
