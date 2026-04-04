@@ -11,7 +11,7 @@ pub struct Runnable<'a>
     pub(super) name: &'a str,
     pub(super) maxstack: usize,
     pub(super) maxlocals: usize,
-    pub(super) directives: &'a [Directive],
+    // pub(super) directives: &'a [Directive],
     pub(super) bytecode: &'a [u8],
 }
 

@@ -3,8 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use binrw::binread;
+
 use crate::{
-    loader::parser::{FileLayout, function::Directive},
+    loader::parser::{function::Directive},
     memory::{
         allocators::AllocatorError,
         datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::Runnable},
@@ -12,6 +14,19 @@ use crate::{
 };
 
 pub(super) mod parser;
+
+/// 128-bit content-derived identifier for a symbol.
+///
+/// For functions and types, computed as: hash(namespace + name + type_descriptor), truncated to 16 bytes.
+/// Being content-derived means two independent compilers targeting the same
+/// source produce identical UUIDs, enabling cross-compiler linking.
+///
+/// For modules, Computed from the file's fully-qualified module path + version.
+/// Used by the import table to verify the correct file was loaded.
+#[binread]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct SymbolId([u8; 16]);
 
 const DEFAULT_CAPACITY: usize = 1 << 24; // 16 MiB
 
@@ -25,8 +40,8 @@ pub struct Loader<'a>
 pub enum LoaderError
 {
     FileReadError(io::Error),
+    InvalidFileStructure(binrw::Error),
     FailedToFindSymbol,
-    InvalidFileStructure,
     AllocatorError(AllocatorError),
     DatumspaceError(DatumspaceError),
 }

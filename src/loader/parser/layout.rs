@@ -1,21 +1,7 @@
 use binrw::{BinRead, BinResult, binread};
 use bitflags::bitflags;
 
-use crate::memory::datumspace::constant_table::{Constant, ConstantTableIndex};
-
-const MAGIC: [u8; 8] = *b"azimuth\0";
-
-/// 128-bit content-derived identifier for a symbol.
-///
-/// For functions and types, computed as: hash(namespace + name + type_descriptor), truncated to 16 bytes.
-/// Being content-derived means two independent compilers targeting the same
-/// source produce identical UUIDs, enabling cross-compiler linking.
-///
-/// For modules, Computed from the file's fully-qualified module path + version.
-/// Used by the import table to verify the correct file was loaded.
-#[binread]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SymbolId([u8; 16]);
+use crate::loader::SymbolId;
 
 type Offset = u32;
 
@@ -48,12 +34,12 @@ impl BinRead for FileFlags {
 #[br(little)]
 pub struct FileHeader
 {
-    file_version: u16,
-    min_runtime_version: u16,
-    module_id: SymbolId,
+    pub file_version: u16,
+    pub min_runtime_version: u16,
+    pub module_id: SymbolId,
 
     // module_path: &str,
-    flags: FileFlags,
+    pub flags: FileFlags,
 }
 
 
@@ -80,7 +66,7 @@ pub struct LinkTable
     count: u32,
 
     #[br(count = count)]
-    entries: Vec<Link>
+    pub entries: Vec<Link>
 }
 
 
@@ -240,19 +226,19 @@ impl DataDirectory
 #[binread]
 #[derive(Clone, Debug)]
 #[br(magic = b"azimuth\0")]
+#[br(little)]
 pub struct FileLayout
 {
     // Important metadata
-    header: FileHeader,
-    link_table: LinkTable,
-    symbol_table: SymbolTable,
+    pub header: FileHeader,
+    pub link_table: LinkTable,
+    pub symbol_table: SymbolTable,
 
     // Code segment
-    code_directory: CodeDirectory,
+    pub code_directory: CodeDirectory,
 
     // Data segment
-
-    data_directory: DataDirectory,
+    pub data_directory: DataDirectory,
 }
 
 #[cfg(test)]
@@ -277,7 +263,7 @@ mod tests {
         let mut data = Vec::new();
 
         // --- Magic ---
-        data.extend_from_slice(&MAGIC);
+        data.extend_from_slice(b"azimuth\0");
 
         // --- FileHeader ---
         data.extend_from_slice(&1u16.to_le_bytes()); // file_version = 1

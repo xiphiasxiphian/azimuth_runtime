@@ -1,4 +1,4 @@
-pub mod constant_table;
+pub mod tables;
 pub mod datum;
 pub mod runnable;
 pub mod types;
@@ -10,17 +10,14 @@ use std::{
 };
 
 use crate::{
-    loader::parser::{
-        function::{Directive, FunctionInfo},
-        table::{Table, TableEntry},
-    },
+    loader::{SymbolId, parser::{
+        function::{Directive, FunctionInfo}, layout::{FileLayout, Link as ParsedLink}, table::TableEntry
+    }},
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
-            constant_table::Constant,
             datum::{DatumPage, DatumPageHeader, align_up},
-            runnable::Runnable,
-            types::TypeInfo,
+            runnable::Runnable, tables::{constant_table::Constant, link_table::{self, Link}},
         },
     },
 };
@@ -81,118 +78,12 @@ impl<'d> Datumspace<'d>
 
     pub fn load_datum<'file>(
         &mut self,
-        id: &'file str,
-        table: &'file [TableEntry<'file>],
-        functions: &'file [FunctionInfo<'file>],
+        layout: &FileLayout,
     ) -> Result<DatumPage<'d>, DatumspaceError>
     where
         'd: 'file,
     {
-        let page_layout = Self::calculate_page_size(id, table, functions)?;
-        let base: NonNull<u8> = self
-            .allocator
-            .raw_alloc(page_layout)
-            .ok_or(DatumspaceError::AllocationFailure)?;
 
-        // Construct header based on know values
-        let header = DatumPageHeader {
-            id_len: id.len() as u32,
-            constants_len: table.len() as u32,
-            functions_len: functions.len() as u32,
-        };
-
-        // Write header to start of block
-        unsafe { base.cast().write(header) };
-
-        // We maintain a byte cursor for blobs (strings, directives, bytecode)
-        // that starts after the fixed-size arrays and walks forward.
-        let const_offset = align_up(size_of::<DatumPageHeader>() + id.len(), align_of::<Constant>());
-
-        let fn_offset = align_up(
-            const_offset + table.len() * size_of::<Constant>(),
-            align_of::<Runnable>(),
-        );
-
-        // Blob cursor begins after the functions array
-        let mut blob_cursor = fn_offset + functions.len() * size_of::<Runnable>();
-
-        // Write id to start
-        let id: &'d str = unsafe {
-            let id_dest = base.byte_add(size_of::<DatumPageHeader>());
-            std::ptr::copy_nonoverlapping(id.as_ptr(), id_dest.as_ptr(), id.len());
-
-            str::from_utf8_unchecked(std::slice::from_raw_parts(id_dest.as_ref(), id.len()))
-        };
-
-        // Write constants
-        let const_base = unsafe { base.byte_add(const_offset).cast() };
-
-        for (i, entry) in table.iter().enumerate()
-        {
-            let constant: Constant<'d> = match entry
-            {
-                TableEntry::Integer(v) => Constant::Unsigned32(*v),
-                TableEntry::Long(v) => Constant::Unsigned64(*v),
-                TableEntry::Float(v) => Constant::Float32(*v),
-                TableEntry::Double(v) => Constant::Float64(*v),
-                TableEntry::String(s) =>
-                {
-                    // Write blob at cursor, produce a 'd slice into the page
-                    let blob_ptr = unsafe { base.byte_add(blob_cursor) };
-                    unsafe {
-                        blob_ptr.copy_from_nonoverlapping(NonNull::new_unchecked(s.as_ptr() as *mut _), s.len());
-                    }
-                    let permanent: &'d str =
-                        unsafe { str::from_utf8_unchecked(NonNull::slice_from_raw_parts(blob_ptr, s.len()).as_ref()) };
-                    blob_cursor += s.len();
-                    Constant::String(permanent)
-                }
-            };
-            unsafe { const_base.add(i).write(constant) };
-        }
-
-        // Write functions
-        let fn_base = unsafe { base.byte_add(fn_offset).cast::<Runnable<'d>>() };
-        let constants: &'d [Constant<'d>] = unsafe { std::slice::from_raw_parts(const_base.as_ptr(), table.len()) };
-
-        for (i, info) in functions.iter().enumerate()
-        {
-            // Resolve name from the constants we just wrote
-            let name = match constants.get(info.name_index)
-            {
-                Some(Constant::String(s)) => *s,
-                Some(_) => return Err(DatumspaceError::UnexpectedDatumtype),
-                None => return Err(DatumspaceError::ResourceDoesntExist),
-            };
-
-            // Write directives blob
-            blob_cursor = align_up(blob_cursor, align_of::<Directive>());
-            let dir_ptr = unsafe { base.byte_add(blob_cursor).cast::<Directive>() };
-            let dir_len = info.directives.len();
-
-            // TODO: Technically some directives are removed as they are the required ones
-            blob_cursor += dir_len * size_of::<Directive>();
-
-            // Write bytecode blob
-            let code_ptr = unsafe { base.byte_add(blob_cursor) };
-            let code_len = info.code.len();
-
-            blob_cursor += code_len;
-
-            // Build the Runnable directly into the page — no allocator call needed
-            // since directives and bytecode now live in the page block itself.
-            let runnable = unsafe {
-                Runnable::from_parsed_data(fn_base.add(i), dir_ptr, code_ptr, name, &info.directives, info.code)?
-            };
-
-            // Register name -> function pointer in the flat lookup map
-            self.insert_mapping(name, DatumEntry::Function(runnable))?;
-        }
-
-        let page = unsafe { DatumPage::from_base_ptr(base.as_ptr() as *const _) };
-        self.insert_mapping(id, DatumEntry::Page(unsafe { base.cast().as_ref() }))?;
-
-        Ok(page)
     }
 
     pub fn get_page(&self, id: &str) -> Result<DatumPage<'d>, DatumspaceError>
@@ -224,39 +115,16 @@ impl<'d> Datumspace<'d>
     }
 
     fn calculate_page_size<'file>(
-        table_id: &str,
-        table: &[TableEntry<'file>],
-        functions: &[FunctionInfo<'file>],
+        layout: &FileLayout,
     ) -> Result<Layout, DatumspaceError>
     {
         let mut size = size_of::<DatumPageHeader>();
 
-        // id
-        size = align_up(size + table_id.len(), align_of::<Constant>());
+        // id size
 
-        // constants array
-        size += table.len() * size_of::<Constant>();
-
-        // string blobs inside constants
-        for entry in table.iter()
-        {
-            if let TableEntry::String(s) = entry
-            {
-                size = align_up(size + s.len(), align_of::<u8>());
-            }
-        }
-
-        // align up to Runnable before the functions array
-        size = align_up(size, align_of::<Runnable>());
-        size += functions.len() * size_of::<Runnable>();
-
-        // directives + bytecode blobs per function
-        for info in functions.iter()
-        {
-            size = align_up(size, align_of::<Directive>());
-            size += info.directives.len() * size_of::<Directive>();
-            size += info.code.len(); // bytecode is u8, no alignment needed
-        }
+        // link table
+        // Each link gets slightly flattened, removing now unrequired metadata
+        size += layout.link_table.entries.len() * size_of::<Link>();
 
         Layout::from_size_align(size, align_of::<DatumPageHeader>()).map_err(|_| DatumspaceError::AllocationFailure)
     }
