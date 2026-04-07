@@ -98,7 +98,6 @@ pub enum SymbolKind
 pub struct SymbolEntry
 {
     id: SymbolId,
-    qualified_name: Offset,
     kind: SymbolKind,
     // flags?
 }
@@ -196,8 +195,8 @@ impl CodeDirectory
 #[br(little)]
 pub struct DataHeader
 {
-    length: u32,
-    offset: Offset,
+    pub length: u32,
+    pub index: Offset,
     // type ref maybe?
     // any flags?
 }

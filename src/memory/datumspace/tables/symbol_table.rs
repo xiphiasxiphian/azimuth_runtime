@@ -1,5 +1,6 @@
 use crate::{loader::SymbolId, memory::datumspace::datum::{InlinedString, Offset}};
 
+#[derive(Clone, Copy)]
 pub enum SymbolKind
 {
     Function {
@@ -7,6 +8,7 @@ pub enum SymbolKind
     },
 }
 
+#[derive(Clone, Copy)]
 pub struct Symbol<'a>
 {
     kind: SymbolKind,

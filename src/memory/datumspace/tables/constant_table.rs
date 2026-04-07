@@ -1,14 +1,23 @@
 // This is a more formalised wrapper around the idea of the constant table.
-// In the future this can be more "referency" as things will instead be stored in metaspace
-
-use std::ptr::NonNull;
-
+//
 use crate::{
-    loader::parser::table::{Table, TableEntry},
-    memory::{datumspace::datum::InlinedString, stack::{StackFrame, entry::StackEntry}},
+    loader::parser::layout::DataHeader, memory::{datumspace::datum::{BlockLocation, InlinedString}, stack::entry::StackEntry}
 };
 
 pub type ConstantTableIndex = u32;
+
+#[derive(Clone, Copy, Debug)]
+pub struct DataEntry
+{
+    pub loc: BlockLocation,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ConstantTableEntry<'a>
+{
+    Unresolved(DataEntry),
+    Resolved(Constant<'a>)
+}
 
 /// A Constant stored within the constant table.
 ///

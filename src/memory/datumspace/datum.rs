@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ops::Add, ptr::NonNull};
 
-use crate::{loader::SymbolId, memory::datumspace::{link_table::Link, runnable::Runnable, tables::{constant_table::Constant, symbol_table::Symbol}}};
+use crate::{guard, loader::SymbolId, memory::datumspace::{link_table::Link, runnable::Runnable, tables::{constant_table::{Constant, ConstantTableEntry}, symbol_table::Symbol}}};
 
 use derive_more::{Add, Sub};
 
@@ -38,7 +38,9 @@ use derive_more::{Add, Sub};
 
 #[derive(Clone, Copy, Debug, Add, Sub)]
 #[repr(transparent)]
-pub struct Offset(pub u32);
+pub struct Offset(
+    pub u32
+);
 
 impl Offset
 {
@@ -116,7 +118,7 @@ pub struct DatumPage<'a>
     pub links: &'a [Link<'a>],
     pub symbols: &'a [Symbol<'a>],
     pub functions: &'a [Runnable<'a>],
-    pub constants: &'a [Constant<'a>],
+    pub constants: &'a [ConstantTableEntry<'a>],
     pub bytecode_blob: &'a [u8],
     pub data_blob: &'a [u8],
 }
@@ -148,7 +150,9 @@ impl<'a> DatumPage<'a>
         };
 
         // constant table
-
+        let constants: &'a [ConstantTableEntry<'a>] = unsafe {
+            Self::get_slice(ptr, header.constants)
+        };
 
         // bytecode and function headers
         let bytecode_blob: &'a [u8] = unsafe {
@@ -164,6 +168,8 @@ impl<'a> DatumPage<'a>
             id,
             links,
             symbols,
+            functions,
+            constants,
             bytecode_blob,
             data_blob,
         }
@@ -179,6 +185,7 @@ impl<'a> DatumPage<'a>
 }
 
 /// Utility for building pages safer
+#[derive(Clone, Copy, Debug)]
 pub struct PageBuilder
 {
     base: NonNull<DatumPageHeader>,
@@ -202,7 +209,30 @@ impl PageBuilder
         }
     }
 
-    pub unsafe fn write_functions<'a, I>(&mut self, src: I) -> Option<&mut Self>
+    pub unsafe fn resolve<'a>(self) -> DatumPage<'a>
+    {
+        unsafe { DatumPage::from_base_ptr(self.base.cast()) }
+    }
+
+    pub unsafe fn write_links<'a, I>(self, src: I) -> Option<Self>
+    where
+        I: Iterator<Item = Link<'a>>
+    {
+        unsafe {
+            self.write_iter(&self.base.as_ref().constants, src)
+        }
+    }
+
+    pub unsafe fn write_symbols<'a, I>(self, src: I) -> Option<Self>
+    where
+        I: Iterator<Item = Symbol<'a>>
+    {
+        unsafe {
+            self.write_iter(&self.base.as_ref().symbol_table, src)
+        }
+    }
+
+    pub unsafe fn write_functions<'a, I>(self, src: I) -> Option<Self>
     where
         I: Iterator<Item = Runnable<'a>>
     {
@@ -211,23 +241,23 @@ impl PageBuilder
         }
     }
 
-    pub unsafe fn write_constants<'a, I>(&mut self, src: I) -> Option<&mut Self>
-    where:
-        I: Iterator<Item = Constant<'a>>
+    pub unsafe fn write_constants<'a, I>(self, src: I) -> Option<Self>
+    where
+        I: Iterator<Item = ConstantTableEntry<'a>>
     {
         unsafe {
             self.write_iter(&self.base.as_ref().constants, src)
         }
     }
 
-    pub unsafe fn write_code_blob(&mut self, src: &[u8]) -> Option<&mut Self>
+    pub unsafe fn write_code_blob(self, src: &[u8]) -> Option<Self>
     {
         unsafe {
             self.write_blob(src, &self.base.as_ref().bytecode_blob)
         }
     }
 
-    pub unsafe fn write_data_blob(&mut self, src: &[u8]) -> Option<&mut Self>
+    pub unsafe fn write_data_blob(self, src: &[u8]) -> Option<Self>
     {
         unsafe {
             self.write_blob(src, &self.base.as_ref().data_blob)
@@ -235,7 +265,7 @@ impl PageBuilder
     }
 
 
-    unsafe fn write_blob(&mut self, src: &[u8], loc: &BlockLocation) -> Option<&mut Self>
+    unsafe fn write_blob(self, src: &[u8], loc: &BlockLocation) -> Option<Self>
     {
         // Just ensure that there is in fact enough space.
         // This is an assertion as this should _never_ happen
@@ -251,25 +281,21 @@ impl PageBuilder
         Some(self)
     }
 
-    unsafe fn write_iter<I, T>(&mut self, loc: &BlockLocation, iter: I) -> Option<&mut Self>
+    unsafe fn write_iter<I, T>(self, loc: &BlockLocation, iter: I) -> Option<Self>
     where
         I: Iterator<Item = T>,
-        T: Copy,
+        T: Copy + Sized,
     {
         let base: NonNull<T> = unsafe { loc.0.as_ptr(self.base.cast()) };
+        let limit = <usize>::try_from(loc.1).ok()? / size_of::<T>();
 
         for (i, item) in iter.enumerate()
         {
+            guard!(i <= limit);
             unsafe { base.add(i).write(item) }
         }
 
         Some(self)
-    }
-
-
-    pub unsafe fn resolve<'a>(self) -> DatumPage<'a>
-    {
-        unsafe { DatumPage::from_base_ptr(self.base.cast()) }
     }
 }
 

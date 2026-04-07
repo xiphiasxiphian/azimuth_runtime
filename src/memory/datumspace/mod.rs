@@ -4,9 +4,7 @@ pub mod runnable;
 pub mod types;
 
 use std::{
-    alloc::Layout,
-    collections::{HashMap, hash_map::Entry},
-    ptr::NonNull,
+    alloc::Layout, collections::{HashMap, hash_map::Entry}, ops::AddAssign, ptr::NonNull
 };
 
 use itertools::Itertools;
@@ -18,8 +16,8 @@ use crate::{
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
-            datum::{BlockLocation, DatumPage, DatumPageHeader, Offset, align_up},
-            runnable::Runnable, tables::{constant_table::Constant, link_table::{self, Link}, symbol_table::Symbol},
+            datum::{BlockLocation, DatumPage, DatumPageHeader, Offset, PageBuilder, align_up},
+            runnable::Runnable, tables::{constant_table::{Constant, ConstantTableEntry, DataEntry}, link_table::{self, Link}, symbol_table::Symbol},
         },
     },
 };
@@ -88,11 +86,24 @@ impl<'d> Datumspace<'d>
         let (header, required_layout) = Self::calculate_page_size(layout)?;
         let base = self.allocator.raw_alloc(required_layout).ok_or(DatumspaceError::AllocationFailure)?;
 
-        // Write header in
-        unsafe {
-            base.cast().write(header);
-        };
+        let page = unsafe {
+            let builder = || -> Option<_> {
+                PageBuilder::new(base, header)
+                    .write_code_blob(&layout.code_directory.bytecode)?
+                    .write_data_blob(&layout.data_directory.data)?
+                    .write_constants(
+                        layout.data_directory.entries.iter().map(|x| {
+                            ConstantTableEntry::Unresolved(
+                                DataEntry {
+                                    loc: (header.data_blob.0 + Offset(x.index), x.length)
+                                }
+                            )
+                        })
+                    )
+            };
 
+            builder().ok_or(DatumspaceError::InvalidStructure)?.resolve()
+        };
 
     }
 
