@@ -26,7 +26,7 @@ pub(super) mod parser;
 #[binread]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct SymbolId([u8; 16]);
+pub struct SymbolId(pub [u8; 16]);
 
 const DEFAULT_CAPACITY: usize = 1 << 24; // 16 MiB
 
@@ -95,9 +95,7 @@ impl<'a> Loader<'a>
             self
                 .datumspace
                 .load_datum(
-                    pagename,
-                    layout.constants(),
-                    layout.functions(),
+                    todo!(),
                 )
                 .map_err(|x| LoaderError::DatumspaceError(x))?
         )

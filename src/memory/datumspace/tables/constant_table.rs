@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 
 use crate::{
     loader::parser::table::{Table, TableEntry},
-    memory::stack::{StackFrame, entry::StackEntry},
+    memory::{datumspace::datum::InlinedString, stack::{StackFrame, entry::StackEntry}},
 };
 
 pub type ConstantTableIndex = u32;
@@ -41,22 +41,7 @@ pub enum Constant<'a>
     Unsigned64(u64),
     Float32(f32),
     Float64(f64),
-    String(&'a str),
-}
-
-impl<'a> Constant<'a>
-{
-    pub fn from_parsed_entry(entry: &'a TableEntry) -> Self
-    {
-        match *entry
-        {
-            TableEntry::Integer(x) => Self::Unsigned32(x),
-            TableEntry::Long(x) => Self::Unsigned64(x),
-            TableEntry::Float(x) => Self::Float32(x),
-            TableEntry::Double(x) => Self::Float64(x),
-            TableEntry::String(string) => Self::String(string),
-        }
-    }
+    String(InlinedString<'a>),
 }
 
 impl<'a> From<Constant<'a>> for StackEntry
@@ -69,7 +54,7 @@ impl<'a> From<Constant<'a>> for StackEntry
             Constant::Unsigned64(x) => x.into(),
             Constant::Float32(x) => x.into(),
             Constant::Float64(x) => x.into(),
-            Constant::String(x) => NonNull::new(x.as_ptr().cast_mut()).into(),
+            Constant::String(x) => todo!(), // How does the possibly not pinned string get translated here
         }
     }
 }

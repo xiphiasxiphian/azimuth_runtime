@@ -112,7 +112,7 @@ pub struct SymbolTable
     count: u32,
 
     #[br(count = count)]
-    symbols: Vec<SymbolEntry>
+    pub symbols: Vec<SymbolEntry>
 }
 
 
@@ -167,13 +167,26 @@ pub struct CodeDirectory
     func_count: u32,
 
     #[br(count = func_count)]
-    functions: Vec<Function>,
+    pub functions: Vec<Function>,
 
     #[br(temp)]
     code_length: u32,
 
     #[br(count = code_length)]
-    bytecode: Vec<u8>,
+    pub bytecode: Vec<u8>,
+}
+
+impl CodeDirectory
+{
+    pub fn bytecode_size(&self) -> usize
+    {
+        self.bytecode.len()
+    }
+
+    pub fn function_count(&self) -> usize
+    {
+        self.functions.len()
+    }
 }
 
 // Data
@@ -198,13 +211,13 @@ pub struct DataDirectory
     entry_count: u32,
 
     #[br(count = entry_count)]
-    entries: Vec<DataHeader>,
+    pub entries: Vec<DataHeader>,
 
     #[br(temp)]
     data_length: u32,
 
     #[br(count = data_length)]
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl DataDirectory
@@ -217,6 +230,16 @@ impl DataDirectory
         let end = start + entry.length as usize;
 
         self.data.get(start..end)
+    }
+
+    pub fn data_byte_size(&self) -> usize
+    {
+        self.data.len()
+    }
+
+    pub fn entries_byte_size(&self) -> usize
+    {
+        self.entries.len() * size_of::<DataHeader>()
     }
 }
 

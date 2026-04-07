@@ -3,7 +3,7 @@ use crate::{loader::SymbolId, memory::datumspace::datum::{InlinedString, Offset}
 pub enum SymbolKind
 {
     Function {
-        offset: Offset,
+        index: u32,
     },
 }
 

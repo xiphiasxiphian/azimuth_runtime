@@ -219,7 +219,7 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
         .pull_params(size_of::<ConstantTableIndex>())?
         .first_chunk::<SIZE>()
         .ok_or(ExecutionError::MissingParams)?;
-    let index = <ConstantTableIndex>::from_le_bytes(*bytes);
+    let index = <ConstantTableIndex>::from_le_bytes(bytes);
 
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on

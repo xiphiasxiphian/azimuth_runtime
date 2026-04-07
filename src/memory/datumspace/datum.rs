@@ -1,6 +1,8 @@
-use std::{marker::PhantomData, ptr::NonNull};
+use std::{marker::PhantomData, ops::Add, ptr::NonNull};
 
-use crate::memory::datumspace::{constant_table::Constant, link_table::Link, runnable::Runnable, tables::symbol_table::Symbol};
+use crate::{loader::SymbolId, memory::datumspace::{link_table::Link, runnable::Runnable, tables::{constant_table::Constant, symbol_table::Symbol}}};
+
+use derive_more::{Add, Sub};
 
 /*  ┌─────────────────────────┐  <- base_ptr
     │  DatumPageHeader        │  fixed size, contains section lengths
@@ -34,7 +36,7 @@ use crate::memory::datumspace::{constant_table::Constant, link_table::Link, runn
 
  */
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Add, Sub)]
 #[repr(transparent)]
 pub struct Offset(pub u32);
 
@@ -84,7 +86,7 @@ impl<'a> InlinedString<'a>
 #[repr(C)]
 pub struct DatumPageHeader
 {
-    pub id: BlockLocation,
+    pub id: SymbolId,
     pub link_table: BlockLocation,
     pub symbol_table: BlockLocation,
     pub constants: BlockLocation,
@@ -110,9 +112,11 @@ impl DatumPageHeader
 /// All slices point into the same contiguous allocation.
 pub struct DatumPage<'a>
 {
-    pub id: &'a str,
+    pub id: &'a SymbolId,
     pub links: &'a [Link<'a>],
     pub symbols: &'a [Symbol<'a>],
+    pub functions: &'a [Runnable<'a>],
+    pub constants: &'a [Constant<'a>],
     pub bytecode_blob: &'a [u8],
     pub data_blob: &'a [u8],
 }
@@ -126,10 +130,7 @@ impl<'a> DatumPage<'a>
         let header: &DatumPageHeader = unsafe { ptr.cast().as_ref() };
 
         // module id
-        let id = unsafe {
-            let bytes = std::slice::from_raw_parts(ptr.byte_add(header.id.0.0 as usize).as_ptr(), header.id.1 as usize);
-            str::from_utf8_unchecked(bytes)
-        };
+        let id = &header.id;
 
         // link table
         let links: &'a [Link<'a>] = unsafe {
@@ -140,6 +141,14 @@ impl<'a> DatumPage<'a>
         let symbols: &'a [Symbol<'a>] = unsafe {
             Self::get_slice(ptr, header.symbol_table)
         };
+
+        // function table
+        let functions: &'a [Runnable<'a>] = unsafe {
+            Self::get_slice(ptr, header.functions)
+        };
+
+        // constant table
+
 
         // bytecode and function headers
         let bytecode_blob: &'a [u8] = unsafe {
@@ -168,6 +177,103 @@ impl<'a> DatumPage<'a>
         }
     }
 }
+
+/// Utility for building pages safer
+pub struct PageBuilder
+{
+    base: NonNull<DatumPageHeader>,
+}
+
+impl PageBuilder
+{
+    /// SAFETY: raw_base must have space for the header to be written to it,
+    /// and realistically must have space for anything future to be written to
+    /// the page
+    pub unsafe fn new(raw_base: NonNull<u8>, header: DatumPageHeader) -> Self
+    {
+        let base = raw_base.cast();
+
+        unsafe {
+            base.write(header);
+        }
+
+        Self {
+            base
+        }
+    }
+
+    pub unsafe fn write_functions<'a, I>(&mut self, src: I) -> Option<&mut Self>
+    where
+        I: Iterator<Item = Runnable<'a>>
+    {
+        unsafe {
+            self.write_iter(&self.base.as_ref().functions, src)
+        }
+    }
+
+    pub unsafe fn write_constants<'a, I>(&mut self, src: I) -> Option<&mut Self>
+    where:
+        I: Iterator<Item = Constant<'a>>
+    {
+        unsafe {
+            self.write_iter(&self.base.as_ref().constants, src)
+        }
+    }
+
+    pub unsafe fn write_code_blob(&mut self, src: &[u8]) -> Option<&mut Self>
+    {
+        unsafe {
+            self.write_blob(src, &self.base.as_ref().bytecode_blob)
+        }
+    }
+
+    pub unsafe fn write_data_blob(&mut self, src: &[u8]) -> Option<&mut Self>
+    {
+        unsafe {
+            self.write_blob(src, &self.base.as_ref().data_blob)
+        }
+    }
+
+
+    unsafe fn write_blob(&mut self, src: &[u8], loc: &BlockLocation) -> Option<&mut Self>
+    {
+        // Just ensure that there is in fact enough space.
+        // This is an assertion as this should _never_ happen
+        assert!(<usize>::try_from(loc.1).ok()? >= src.len());
+
+        // Copy the given data into the correct place within the page
+        unsafe {
+            loc.0
+                .as_ptr::<u8>(self.base.cast())
+                .copy_from_nonoverlapping(NonNull::from_ref(src).cast(), src.len());
+        }
+
+        Some(self)
+    }
+
+    unsafe fn write_iter<I, T>(&mut self, loc: &BlockLocation, iter: I) -> Option<&mut Self>
+    where
+        I: Iterator<Item = T>,
+        T: Copy,
+    {
+        let base: NonNull<T> = unsafe { loc.0.as_ptr(self.base.cast()) };
+
+        for (i, item) in iter.enumerate()
+        {
+            unsafe { base.add(i).write(item) }
+        }
+
+        Some(self)
+    }
+
+
+    pub unsafe fn resolve<'a>(self) -> DatumPage<'a>
+    {
+        unsafe { DatumPage::from_base_ptr(self.base.cast()) }
+    }
+}
+
+
 
 pub fn align_up(offset: usize, align: usize) -> usize
 {

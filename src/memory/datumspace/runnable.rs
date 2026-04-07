@@ -5,7 +5,7 @@ use crate::{
     memory::datumspace::{DatumAllocator, DatumspaceError},
 };
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct Runnable<'a>
 {
     pub(super) name: &'a str,
@@ -72,7 +72,6 @@ impl<'a> Runnable<'a>
                         name,
                         maxstack: max_stack?,
                         maxlocals: max_locals?,
-                        directives: std::slice::from_raw_parts(directive_space.as_ptr(), count),
                         bytecode: std::slice::from_raw_parts(bytecode_space.as_ptr(), bytecode.len()),
                     });
 
