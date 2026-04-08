@@ -4,7 +4,7 @@ pub mod runnable;
 pub mod types;
 
 use std::{
-    alloc::Layout, collections::{HashMap, hash_map::Entry}, ops::AddAssign, ptr::NonNull
+    alloc::Layout, collections::{HashMap, hash_map::Entry}, marker::PhantomData, ops::AddAssign, ptr::NonNull
 };
 
 use itertools::{Itertools, process_results};
@@ -53,17 +53,11 @@ pub enum DatumspaceError
     ResourceDoesntExist,
 }
 
-enum DatumEntry<'a>
-{
-    Page(&'a DatumPageHeader),
-    Function(&'a Runnable<'a>),
-    Type(),
-}
-
 pub struct Datumspace<'a>
 {
     allocator: DatumAllocator,
-    mapping: HashMap<&'a str, DatumEntry<'a>>,
+    mapping: HashMap<SymbolId, NonNull<u8>>,
+    _pd: PhantomData<&'a mut [u8]>,
 }
 
 impl<'d> Datumspace<'d>
@@ -73,6 +67,7 @@ impl<'d> Datumspace<'d>
         Ok(Self {
             allocator: DatumAllocator::with_capacity(min_capacity)?,
             mapping: HashMap::new(),
+            _pd: PhantomData,
         })
     }
 
@@ -143,6 +138,8 @@ impl<'d> Datumspace<'d>
             builder().ok_or(DatumspaceError::InvalidStructure)?.resolve()
         };
 
+        self.insert_mapping(*page.id, base);
+        Ok(page)
     }
 
     pub fn get_page(&self, id: &str) -> Result<DatumPage<'d>, DatumspaceError>
@@ -240,14 +237,15 @@ impl<'d> Datumspace<'d>
         Ok((header, layout))
     }
 
-    fn insert_mapping(&mut self, key: &'d str, datumentry: DatumEntry<'d>) -> Result<&mut DatumEntry<'d>, DatumspaceError>
+    fn insert_mapping(&mut self, key: SymbolId, page: NonNull<u8>) -> Result<(), DatumspaceError>
     {
         // Use the entry function to prevent overwritting existing data in case of duplication
         match self.mapping.entry(key)
         {
             Entry::Vacant(entry) =>
             {
-                Ok(entry.insert(datumentry))
+                entry.insert(page);
+                Ok(())
             }
             Entry::Occupied(_) => Err(DatumspaceError::Duplication),
         }
