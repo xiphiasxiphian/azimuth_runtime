@@ -24,7 +24,7 @@ pub struct UnresolvedRunnable
 #[derive(Clone, Copy, Debug)]
 pub struct Function
 {
-    pub maxstack: usize,
-    pub maxlocals: usize,
+    pub maxstack: u32,
+    pub maxlocals: u32,
     pub bytecode: BlockLocation,
 }

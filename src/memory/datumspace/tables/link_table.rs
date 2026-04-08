@@ -5,8 +5,8 @@ use crate::{loader::SymbolId, memory::datumspace::datum::InlinedString};
 #[repr(C)]
 pub struct Link<'a>
 {
-    id: SymbolId,
-    path: InlinedString<'a>,
+    pub id: SymbolId,
+    pub path: InlinedString<'a>,
 }
 
 impl Link<'_>

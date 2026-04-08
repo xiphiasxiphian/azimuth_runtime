@@ -116,8 +116,8 @@ pub struct DatumPage<'a>
 {
     pub id: &'a SymbolId,
     pub links: &'a [Link<'a>],
-    pub symbols: &'a [Symbol<'a>],
-    pub functions: &'a [Runnable<'a>],
+    pub symbols: &'a [Symbol],
+    pub functions: &'a [Runnable],
     pub constants: &'a [ConstantTableEntry<'a>],
     pub bytecode_blob: &'a [u8],
     pub data_blob: &'a [u8],
@@ -140,12 +140,12 @@ impl<'a> DatumPage<'a>
         };
 
         // symbol table
-        let symbols: &'a [Symbol<'a>] = unsafe {
+        let symbols: &'a [Symbol] = unsafe {
             Self::get_slice(ptr, header.symbol_table)
         };
 
         // function table
-        let functions: &'a [Runnable<'a>] = unsafe {
+        let functions: &'a [Runnable] = unsafe {
             Self::get_slice(ptr, header.functions)
         };
 
@@ -234,7 +234,7 @@ impl PageBuilder
 
     pub unsafe fn write_functions<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = Runnable<'a>>
+        I: Iterator<Item = Runnable>
     {
         unsafe {
             self.write_iter(&self.base.as_ref().functions, src)

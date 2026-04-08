@@ -7,17 +7,17 @@ use std::{
     alloc::Layout, collections::{HashMap, hash_map::Entry}, ops::AddAssign, ptr::NonNull
 };
 
-use itertools::Itertools;
+use itertools::{Itertools, process_results};
 
 use crate::{
     loader::{SymbolId, parser::{
-        function::{self, Directive, FunctionInfo}, layout::{FileLayout, Link as ParsedLink}, table::TableEntry
+        function::{self, Directive, FunctionInfo}, layout::{DataHeader, FileLayout, Link as ParsedLink, SymbolKind as ParsedSymbolKind}, table::TableEntry
     }},
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
-            datum::{BlockLocation, DatumPage, DatumPageHeader, Offset, PageBuilder, align_up},
-            runnable::Runnable, tables::{constant_table::{Constant, ConstantTableEntry, DataEntry}, link_table::{self, Link}, symbol_table::Symbol},
+            datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder, align_up},
+            runnable::{Function, Runnable}, tables::{constant_table::{Constant, ConstantTableEntry, DataEntry}, link_table::{self, Link}, symbol_table::{Symbol, SymbolKind}},
         },
     },
 };
@@ -88,7 +88,7 @@ impl<'d> Datumspace<'d>
 
         let page = unsafe {
             let builder = || -> Option<_> {
-                PageBuilder::new(base, header)
+                let page_builder = PageBuilder::new(base, header)
                     .write_code_blob(&layout.code_directory.bytecode)?
                     .write_data_blob(&layout.data_directory.data)?
                     .write_constants(
@@ -99,9 +99,47 @@ impl<'d> Datumspace<'d>
                                 }
                             )
                         })
-                    )
+                    )?
+                    .write_functions(
+                        layout.code_directory.functions.iter().map(|x| {
+                            Runnable::Function(
+                                Function {
+                                    maxstack: x.maxstack,
+                                    maxlocals: x.maxlocals,
+                                    bytecode: (header.bytecode_blob.0 + Offset(x.index), x.length)
+                                }
+                            )
+                        })
+                    )?
+                    .write_symbols(
+                        layout.symbol_table.symbols.iter().map(|x| {
+                            Symbol {
+                                kind: match x.kind {
+                                    ParsedSymbolKind::Function { body } => SymbolKind::Function { index: body },
+                                    ParsedSymbolKind::Type {  } => todo!()
+                                },
+                                id: x.id,
+                            }
+                        })
+                    )?;
+
+                let iter = layout.link_table.entries.iter().map(|x| {
+                    Ok(Link {
+                        id: x.module_id,
+                        path: {
+                            let DataHeader { length, index } =
+                                layout.data_directory.entries.get(x.module_path.try_into().map_err(|_| ())?).ok_or(())?;
+
+                            InlinedString::new((header.data_blob.0 + Offset(*index), *length))
+                        }
+                    })
+                });
+
+                process_results(iter, |i| page_builder.write_links(i)).ok()?
             };
 
+            // Technically this will result in the allocated page being leaked, were the error case to be reached
+            // but realistically this situation is just going to end up with the entire runtime shutting down anyway
             builder().ok_or(DatumspaceError::InvalidStructure)?.resolve()
         };
 

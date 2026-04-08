@@ -51,8 +51,8 @@ pub struct FileHeader
 pub struct Link
 {
     index: u16,
-    module_id: SymbolId,
-    module_path: Offset,
+    pub module_id: SymbolId,
+    pub module_path: Offset,
 
     // lazy: bool
 }
@@ -97,8 +97,8 @@ pub enum SymbolKind
 #[br(little)]
 pub struct SymbolEntry
 {
-    id: SymbolId,
-    kind: SymbolKind,
+    pub id: SymbolId,
+    pub kind: SymbolKind,
     // flags?
 }
 
@@ -120,40 +120,13 @@ pub struct SymbolTable
 #[binread]
 #[derive(Clone, Copy, Debug)]
 #[br(little)]
-pub struct FunctionHeader
-{
-    length: u32,
-    maxlocals: u32,
-    maxstack: u32,
-}
-
-impl FunctionHeader
-{
-    pub unsafe fn get_code(&self) -> &[u8]
-    {
-        unsafe {
-            std::slice::from_raw_parts(
-                (self as *const Self).add(1) as *const u8,
-                self.length.try_into().expect("Running on sub 32-bit architecture"))
-        }
-    }
-
-    pub unsafe fn next(&self) -> &FunctionHeader
-    {
-        let length: usize = self.length.try_into().expect("Running on sub 32-bit architecture");
-        unsafe {
-            &*((self as *const Self).byte_add(size_of::<Self>() + length))
-        }
-    }
-}
-
-#[binread]
-#[derive(Clone, Copy, Debug)]
-#[br(little)]
 pub struct Function
 {
     symbol_id: SymbolId,
-    offset: Offset,
+    pub index: Offset,
+    pub length: u32,
+    pub maxlocals: u32,
+    pub maxstack: u32,
     // flags?
 }
 

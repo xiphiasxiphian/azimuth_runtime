@@ -9,9 +9,8 @@ pub enum SymbolKind
 }
 
 #[derive(Clone, Copy)]
-pub struct Symbol<'a>
+pub struct Symbol
 {
-    kind: SymbolKind,
-    qualified_name: InlinedString<'a>,
-    id: SymbolId
+    pub kind: SymbolKind,
+    pub id: SymbolId
 }
