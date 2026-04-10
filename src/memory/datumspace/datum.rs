@@ -225,7 +225,7 @@ impl PageBuilder
 
     pub unsafe fn write_symbols<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = Symbol<'a>>
+        I: Iterator<Item = Symbol>
     {
         unsafe {
             self.write_iter(&self.base.as_ref().symbol_table, src)
@@ -298,8 +298,6 @@ impl PageBuilder
         Some(self)
     }
 }
-
-
 
 pub fn align_up(offset: usize, align: usize) -> usize
 {

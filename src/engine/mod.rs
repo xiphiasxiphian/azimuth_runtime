@@ -33,13 +33,10 @@ impl<'a> Runner<'a>
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
         // Get the entry point. This is the "main" function where execution will start
-        let entry_point = self
-            .loader
-            .get_entrypoint(todo!())
-            .map_err(|_| RunnerError::CannotAcquireEntrypoint)?
-            .ok_or(RunnerError::CannotAcquireEntrypoint)?;
+        // TODO: Fill this back in once all the loader functions have been reimplemented
 
-        let (maxstack, maxlocals) = entry_point.setup_info();
+        // TODO: This is a setup to ensure the below works. Remove one above is implemented
+        let (maxstack, maxlocals) = (0, 0);
 
         // Initial Frame Creation and creating the constant table from
         // information provided in the loader

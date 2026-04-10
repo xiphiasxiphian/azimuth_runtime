@@ -117,6 +117,29 @@ pub struct SymbolTable
 
 // Code blocks
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct FunctionFlags: u8 {
+        const ENTRYPOINT = 0b0000_0001;
+    }
+}
+
+impl BinRead for FunctionFlags {
+    type Args<'a> = ();
+
+    fn read_options<R: binrw::io::Read + binrw::io::Seek>(
+        reader: &mut R,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        Ok(
+            FunctionFlags::from_bits_retain(
+                u8::read_options(reader, endian, args)?
+            )
+        )
+    }
+}
+
 #[binread]
 #[derive(Clone, Copy, Debug)]
 #[br(little)]
@@ -127,7 +150,7 @@ pub struct Function
     pub length: u32,
     pub maxlocals: u32,
     pub maxstack: u32,
-    // flags?
+    pub flags: FunctionFlags,
 }
 
 #[binread]
@@ -194,16 +217,6 @@ pub struct DataDirectory
 
 impl DataDirectory
 {
-    pub fn get(&self, offset: Offset) -> Option<&[u8]>
-    {
-        let entry = self.entries.get(offset as usize)?;
-
-        let start = entry.offset as usize;
-        let end = start + entry.length as usize;
-
-        self.data.get(start..end)
-    }
-
     pub fn data_byte_size(&self) -> usize
     {
         self.data.len()
@@ -289,60 +302,5 @@ mod tests {
         assert_eq!(layout.header.flags, FileFlags::HAS_DEBUG);
         assert_eq!(layout.link_table.entries.len(), 0);
         assert_eq!(layout.symbol_table.symbols.len(), 0);
-    }
-
-    #[test]
-    fn test_data_directory_get() {
-        // Instantiate manually to test the `get` slicing logic independently of binrw
-        let dir = DataDirectory {
-            entries: vec![
-                DataHeader { length: 4, offset: 0 },
-                DataHeader { length: 2, offset: 4 },
-                DataHeader { length: 3, offset: 10 }, // Purposely out of bounds to test safety
-            ],
-            data: vec![10, 20, 30, 40, 50, 60, 70, 80],
-        };
-
-        // Valid retrievals
-        assert_eq!(dir.get(0).unwrap(), &[10, 20, 30, 40]);
-        assert_eq!(dir.get(1).unwrap(), &[50, 60]);
-
-        // Invalid index
-        assert_eq!(dir.get(99), None);
-
-        // Valid index, but slice out of bounds of the `data` array
-        assert_eq!(dir.get(2), None);
-    }
-
-    #[test]
-    fn test_function_header_pointers() {
-        // We use a u32 array to guarantee 4-byte memory alignment, which is critical
-        // when casting raw pointers back into structs like FunctionHeader.
-        let memory_block: [u32; 7] = [
-            4,          // [0] Header 1: length (4 bytes of code)
-            2,          // [1] Header 1: maxlocals
-            2,          // [2] Header 1: maxstack
-            0xEFBEADDE, // [3] Code for Header 1 (4 bytes: DE AD BE EF in little-endian)
-            8,          // [4] Header 2: length (8 bytes of code)
-            0,          // [5] Header 2: maxlocals
-            0,          // [6] Header 2: maxstack
-        ];
-
-        unsafe {
-            // Get a pointer to the start of our memory block
-            let ptr = memory_block.as_ptr() as *const FunctionHeader;
-            let header1 = &*ptr;
-
-            // Test get_code()
-            let code = header1.get_code();
-            assert_eq!(code.len(), 4);
-            // On little endian systems, 0xEFBEADDE is represented as [0xDE, 0xAD, 0xBE, 0xEF]
-            assert_eq!(code, &[0xDE, 0xAD, 0xBE, 0xEF]);
-
-            // Test next() pointer math
-            let header2 = header1.next();
-            assert_eq!(header2.length, 8);
-            assert_eq!(header2.maxlocals, 0);
-        }
     }
 }
