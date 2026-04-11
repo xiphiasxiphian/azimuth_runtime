@@ -35,8 +35,12 @@ impl<'a> Runner<'a>
         // Get the entry point. This is the "main" function where execution will start
         // TODO: Fill this back in once all the loader functions have been reimplemented
 
-        // TODO: This is a setup to ensure the below works. Remove one above is implemented
-        let (maxstack, maxlocals) = (0, 0);
+        let entrypoint = self
+            .loader
+            .get_entrypoint()
+            .map_err(|_| RunnerError::CannotAcquireEntrypoint)?;
+
+        let (maxstack, maxlocals) = entrypoint.setup_info();
 
         // Initial Frame Creation and creating the constant table from
         // information provided in the loader
@@ -48,7 +52,7 @@ impl<'a> Runner<'a>
         // Get constants
         let constant_table = todo!();
 
-        let code = entry_point.code();
+        let code = ;
         let mut pc: usize = 0;
 
         // Keep executing the program until a break condition is met: either a return statement or an

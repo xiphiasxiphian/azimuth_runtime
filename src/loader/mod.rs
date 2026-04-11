@@ -1,16 +1,14 @@
 use std::{
     io,
-    path::{Path},
+    path::Path, ptr::NonNull,
 };
 
 use binrw::binread;
 
-use crate::{
-    memory::{
+use crate::memory::{
         allocators::AllocatorError,
-        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::Runnable},
-    },
-};
+        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::{Function, Runnable}, tables::symbol_table::Symbol},
+    };
 
 pub(super) mod parser;
 
@@ -68,4 +66,35 @@ impl<'a> Loader<'a>
      * - Parsing new files when required and calling `load_datum`
      *
      */
+
+     pub fn get_entrypoint(&self) -> Result<FunctionInfo, LoaderError>
+     {
+         todo!()
+     }
+}
+
+// Wrapper Structs
+
+
+pub struct FunctionInfo<'a>
+{
+    maxstack: usize,
+    maxlocals: usize,
+    bytecode: &'a mut [u8]
+}
+
+impl<'a> FunctionInfo<'a>
+{
+    pub fn from_datumspace(function: &Function, module_id: SymbolId) -> Self
+    {
+        // These values should already have been verified
+        let (maxstack, maxlocals) = <usize>::try_from(function.maxstack)
+            .and_then(|x| {
+                <usize>::try_from(function.maxlocals)
+                    .map(|y| (x, y))
+            })
+            .expect("Invalid setup information not filtered out in loading");
+
+
+    }
 }

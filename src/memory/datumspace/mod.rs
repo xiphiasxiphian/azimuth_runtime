@@ -10,13 +10,11 @@ use std::{
 use itertools::{Itertools, process_results};
 
 use crate::{
-    loader::{SymbolId, parser::{
-        layout::{DataHeader, FileLayout, Link as ParsedLink, SymbolKind as ParsedSymbolKind},
-    }},
+    loader::{SymbolId, parser::layout::{DataHeader, FileLayout, Link as ParsedLink, SymbolKind as ParsedSymbolKind}},
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
-            datum::{DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
+            datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
             runnable::{Function, FunctionFlags, Runnable, UnresolvedRunnable}, tables::{constant_table::{Constant, ConstantTableEntry, DataEntry}, link_table::{self, Link}, symbol_table::{Symbol, SymbolKind}},
         },
     },
@@ -166,6 +164,22 @@ impl<'d> Datumspace<'d>
             },
             Runnable::Function(f) => Ok(f),
         }
+    }
+
+    pub fn resolve_location(&self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d [u8], DatumspaceError>
+    {
+        self.mapping.get(page_id)
+            .map(|x| unsafe { NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_ref() })
+            .ok_or(DatumspaceError::ResourceDoesntExist)
+    }
+
+    pub fn resolve_location_mut(&mut self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d mut [u8], DatumspaceError>
+    {
+        self.mapping.get(page_id)
+            .map(|x| unsafe {
+                NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_mut()
+            })
+            .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
     fn calculate_page_size<'file>(
