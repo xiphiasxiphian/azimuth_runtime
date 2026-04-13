@@ -7,19 +7,11 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub enum Runnable
 {
-    Unresolved(UnresolvedRunnable),
     Function(Function),
 }
 
 impl Runnable
 {
-
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct UnresolvedRunnable
-{
-    pub loc: BlockLocation,
 
 }
 
@@ -37,4 +29,14 @@ pub struct Function
     pub maxlocals: u32,
     pub bytecode: BlockLocation,
     pub flags: FunctionFlags,
+}
+
+impl Function
+{
+    pub fn setup_info(&self) -> (usize, usize)
+    {
+        <usize>::try_from(self.maxstack)
+            .and_then(|x| Ok((x, <usize>::try_from(self.maxlocals)?)))
+            .expect("Running on sub 32-bit architecture")
+    }
 }

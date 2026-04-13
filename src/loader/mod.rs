@@ -5,10 +5,10 @@ use std::{
 
 use binrw::binread;
 
-use crate::memory::{
+use crate::{loader::parser::parse_file, memory::{
         allocators::AllocatorError,
-        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::{Function, Runnable}, tables::symbol_table::Symbol},
-    };
+        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::{Function, FunctionFlags, Runnable}, tables::symbol_table::Symbol}, stack::entry,
+    }};
 
 pub(super) mod parser;
 
@@ -30,7 +30,7 @@ const DEFAULT_CAPACITY: usize = 1 << 24; // 16 MiB
 pub struct Loader<'a>
 {
     datumspace: Datumspace<'a>,
-    base: &'a Path,
+    base: SymbolId,
 }
 
 #[derive(Debug)]
@@ -41,19 +41,25 @@ pub enum LoaderError
     FailedToFindSymbol,
     AllocatorError(AllocatorError),
     DatumspaceError(DatumspaceError),
+    MissingEntrypoint,
 }
 
-// This is a temporary solution that just statically loads the
-// entire file at once.
-// In the future this will happen dynamically where required.
 impl<'a> Loader<'a>
 {
     pub fn new(base: &'a str) -> Result<Self, LoaderError>
     {
-        Ok(Self {
-            datumspace: Datumspace::with_capacity(DEFAULT_CAPACITY).map_err(|x| LoaderError::AllocatorError(x))?,
-            base: Path::new(base),
-        })
+        let mut datumspace = Datumspace::with_capacity(DEFAULT_CAPACITY).map_err(|x| LoaderError::AllocatorError(x))?;
+
+        // Load initial page
+        let parsed_file = parse_file(Path::new(base))?;
+        let initial_page = datumspace.load_datum(&parsed_file).map_err(LoaderError::DatumspaceError)?;
+
+        Ok(
+            Self {
+                datumspace,
+                base: *initial_page.id
+            }
+        )
     }
 
     /*
@@ -67,9 +73,32 @@ impl<'a> Loader<'a>
      *
      */
 
-     pub fn get_entrypoint(&self) -> Result<FunctionInfo, LoaderError>
+     pub fn get_entrypoint(&mut self) -> Result<FunctionInfo<'a>, LoaderError>
      {
-         todo!()
+         /*
+          * - Load the initial page
+          * - Find the entrypoint within that page
+          * - Resolve the code location
+          * - Return in wrapped format
+          */
+
+          // Ensure the page is loaded
+          let page = self.datumspace.get_page(&self.base).map_err(LoaderError::DatumspaceError)?;
+          let entrypoint = page.functions
+              .iter()
+              .find_map(|x| match x {
+                  Runnable::Function(f) if f.flags == FunctionFlags::ENTRYPOINT => Some(f),
+                  _ => None,
+              })
+              .ok_or(LoaderError::MissingEntrypoint)?;
+
+          let (maxstack, maxlocals) = entrypoint.setup_info();
+          let bytecode = self.datumspace.resolve_location(&self.base, entrypoint.bytecode)
+            .map_err(LoaderError::DatumspaceError)?;
+
+          Ok(
+              FunctionInfo { maxstack, maxlocals, bytecode }
+          )
      }
 }
 
@@ -78,23 +107,7 @@ impl<'a> Loader<'a>
 
 pub struct FunctionInfo<'a>
 {
-    maxstack: usize,
-    maxlocals: usize,
-    bytecode: &'a mut [u8]
-}
-
-impl<'a> FunctionInfo<'a>
-{
-    pub fn from_datumspace(function: &Function, module_id: SymbolId) -> Self
-    {
-        // These values should already have been verified
-        let (maxstack, maxlocals) = <usize>::try_from(function.maxstack)
-            .and_then(|x| {
-                <usize>::try_from(function.maxlocals)
-                    .map(|y| (x, y))
-            })
-            .expect("Invalid setup information not filtered out in loading");
-
-
-    }
+    pub maxstack: usize,
+    pub maxlocals: usize,
+    pub bytecode: &'a [u8]
 }

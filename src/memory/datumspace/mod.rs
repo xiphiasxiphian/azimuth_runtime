@@ -69,6 +69,7 @@ impl<'d> Datumspace<'d>
         })
     }
 
+    #[must_use]
     pub fn load_datum<'file>(
         &mut self,
         layout: &FileLayout,
@@ -137,7 +138,7 @@ impl<'d> Datumspace<'d>
             builder().ok_or(DatumspaceError::InvalidStructure)?.resolve()
         };
 
-        self.insert_mapping(*page.id, base);
+        self.insert_mapping(*page.id, base)?;
         Ok(page)
     }
 
@@ -148,7 +149,10 @@ impl<'d> Datumspace<'d>
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    pub fn get_function(&mut self, page_id: &SymbolId, index: usize) -> Result<&'d Function, DatumspaceError>
+    pub fn get_function(&self,
+        page_id: &SymbolId,
+        index: usize
+    ) -> Result<&'d Function, DatumspaceError>
     {
         let page = self.get_page(page_id)?;
         let runnable = page
@@ -158,18 +162,33 @@ impl<'d> Datumspace<'d>
 
         match runnable
         {
-            Runnable::Unresolved(UnresolvedRunnable { loc }) => {
-                // Resolve the runnable
-                todo!()
-            },
             Runnable::Function(f) => Ok(f),
         }
+    }
+
+    pub fn get_functions(
+        &self,
+        page_id: &SymbolId
+    ) -> Result<impl Iterator<Item = &'d Function> + 'd, DatumspaceError>
+    {
+        let page = self.get_page(page_id)?;
+        Ok(
+            page
+                .functions
+                .iter()
+                .filter_map(|x| match x {
+                    Runnable::Function(f) => Some(f),
+                    _ => None,
+                })
+        )
     }
 
     pub fn resolve_location(&self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d [u8], DatumspaceError>
     {
         self.mapping.get(page_id)
-            .map(|x| unsafe { NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_ref() })
+            .map(|x| unsafe {
+                NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_ref()
+            })
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 

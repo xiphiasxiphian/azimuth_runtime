@@ -4,7 +4,7 @@ pub mod opcodes;
 use crate::{
     engine::opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
     loader::{Loader, LoaderError},
-    memory::stack::Stack,
+    memory::stack::{Stack, entry},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -40,7 +40,7 @@ impl<'a> Runner<'a>
             .get_entrypoint()
             .map_err(|_| RunnerError::CannotAcquireEntrypoint)?;
 
-        let (maxstack, maxlocals) = entrypoint.setup_info();
+        let (maxstack, maxlocals) = (entrypoint.maxstack, entrypoint.maxlocals);
 
         // Initial Frame Creation and creating the constant table from
         // information provided in the loader
@@ -52,7 +52,7 @@ impl<'a> Runner<'a>
         // Get constants
         let constant_table = todo!();
 
-        let code = ;
+        let code = entrypoint.bytecode;
         let mut pc: usize = 0;
 
         // Keep executing the program until a break condition is met: either a return statement or an
