@@ -15,7 +15,7 @@ use crate::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
             datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
-            runnable::{Function, FunctionFlags, Runnable, UnresolvedRunnable}, tables::{constant_table::{Constant, ConstantTableEntry, DataEntry}, link_table::{self, Link}, symbol_table::{Symbol, SymbolKind}},
+            runnable::{Function, FunctionFlags, Runnable}, tables::{constant_table::{Constant, ConstantTableEntry, ConstantTableIndex, DataEntry}, link_table::{self, Link}, symbol_table::{Symbol, SymbolKind}},
         },
     },
 };
@@ -40,6 +40,8 @@ use crate::{
 const ALLOCATOR_DEPTH: usize = 8;
 type DatumAllocator = GeneralAllocator<ALLOCATOR_DEPTH>;
 
+type DatumResult<T, E = DatumspaceError> = Result<T, E>;
+
 #[derive(Clone, Copy, Debug)]
 pub enum DatumspaceError
 {
@@ -49,6 +51,7 @@ pub enum DatumspaceError
     Duplication,
     UnexpectedDatumtype,
     ResourceDoesntExist,
+    PageNotLoaded,
 }
 
 pub struct Datumspace<'a>
@@ -60,7 +63,7 @@ pub struct Datumspace<'a>
 
 impl<'d> Datumspace<'d>
 {
-    pub fn with_capacity(min_capacity: usize) -> Result<Self, AllocatorError>
+    pub fn with_capacity(min_capacity: usize) -> DatumResult<Self, AllocatorError>
     {
         Ok(Self {
             allocator: DatumAllocator::with_capacity(min_capacity)?,
@@ -73,7 +76,7 @@ impl<'d> Datumspace<'d>
     pub fn load_datum<'file>(
         &mut self,
         layout: &FileLayout,
-    ) -> Result<DatumPage<'d>, DatumspaceError>
+    ) -> DatumResult<DatumPage<'d>>
     where
         'd: 'file,
     {
@@ -142,11 +145,11 @@ impl<'d> Datumspace<'d>
         Ok(page)
     }
 
-    pub fn get_page(&self, id: &SymbolId) -> Result<DatumPage<'d>, DatumspaceError>
+    pub fn get_page(&self, id: &SymbolId) -> DatumResult<DatumPage<'d>>
     {
         self.mapping.get(id)
             .map(|x| unsafe { DatumPage::from_base_ptr(*x) })
-            .ok_or(DatumspaceError::ResourceDoesntExist)
+            .ok_or(DatumspaceError::PageNotLoaded)
     }
 
     pub fn get_function(&self,
@@ -169,7 +172,7 @@ impl<'d> Datumspace<'d>
     pub fn get_functions(
         &self,
         page_id: &SymbolId
-    ) -> Result<impl Iterator<Item = &'d Function> + 'd, DatumspaceError>
+    ) -> DatumResult<impl Iterator<Item = &'d Function> + 'd>
     {
         let page = self.get_page(page_id)?;
         Ok(
@@ -181,6 +184,24 @@ impl<'d> Datumspace<'d>
                     _ => None,
                 })
         )
+    }
+
+    pub fn get_constant(&mut self, page_id: &SymbolId, index: usize) -> DatumResult<&'d Constant<'d>>
+    {
+        let page = self.get_page(page_id)?;
+
+        let entry = page.constants.get(index).ok_or(DatumspaceError::ResourceDoesntExist)?;
+        match entry
+        {
+            ConstantTableEntry::Resolved(constant) => Ok(constant),
+            ConstantTableEntry::Unresolved(DataEntry { loc }) => {
+                todo!()
+                // Need to make a decision here about resolution:
+                // Does one just trust that the types are fine, or
+                // once proper types are implemented, can I work off
+                // the idea that each constant will be type tagged?
+            },
+        }
     }
 
     pub fn resolve_location(&self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d [u8], DatumspaceError>
@@ -198,6 +219,13 @@ impl<'d> Datumspace<'d>
             .map(|x| unsafe {
                 NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_mut()
             })
+            .ok_or(DatumspaceError::ResourceDoesntExist)
+    }
+
+    pub fn resolve_string(&self, page_id: &SymbolId, string: InlinedString<'d>) -> Result<&'d str, DatumspaceError>
+    {
+        self.mapping.get(page_id)
+            .and_then(|x| unsafe { string.get(*x) })
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 

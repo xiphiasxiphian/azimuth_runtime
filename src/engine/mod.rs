@@ -10,7 +10,7 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub enum RunnerError
 {
-    CannotAcquireEntrypoint,
+    CannotAcquireEntrypoint(bool),
     StackOverflow,
     ExecutionError(ExecutionError),
     ProgramCounterOverflow,
@@ -38,7 +38,8 @@ impl<'a> Runner<'a>
         let entrypoint = self
             .loader
             .get_entrypoint()
-            .map_err(|_| RunnerError::CannotAcquireEntrypoint)?;
+            .map_err(|_| RunnerError::CannotAcquireEntrypoint(false))?
+            .ok_or(RunnerError::CannotAcquireEntrypoint(true))?;
 
         let (maxstack, maxlocals) = (entrypoint.maxstack, entrypoint.maxlocals);
 
@@ -50,7 +51,7 @@ impl<'a> Runner<'a>
             .ok_or(RunnerError::StackOverflow)?;
 
         // Get constants
-        let constant_table = todo!();
+        // TODO
 
         let code = entrypoint.bytecode;
         let mut pc: usize = 0;

@@ -4,10 +4,11 @@ use std::{
 };
 
 use binrw::binread;
+use itertools::Itertools;
 
 use crate::{loader::parser::parse_file, memory::{
         allocators::AllocatorError,
-        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::{Function, FunctionFlags, Runnable}, tables::symbol_table::Symbol}, stack::entry,
+        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::{Function, FunctionFlags, Runnable}, tables::{constant_table::{Constant, ConstantTableEntry}, link_table::Link, symbol_table::Symbol}}, stack::entry,
     }};
 
 pub(super) mod parser;
@@ -41,18 +42,32 @@ pub enum LoaderError
     FailedToFindSymbol,
     AllocatorError(AllocatorError),
     DatumspaceError(DatumspaceError),
-    MissingEntrypoint,
+    InvalidLink,
+}
+
+impl From<DatumspaceError> for LoaderError
+{
+    fn from(value: DatumspaceError) -> Self {
+        Self::DatumspaceError(value)
+    }
+}
+
+impl From<AllocatorError> for LoaderError
+{
+    fn from(value: AllocatorError) -> Self {
+        Self::AllocatorError(value)
+    }
 }
 
 impl<'a> Loader<'a>
 {
     pub fn new(base: &'a str) -> Result<Self, LoaderError>
     {
-        let mut datumspace = Datumspace::with_capacity(DEFAULT_CAPACITY).map_err(|x| LoaderError::AllocatorError(x))?;
+        let mut datumspace = Datumspace::with_capacity(DEFAULT_CAPACITY)?;
 
         // Load initial page
         let parsed_file = parse_file(Path::new(base))?;
-        let initial_page = datumspace.load_datum(&parsed_file).map_err(LoaderError::DatumspaceError)?;
+        let initial_page = datumspace.load_datum(&parsed_file)?;
 
         Ok(
             Self {
@@ -60,6 +75,32 @@ impl<'a> Loader<'a>
                 base: *initial_page.id
             }
         )
+    }
+
+    fn load_file(&mut self, path: &Path) -> Result<DatumPage<'a>, LoaderError>
+    {
+        // Load initial page
+        let parsed_file = parse_file(path)?;
+        let page = self.datumspace.load_datum(&parsed_file)?;
+
+        Ok(page)
+    }
+
+    pub fn load_link(&mut self, from: &SymbolId, link: &Link<'a>) -> Result<DatumPage<'a>, LoaderError>
+    {
+        // First check if the link is already loaded, in which case just fetch it
+        match self.datumspace.get_page(&link.id)
+        {
+            Ok(page) => Ok(page),
+            Err(DatumspaceError::PageNotLoaded) => Ok(
+                // Load the file, then verify the correct module was loaded
+                self.load_file(
+                    Path::new(self.datumspace.resolve_string(from, link.path)?)
+                )
+                .and_then(|x| (*x.id == link.id).then_some(x).ok_or(LoaderError::InvalidLink))?
+            ),
+            _ => Err(LoaderError::FailedToFindSymbol),
+        }
     }
 
     /*
@@ -73,7 +114,7 @@ impl<'a> Loader<'a>
      *
      */
 
-     pub fn get_entrypoint(&mut self) -> Result<FunctionInfo<'a>, LoaderError>
+     pub fn get_entrypoint(&'a mut self) -> Result<Option<FunctionInfo<'a>>, LoaderError>
      {
          /*
           * - Load the initial page
@@ -82,24 +123,58 @@ impl<'a> Loader<'a>
           * - Return in wrapped format
           */
 
-          // Ensure the page is loaded
-          let page = self.datumspace.get_page(&self.base).map_err(LoaderError::DatumspaceError)?;
-          let entrypoint = page.functions
-              .iter()
-              .find_map(|x| match x {
-                  Runnable::Function(f) if f.flags == FunctionFlags::ENTRYPOINT => Some(f),
-                  _ => None,
-              })
-              .ok_or(LoaderError::MissingEntrypoint)?;
-
-          let (maxstack, maxlocals) = entrypoint.setup_info();
-          let bytecode = self.datumspace.resolve_location(&self.base, entrypoint.bytecode)
-            .map_err(LoaderError::DatumspaceError)?;
-
-          Ok(
-              FunctionInfo { maxstack, maxlocals, bytecode }
-          )
+        self.datumspace
+            .get_page(&self.base)?
+            .functions
+            .iter()
+            .find_map(|x| match x {
+                Runnable::Function(f) if f.flags == FunctionFlags::ENTRYPOINT => Some(f),
+                _ => None,
+            })
+            .map(|entrypoint| FunctionInfo::from_datumspace(&self.base, &self.datumspace, entrypoint))
+            .transpose()
      }
+}
+
+pub struct LoaderContext<'a, 'b>
+{
+    loader: &'a mut Loader<'b>,
+    page_id: SymbolId,
+    page: DatumPage<'b>
+}
+
+impl<'a, 'b> LoaderContext<'a, 'b>
+{
+    pub fn with_link<F, T>(&'a mut self, link_index: usize, func: F) -> Result<T, LoaderError>
+    where
+        F: FnOnce(Self) -> T
+    {
+        let link = self.page.links.get(link_index).ok_or(LoaderError::FailedToFindSymbol)?;
+        let page = self.loader.load_link(&self.page_id, link)?;
+
+        Ok(
+            func(
+                LoaderContext { loader: self.loader, page_id: *page.id, page }
+            )
+        )
+    }
+
+    pub fn get_function(&'a self, index: usize) -> Result<FunctionInfo<'a>, LoaderError>
+    {
+        self.page.functions
+            .get(index)
+            .ok_or(LoaderError::FailedToFindSymbol)
+            .and_then(|func| match func {
+                Runnable::Function(f) => FunctionInfo::from_datumspace(&self.page_id, &self.loader.datumspace, f)
+            })
+    }
+
+    pub fn get_constant(&'a mut self, index: usize) -> Result<&Constant<'a>, LoaderError>
+    {
+        self.loader.datumspace
+            .get_constant(&self.page_id, index)
+            .map_err(LoaderError::DatumspaceError)
+    }
 }
 
 // Wrapper Structs
@@ -110,4 +185,18 @@ pub struct FunctionInfo<'a>
     pub maxstack: usize,
     pub maxlocals: usize,
     pub bytecode: &'a [u8]
+}
+
+impl<'a> FunctionInfo<'a>
+{
+    pub fn from_datumspace(base: &SymbolId, datumspace: &'a Datumspace, function: &Function) -> Result<Self, LoaderError>
+    {
+        // Extract important information, and resolve code location
+        let (maxstack, maxlocals) = function.setup_info();
+        let bytecode = datumspace.resolve_location(base, function.bytecode)?;
+
+        Ok(
+            FunctionInfo { maxstack, maxlocals, bytecode }
+        )
+    }
 }
