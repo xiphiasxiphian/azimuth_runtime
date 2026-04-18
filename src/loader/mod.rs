@@ -159,6 +159,25 @@ impl<'a, 'b> LoaderContext<'a, 'b>
         )
     }
 
+    /// Special case of `get_function_by_flags` for one of its most common use cases
+    pub fn get_entrypoint(&'a self) -> Result<Option<FunctionInfo<'a>>, LoaderError>
+    {
+        self.get_function_by_flags(FunctionFlags::ENTRYPOINT)
+    }
+
+    pub fn get_function_by_flags(&'a self, flags: FunctionFlags) -> Result<Option<FunctionInfo<'a>>, LoaderError>
+    {
+        self.page
+            .functions
+            .iter()
+            .find_map(|x| match x {
+                Runnable::Function(f) if f.flags == flags => Some(f),
+                _ => None,
+            })
+            .map(|entrypoint| FunctionInfo::from_datumspace(&self.loader.base, &self.loader.datumspace, entrypoint))
+            .transpose()
+    }
+
     pub fn get_function(&'a self, index: usize) -> Result<FunctionInfo<'a>, LoaderError>
     {
         self.page.functions
