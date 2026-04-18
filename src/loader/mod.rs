@@ -114,26 +114,10 @@ impl<'a> Loader<'a>
      *
      */
 
-     pub fn get_entrypoint(&'a mut self) -> Result<Option<FunctionInfo<'a>>, LoaderError>
-     {
-         /*
-          * - Load the initial page
-          * - Find the entrypoint within that page
-          * - Resolve the code location
-          * - Return in wrapped format
-          */
-
-        self.datumspace
-            .get_page(&self.base)?
-            .functions
-            .iter()
-            .find_map(|x| match x {
-                Runnable::Function(f) if f.flags == FunctionFlags::ENTRYPOINT => Some(f),
-                _ => None,
-            })
-            .map(|entrypoint| FunctionInfo::from_datumspace(&self.base, &self.datumspace, entrypoint))
-            .transpose()
-     }
+    pub fn initial_context<'b>(&'b mut self) -> Result<LoaderContext<'b, 'a>, LoaderError>
+    {
+        LoaderContext::new(self, self.base)
+    }
 }
 
 pub struct LoaderContext<'a, 'b>
@@ -145,6 +129,19 @@ pub struct LoaderContext<'a, 'b>
 
 impl<'a, 'b> LoaderContext<'a, 'b>
 {
+    pub fn new(loader: &'a mut Loader<'b>, id: SymbolId) -> Result<Self, LoaderError>
+    {
+        let base = loader.datumspace.get_page(&id)?;
+
+        Ok(
+            LoaderContext {
+                loader: loader,
+                page_id: id,
+                page: base,
+            }
+        )
+    }
+
     pub fn with_link<F, T>(&'a mut self, link_index: usize, func: F) -> Result<T, LoaderError>
     where
         F: FnOnce(Self) -> T
