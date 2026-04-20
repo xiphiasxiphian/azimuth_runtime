@@ -42,9 +42,7 @@ where
 
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
-        // Get the entry point. This is the "main" function where execution will start
-        // TODO: Fill this back in once all the loader functions have been reimplemented
-
+        // Get the initial loader context
         let mut loader_context = self.loader.initial_context()?;
 
         // TEMP: while moving between functions isn't defined yet, just get the entrypoint
@@ -54,8 +52,7 @@ where
 
         let (maxstack, maxlocals) = entrypoint.setup_info();
 
-        // Initial Frame Creation and creating the constant table from
-        // information provided in the loader
+        // Initial Frame Creation
         let mut initial_frame = self
             .stack
             .initial_frame(maxlocals, maxstack)

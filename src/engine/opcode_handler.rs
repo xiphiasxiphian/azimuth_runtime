@@ -30,7 +30,7 @@ struct HandlerInputInfo<'a, 'b, 'c>
     opcode: u8,
     params: &'a [u8],
     frame: &'b mut StackFrame<'c>,
-    constants: &'b mut (dyn FnMut(usize) -> Option<Constant<'a>> + 'b),
+    constants: &'b mut (dyn FnMut(usize) -> Option<Constant> + 'b),
 }
 
 // Bunch of helper functions to make things a bit cleaner
@@ -85,7 +85,7 @@ impl HandlerInputInfo<'_, '_, '_>
     {
         (self.constants)(<usize>::try_from(index).map_err(|_| ExecutionError::IndexOutOfBounds)?)
             .ok_or(ExecutionError::IndexOutOfBounds)
-            .and_then(|x| self.stack_push((*x).into()))
+            .and_then(|x| self.stack_push((x).into()))
     }
 }
 
@@ -144,7 +144,7 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
 pub fn exec_instruction<'a>(
     bytecode: &'static [u8],
     frame: &mut StackFrame,
-    constants: &mut dyn FnMut(usize) -> Option<Constant<'a>>
+    constants: &mut dyn FnMut(usize) -> Option<Constant>
 ) -> ExecutionResult
 {
     // Get the bytecode out of the stream. As this is "user input", it is critical
