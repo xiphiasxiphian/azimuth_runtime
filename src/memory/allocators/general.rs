@@ -11,6 +11,7 @@ use crate::{
     memory::allocators::{AllocatorError, MIN_PAGE_ALIGNMENT},
 };
 
+#[derive(Debug)]
 pub struct GeneralAllocator<const DEPTH: usize>
 {
     base: NonNull<u8>,

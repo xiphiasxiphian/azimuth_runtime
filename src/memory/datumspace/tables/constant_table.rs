@@ -13,10 +13,10 @@ pub struct DataEntry
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ConstantTableEntry<'a>
+pub enum ConstantTableEntry
 {
     Unresolved(DataEntry),
-    Resolved(Constant<'a>)
+    Resolved(Constant)
 }
 
 /// A Constant stored within the constant table.
@@ -44,18 +44,18 @@ pub enum ConstantTableEntry<'a>
 ///
 /// `String` - Stores a string reference (the string data is stored in metaspace)
 #[derive(Debug, Clone, Copy)]
-pub enum Constant<'a>
+pub enum Constant
 {
     Unsigned32(u32),
     Unsigned64(u64),
     Float32(f32),
     Float64(f64),
-    String(InlinedString<'a>),
+    String(InlinedString),
 }
 
-impl<'a> From<Constant<'a>> for StackEntry
+impl From<Constant> for StackEntry
 {
-    fn from(value: Constant<'a>) -> Self
+    fn from(value: Constant) -> Self
     {
         match value
         {

@@ -54,6 +54,7 @@ pub enum DatumspaceError
     PageNotLoaded,
 }
 
+#[derive(Debug)]
 pub struct Datumspace<'a>
 {
     allocator: DatumAllocator,
@@ -186,14 +187,14 @@ impl<'d> Datumspace<'d>
         )
     }
 
-    pub fn get_constant(&mut self, page_id: &SymbolId, index: usize) -> DatumResult<&'d Constant<'d>>
+    pub fn get_constant(&mut self, page_id: &SymbolId, index: usize) -> DatumResult<&'d Constant>
     {
         let page = self.get_page(page_id)?;
 
         let entry = page.constants.get(index).ok_or(DatumspaceError::ResourceDoesntExist)?;
         match entry
         {
-            ConstantTableEntry::Resolved(constant) => Ok(constant),
+            ConstantTableEntry::Resolved(constant) => Ok(&constant),
             ConstantTableEntry::Unresolved(DataEntry { loc }) => {
                 todo!()
                 // Need to make a decision here about resolution:
@@ -222,7 +223,7 @@ impl<'d> Datumspace<'d>
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    pub fn resolve_string(&self, page_id: &SymbolId, string: InlinedString<'d>) -> Result<&'d str, DatumspaceError>
+    pub fn resolve_string<'a>(&self, page_id: &SymbolId, string: &'a InlinedString) -> Result<&'a str, DatumspaceError>
     {
         self.mapping.get(page_id)
             .and_then(|x| unsafe { string.get(*x) })

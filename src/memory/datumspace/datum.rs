@@ -54,20 +54,19 @@ pub type BlockLocation = (Offset, u32);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
-pub struct InlinedString<'a>
+pub struct InlinedString
 {
     location: BlockLocation,
-    _pd: PhantomData<&'a str>,
 }
 
-impl<'a> InlinedString<'a>
+impl InlinedString
 {
     pub fn new(location: BlockLocation) -> Self
     {
-        Self { location, _pd: PhantomData }
+        Self { location }
     }
 
-    pub unsafe fn get(&self, base: NonNull<u8>) -> Option<&'a str>
+    pub unsafe fn get<'a>(&'a self, base: NonNull<u8>) -> Option<&'a str>
     {
         unsafe {
             let bytes: &[u8] = std::slice::from_raw_parts(self.location.0.as_ptr(base).as_ptr(), self.location.1 as usize);
@@ -75,7 +74,7 @@ impl<'a> InlinedString<'a>
         }
     }
 
-    pub unsafe fn get_unchecked(&self, base: NonNull<u8>) -> &'a str
+    pub unsafe fn get_unchecked<'a>(&'a self, base: NonNull<u8>) -> &'a str
     {
         unsafe {
             let bytes: &[u8] = std::slice::from_raw_parts(self.location.0.as_ptr(base).as_ptr(), self.location.1 as usize);
@@ -115,10 +114,10 @@ impl DatumPageHeader
 pub struct DatumPage<'a>
 {
     pub id: &'a SymbolId,
-    pub links: &'a [Link<'a>],
+    pub links: &'a [Link],
     pub symbols: &'a [Symbol],
     pub functions: &'a [Runnable],
-    pub constants: &'a [ConstantTableEntry<'a>],
+    pub constants: &'a [ConstantTableEntry],
     pub bytecode_blob: &'a [u8],
     pub data_blob: &'a [u8],
 }
@@ -135,7 +134,7 @@ impl<'a> DatumPage<'a>
         let id = &header.id;
 
         // link table
-        let links: &'a [Link<'a>] = unsafe {
+        let links: &'a [Link] = unsafe {
             Self::get_slice(ptr, header.link_table)
         };
 
@@ -150,7 +149,7 @@ impl<'a> DatumPage<'a>
         };
 
         // constant table
-        let constants: &'a [ConstantTableEntry<'a>] = unsafe {
+        let constants: &'a [ConstantTableEntry] = unsafe {
             Self::get_slice(ptr, header.constants)
         };
 
@@ -216,7 +215,7 @@ impl PageBuilder
 
     pub unsafe fn write_links<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = Link<'a>>
+        I: Iterator<Item = Link>
     {
         unsafe {
             self.write_iter(&self.base.as_ref().constants, src)
@@ -243,7 +242,7 @@ impl PageBuilder
 
     pub unsafe fn write_constants<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = ConstantTableEntry<'a>>
+        I: Iterator<Item = ConstantTableEntry>
     {
         unsafe {
             self.write_iter(&self.base.as_ref().constants, src)

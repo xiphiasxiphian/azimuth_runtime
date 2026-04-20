@@ -3,13 +3,8 @@ use crate::{loader::SymbolId, memory::datumspace::datum::InlinedString};
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
-pub struct Link<'a>
+pub struct Link
 {
     pub id: SymbolId,
-    pub path: InlinedString<'a>,
-}
-
-impl Link<'_>
-{
-
+    pub path: InlinedString,
 }

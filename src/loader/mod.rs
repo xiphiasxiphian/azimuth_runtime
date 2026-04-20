@@ -1,6 +1,5 @@
 use std::{
-    io,
-    path::Path, ptr::NonNull,
+    io, mem::transmute, path::Path, ptr::NonNull
 };
 
 use binrw::binread;
@@ -28,6 +27,7 @@ pub struct SymbolId(pub [u8; 16]);
 
 const DEFAULT_CAPACITY: usize = 1 << 24; // 16 MiB
 
+#[derive(Debug)]
 pub struct Loader<'a>
 {
     datumspace: Datumspace<'a>,
@@ -86,7 +86,7 @@ impl<'a> Loader<'a>
         Ok(page)
     }
 
-    pub fn load_link(&mut self, from: &SymbolId, link: &Link<'a>) -> Result<DatumPage<'a>, LoaderError>
+    pub fn load_link(&mut self, from: &SymbolId, link: &Link) -> Result<DatumPage<'a>, LoaderError>
     {
         // First check if the link is already loaded, in which case just fetch it
         match self.datumspace.get_page(&link.id)
@@ -95,7 +95,7 @@ impl<'a> Loader<'a>
             Err(DatumspaceError::PageNotLoaded) => Ok(
                 // Load the file, then verify the correct module was loaded
                 self.load_file(
-                    Path::new(self.datumspace.resolve_string(from, link.path)?)
+                    Path::new(self.datumspace.resolve_string(from, &link.path)?)
                 )
                 .and_then(|x| (*x.id == link.id).then_some(x).ok_or(LoaderError::InvalidLink))?
             ),
@@ -128,6 +128,8 @@ pub struct LoaderContext<'a, 'b>
 }
 
 impl<'a, 'b> LoaderContext<'a, 'b>
+where
+    'b: 'a
 {
     pub fn new(loader: &'a mut Loader<'b>, id: SymbolId) -> Result<Self, LoaderError>
     {
@@ -157,11 +159,21 @@ impl<'a, 'b> LoaderContext<'a, 'b>
     }
 
     /// Special case of `get_function_by_flags` for one of its most common use cases
+    ///
+    /// NOTE: This does not check whether the entrypoint found is unique, but rather
+    /// just finds the first function marked as a entrypoint.
+    /// As having multiple entrypoints in the same file is classified as
+    /// Undefined Behaviour, this shouldn't happen anyway
     pub fn get_entrypoint(&'a self) -> Result<Option<FunctionInfo<'a>>, LoaderError>
     {
         self.get_function_by_flags(FunctionFlags::ENTRYPOINT)
     }
 
+    /// Finds the first function to match the given flags
+    ///
+    /// If no functions with those flags exists, returns Ok(None),
+    /// otherwise will either return the first function found,
+    /// or will
     pub fn get_function_by_flags(&'a self, flags: FunctionFlags) -> Result<Option<FunctionInfo<'a>>, LoaderError>
     {
         self.page
@@ -185,11 +197,12 @@ impl<'a, 'b> LoaderContext<'a, 'b>
             })
     }
 
-    pub fn get_constant(&'a mut self, index: usize) -> Result<&Constant<'a>, LoaderError>
+    pub fn get_constant(&mut self, index: usize) -> Result<Constant, LoaderError>
     {
         self.loader.datumspace
             .get_constant(&self.page_id, index)
             .map_err(LoaderError::DatumspaceError)
+            .copied()
     }
 }
 
@@ -198,9 +211,9 @@ impl<'a, 'b> LoaderContext<'a, 'b>
 
 pub struct FunctionInfo<'a>
 {
-    pub maxstack: usize,
-    pub maxlocals: usize,
-    pub bytecode: &'a [u8]
+    maxstack: usize,
+    maxlocals: usize,
+    bytecode: &'a [u8]
 }
 
 impl<'a> FunctionInfo<'a>
@@ -214,5 +227,23 @@ impl<'a> FunctionInfo<'a>
         Ok(
             FunctionInfo { maxstack, maxlocals, bytecode }
         )
+    }
+
+    pub fn setup_info(&self) -> (usize, usize)
+    {
+        (self.maxstack, self.maxlocals)
+    }
+
+    /// Get the bytecode of a function
+    ///
+    /// This is unsafe basically because otherwise the borrow checker doesn't
+    /// understand this is fine.
+    /// This code slice is ultimately stored in Datumspace somewhere, and so its perfectly
+    /// safe to use and won't get randomly dropped.
+    pub fn code(&self) -> &'static [u8]
+    {
+        // Very dodgy looking but trust me broz
+        // If something starts going wrong, THIS is the first place to look
+        unsafe { transmute(self.bytecode) }
     }
 }

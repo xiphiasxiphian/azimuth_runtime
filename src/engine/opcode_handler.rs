@@ -3,11 +3,9 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Su
 use num_traits::FromBytes;
 
 use crate::{
-    engine::opcodes::Opcode,
-    guard,
-    memory::{
+    engine::opcodes::Opcode, guard, loader::{Loader, LoaderContext}, memory::{
         datumspace::tables::constant_table::{Constant, ConstantTableIndex}, stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}
-    },
+    }
 };
 
 /// Contains information given to each instruction handler
@@ -27,13 +25,12 @@ use crate::{
 /// as they will both be stored within the loader's metaspace. The reference to the stack frame
 /// and the reference to the constant table will both be the same as they are both
 /// constructed in the loader
-#[derive(Debug)]
 struct HandlerInputInfo<'a, 'b, 'c>
 {
     opcode: u8,
     params: &'a [u8],
     frame: &'b mut StackFrame<'c>,
-    constants: &'b [Constant<'a>],
+    constants: &'b mut (dyn FnMut(usize) -> Option<Constant<'a>> + 'b),
 }
 
 // Bunch of helper functions to make things a bit cleaner
@@ -86,8 +83,7 @@ impl HandlerInputInfo<'_, '_, '_>
 
     fn move_constant(&mut self, index: ConstantTableIndex) -> Result<(), ExecutionError>
     {
-        self.constants
-            .get(<usize>::try_from(index).map_err(|_| ExecutionError::IndexOutOfBounds)?)
+        (self.constants)(<usize>::try_from(index).map_err(|_| ExecutionError::IndexOutOfBounds)?)
             .ok_or(ExecutionError::IndexOutOfBounds)
             .and_then(|x| self.stack_push((*x).into()))
     }
@@ -145,7 +141,11 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
     clippy::panic_in_result_fn,
     reason = "If this invariant check fails, the entire config is malformed"
 )]
-pub fn exec_instruction<'a>(bytecode: &'a [u8], frame: &mut StackFrame, constants: &[Constant<'a>]) -> ExecutionResult
+pub fn exec_instruction<'a>(
+    bytecode: &'static [u8],
+    frame: &mut StackFrame,
+    constants: &mut dyn FnMut(usize) -> Option<Constant<'a>>
+) -> ExecutionResult
 {
     // Get the bytecode out of the stream. As this is "user input", it is critical
     // at all stages to check whether there are actually enough values in the stream

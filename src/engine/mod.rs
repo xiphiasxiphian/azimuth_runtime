@@ -3,29 +3,39 @@ pub mod opcodes;
 
 use crate::{
     engine::opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
-    loader::{Loader, LoaderError},
+    loader::{self, Loader, LoaderError},
     memory::stack::{Stack, entry},
 };
 
 #[derive(Debug, Clone, Copy)]
 pub enum RunnerError
 {
-    CannotAcquireEntrypoint(bool),
+    CannotAcquireEntrypoint,
     StackOverflow,
     ExecutionError(ExecutionError),
     ProgramCounterOverflow,
+    LoaderFailure,
 }
 
-pub struct Runner<'a>
+impl From<LoaderError> for RunnerError
+{
+    fn from(_value: LoaderError) -> Self {
+        Self::LoaderFailure
+    }
+}
+
+pub struct Runner<'a, 'b>
 {
     stack: &'a mut Stack,
-    loader: &'a mut Loader<'a>,
+    loader: &'a mut Loader<'b>,
     // heap
 }
 
-impl<'a> Runner<'a>
+impl<'a, 'b> Runner<'a, 'b>
+where
+    'b: 'a
 {
-    pub fn new(stack: &'a mut Stack, loader: &'a mut Loader<'a>) -> Self
+    pub fn new(stack: &'a mut Stack, loader: &'a mut Loader<'b>) -> Self
     {
         Self { stack, loader }
     }
@@ -35,13 +45,14 @@ impl<'a> Runner<'a>
         // Get the entry point. This is the "main" function where execution will start
         // TODO: Fill this back in once all the loader functions have been reimplemented
 
-        let entrypoint = self
-            .loader
-            .get_entrypoint()
-            .map_err(|_| RunnerError::CannotAcquireEntrypoint(false))?
-            .ok_or(RunnerError::CannotAcquireEntrypoint(true))?;
+        let mut loader_context = self.loader.initial_context()?;
 
-        let (maxstack, maxlocals) = (entrypoint.maxstack, entrypoint.maxlocals);
+        // TEMP: while moving between functions isn't defined yet, just get the entrypoint
+        // at a very basic level.
+        let entrypoint = loader_context.get_entrypoint()?
+            .ok_or(RunnerError::CannotAcquireEntrypoint)?;
+
+        let (maxstack, maxlocals) = entrypoint.setup_info();
 
         // Initial Frame Creation and creating the constant table from
         // information provided in the loader
@@ -50,10 +61,9 @@ impl<'a> Runner<'a>
             .initial_frame(maxlocals, maxstack)
             .ok_or(RunnerError::StackOverflow)?;
 
-        // Get constants
-        // TODO
+        let code = entrypoint.code();
+        let mut constant_fn = |x| loader_context.get_constant(x).ok();
 
-        let code = entrypoint.bytecode;
         let mut pc: usize = 0;
 
         // Keep executing the program until a break condition is met: either a return statement or an
@@ -61,7 +71,7 @@ impl<'a> Runner<'a>
         loop
         {
             let exec_result =
-                exec_instruction(&code[pc..], &mut initial_frame, &[]).map_err(RunnerError::ExecutionError)?;
+                exec_instruction(&code[pc..], &mut initial_frame, &mut constant_fn).map_err(RunnerError::ExecutionError)?;
 
             match exec_result
             {
