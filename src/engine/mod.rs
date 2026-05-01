@@ -42,6 +42,16 @@ where
 
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
+        /*
+         * TODO:
+         * - Set the contexts (loader and stack) so that jumping between functions works
+         * - Set up infrastructure to actually work out where a function is, load it
+         * and then execute it
+         * - Introduce bytecode instructions for running functions
+         * - TESTING
+         */
+
+
         // Get the initial loader context
         let mut loader_context = self.loader.initial_context()?;
 

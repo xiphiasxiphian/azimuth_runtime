@@ -103,17 +103,6 @@ impl<'a> Loader<'a>
         }
     }
 
-    /*
-     * TODO:
-     * Rework all the required loader functions for the new datumspace setup
-     *
-     * This mainly includes:
-     * - Getting functions and entrypoint
-     * - Ensuring pages are loaded when information from them is required
-     * - Parsing new files when required and calling `load_datum`
-     *
-     */
-
     pub fn initial_context<'b>(&'b mut self) -> Result<LoaderContext<'b, 'a>, LoaderError>
     {
         LoaderContext::new(self, self.base)

@@ -298,7 +298,12 @@ impl PageBuilder
     }
 }
 
-pub fn align_up(offset: usize, align: usize) -> usize
-{
-    (offset + align - 1) & !(align - 1)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tmp() {
+
+    }
 }

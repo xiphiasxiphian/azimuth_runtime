@@ -1,7 +1,9 @@
+use std::ptr::NonNull;
+
 // This is a more formalised wrapper around the idea of the constant table.
 //
 use crate::{
-    loader::parser::layout::DataHeader, memory::{datumspace::datum::{BlockLocation, InlinedString}, stack::entry::StackEntry}
+    loader::parser::layout::{DataHeader, TypeTag}, memory::{datumspace::datum::{BlockLocation, InlinedString}, stack::entry::StackEntry}
 };
 
 pub type ConstantTableIndex = u32;
@@ -10,6 +12,7 @@ pub type ConstantTableIndex = u32;
 pub struct DataEntry
 {
     pub loc: BlockLocation,
+    pub tag: TypeTag,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -65,5 +68,27 @@ impl From<Constant> for StackEntry
             Constant::Float64(x) => x.into(),
             Constant::String(x) => todo!(), // How does the possibly not pinned string get translated here
         }
+    }
+}
+
+impl Constant
+{
+    pub unsafe fn from_entry(base: NonNull<u8>, DataEntry { loc, tag }: &DataEntry) -> Option<Self>
+    {
+        let bytes: &[u8] = unsafe {
+            let ptr: NonNull<u8> = loc.0.as_ptr(base);
+            NonNull::slice_from_raw_parts(ptr, loc.1 as usize).as_ref()
+        };
+
+        let constant = match tag
+        {
+            TypeTag::Integer32 => Constant::Unsigned32(<u32>::from_le_bytes(*(bytes.first_chunk()?))),
+            TypeTag::Integer64 => Constant::Unsigned64(<u64>::from_le_bytes(*(bytes.first_chunk()?))),
+            TypeTag::Float32 => Constant::Float32(<f32>::from_bits(<u32>::from_le_bytes(*(bytes.first_chunk()?)))),
+            TypeTag::Float64 => Constant::Float64(<f64>::from_bits(<u64>::from_le_bytes(*(bytes.first_chunk()?)))),
+            TypeTag::String => Constant::String(InlinedString::new(*loc)),
+        };
+
+        Some(constant)
     }
 }

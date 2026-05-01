@@ -49,7 +49,7 @@ pub enum DatumspaceError
     InvalidStructure,
     AllocationFailure,
     Duplication,
-    UnexpectedDatumtype,
+    InvalidConstantType,
     ResourceDoesntExist,
     PageNotLoaded,
 }
@@ -93,7 +93,8 @@ impl<'d> Datumspace<'d>
                         layout.data_directory.entries.iter().map(|x| {
                             ConstantTableEntry::Unresolved(
                                 DataEntry {
-                                    loc: (header.data_blob.0 + Offset(x.index), x.length)
+                                    loc: (header.data_blob.0 + Offset(x.index), x.length),
+                                    tag: x.type_tag
                                 }
                             )
                         })
@@ -126,9 +127,10 @@ impl<'d> Datumspace<'d>
                     Ok::<_, ()>(Link {
                         id: x.module_id,
                         path: {
-                            let DataHeader { length, index } =
+                            let DataHeader { length, index, type_tag} =
                                 layout.data_directory.entries.get(<usize>::try_from(x.module_path).map_err(|_| ())?).ok_or(())?;
 
+                            // TODO: Ensure type tag is a string to prevent malformations
                             InlinedString::new((header.data_blob.0 + Offset(*index), *length))
                         }
                     })
@@ -195,14 +197,35 @@ impl<'d> Datumspace<'d>
         match entry
         {
             ConstantTableEntry::Resolved(constant) => Ok(&constant),
-            ConstantTableEntry::Unresolved(DataEntry { loc }) => {
-                todo!()
-                // Need to make a decision here about resolution:
-                // Does one just trust that the types are fine, or
-                // once proper types are implemented, can I work off
-                // the idea that each constant will be type tagged?
+            ConstantTableEntry::Unresolved(entry) => unsafe {
+                self.write_constant(
+                    page_id,
+                    index,
+                    Constant::from_entry(
+                        *self.mapping.get(page_id).ok_or(DatumspaceError::PageNotLoaded)?,
+                        entry
+                    ).ok_or(DatumspaceError::InvalidConstantType)?
+                )
             },
         }
+    }
+
+    unsafe fn write_constant(&mut self, page_id: &SymbolId, index: usize, constant: Constant) -> DatumResult<&'d Constant>
+    {
+        let base = self.mapping.get(page_id).ok_or(DatumspaceError::PageNotLoaded)?;
+        let header: NonNull<DatumPageHeader> = base.cast();
+        let constants_loc = unsafe { header.read().constants };
+
+        assert!(index < <usize>::try_from(constants_loc.1).unwrap() / size_of::<Constant>());
+
+        Ok(
+                unsafe {
+                let ptr = constants_loc.0.as_ptr(*base).add(index);
+                ptr.write(constant);
+
+                ptr.as_ref()
+            }
+        )
     }
 
     pub fn resolve_location(&self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d [u8], DatumspaceError>

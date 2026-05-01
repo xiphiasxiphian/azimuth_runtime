@@ -70,9 +70,6 @@ pub struct LinkTable
 }
 
 
-// Type table
-// TODO
-
 // Symbol Table
 
 #[binread]
@@ -113,6 +110,22 @@ pub struct SymbolTable
     #[br(count = count)]
     pub symbols: Vec<SymbolEntry>
 }
+
+// Types
+
+#[binread]
+#[derive(Clone, Copy, Debug)]
+#[br(little)]
+#[repr(u8)]
+pub enum TypeTag
+{
+    #[br(magic = 0x0u8)] Integer32,
+    #[br(magic = 0x1u8)] Integer64,
+    #[br(magic = 0x2u8)] Float32,
+    #[br(magic = 0x3u8)] Float64,
+    #[br(magic = 0x4u8)] String,
+}
+
 
 
 // Code blocks
@@ -193,7 +206,7 @@ pub struct DataHeader
 {
     pub length: u32,
     pub index: Offset,
-    // type ref maybe?
+    pub type_tag: TypeTag,
     // any flags?
 }
 
