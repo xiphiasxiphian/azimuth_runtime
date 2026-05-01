@@ -61,7 +61,7 @@ impl From<AllocatorError> for LoaderError
 
 impl<'a> Loader<'a>
 {
-    pub fn new(base: &'a str) -> Result<Self, LoaderError>
+    pub fn new(base: &str) -> Result<Self, LoaderError>
     {
         let mut datumspace = Datumspace::with_capacity(DEFAULT_CAPACITY)?;
 
@@ -117,8 +117,6 @@ pub struct LoaderContext<'a, 'b>
 }
 
 impl<'a, 'b> LoaderContext<'a, 'b>
-where
-    'b: 'a
 {
     pub fn new(loader: &'a mut Loader<'b>, id: SymbolId) -> Result<Self, LoaderError>
     {

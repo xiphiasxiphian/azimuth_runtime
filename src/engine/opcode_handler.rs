@@ -113,7 +113,8 @@ pub enum InstructionResult
 {
     Next,
     Jump(usize),
-    Return(bool),
+    Return(Option<StackEntry>),
+    Invoke(usize, usize),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -141,10 +142,11 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
     clippy::panic_in_result_fn,
     reason = "If this invariant check fails, the entire config is malformed"
 )]
-pub fn exec_instruction<'a>(
+pub fn exec_instruction
+(
     bytecode: &'static [u8],
     frame: &mut StackFrame,
-    constants: &mut dyn FnMut(usize) -> Option<Constant>
+    mut constants: impl FnMut(usize) -> Option<Constant>
 ) -> ExecutionResult
 {
     // Get the bytecode out of the stream. As this is "user input", it is critical
@@ -169,7 +171,7 @@ pub fn exec_instruction<'a>(
         opcode,
         params: operands,
         frame,
-        constants,
+        constants: &mut constants,
     })
 }
 
@@ -252,6 +254,18 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
         .stack_push(value1)
         .and_then(|()| input.stack_push(value2))
         .map(|()| InstructionResult::Next)
+}
+
+/// Returns from a function, optionally with a value
+fn ret(input: &mut HandlerInputInfo, with_value: bool) -> ExecutionResult
+{
+    Ok(
+        InstructionResult::Return(
+            with_value
+                .then(|| input.stack_pop())
+                .transpose()?
+        )
+    )
 }
 
 // Basic Local Variable Handlers
@@ -372,8 +386,8 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Pop,           0, pop },
     { Opcode::Dup,           0, dup },
     { Opcode::Swap,          0, swap },
-    { Opcode::Ret,           0, &(|_| Ok(InstructionResult::Return(false))) },
-    { Opcode::RetVal,        0, &(|_| Ok(InstructionResult::Return(true))) },
+    { Opcode::Ret,           0, &(|x| ret(x, false)) },
+    { Opcode::RetVal,        0, &(|x| ret(x, true)) },
     { Opcode::Add,           0, &(|x| binop(x, Add::add)) },
     { Opcode::Sub,           0, &(|x| binop(x, Sub::sub)) },
     { Opcode::Mul,           0, &(|x| binop(x, Mul::mul)) },

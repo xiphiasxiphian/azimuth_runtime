@@ -115,9 +115,9 @@ impl<'a> StackFrame<'a>
     /// then this operation will fail. While the failure will be safe (see return value), it is
     /// worth saying that rarely will the execution of the program overall be able to continue from
     /// this.
-    pub fn with_next_frame<F>(&'a mut self, locals_size: usize, stack_size: usize, action: F) -> bool
+    pub fn with_next_frame<'b, F>(&'b mut self, locals_size: usize, stack_size: usize, action: F) -> bool
     where
-        F: FnOnce(StackFrame<'a>),
+        F: FnOnce(StackFrame<'b>),
     {
         (self.size + locals_size + stack_size <= self.origin.stack.len()) // Check if the new frame fits
             .then(|| {
