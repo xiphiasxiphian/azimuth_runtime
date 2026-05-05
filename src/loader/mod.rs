@@ -131,16 +131,17 @@ impl<'a, 'b> LoaderContext<'a, 'b>
         )
     }
 
-    pub fn with_link<F, T>(&'a mut self, link_index: usize, func: F) -> Result<T, LoaderError>
+    pub fn with_link<'c, F, T>(&'c mut self, link_index: usize, func: F) -> Result<T, LoaderError>
     where
-        F: FnOnce(Self) -> T
+        F: FnOnce(LoaderContext<'c, 'b>) -> T,
+        'a: 'c
     {
         let link = self.page.links.get(link_index).ok_or(LoaderError::FailedToFindSymbol)?;
         let page = self.loader.load_link(&self.page_id, link)?;
 
         Ok(
             func(
-                LoaderContext { loader: self.loader, page_id: *page.id, page }
+                LoaderContext { loader: &mut self.loader, page_id: *page.id, page }
             )
         )
     }

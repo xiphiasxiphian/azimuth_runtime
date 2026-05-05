@@ -1,4 +1,4 @@
-use crate::{engine::{RunnerError, opcode_handler::{InstructionResult, exec_instruction}}, loader::{FunctionInfo, Loader, LoaderContext}, memory::stack::{Stack, StackFrame, entry::StackEntry}};
+use crate::{engine::{RunnerError, opcode_handler::{InstructionResult, exec_instruction}}, guard, loader::{FunctionInfo, Loader, LoaderContext}, memory::stack::{Stack, StackFrame, entry::StackEntry}};
 
 
 
@@ -37,15 +37,17 @@ where
 
     fn execute_function(&'a mut self, code: &'static [u8]) -> Result<Option<StackEntry>, RunnerError>
     {
-        let mut constant_fn = |x| self.loader.get_constant(x).ok();
         let mut pc: usize = 0;
 
         // Keep executing the program until a break condition is met: either a return statement or an
         // error
         loop
         {
-            let exec_result =
-                exec_instruction(&code[pc..], &mut self.frame, &mut constant_fn).map_err(RunnerError::ExecutionError)?;
+            let exec_result = {
+                let constant_fn = |x| self.loader.get_constant(x).ok();
+                exec_instruction(&code[pc..], &mut self.frame, constant_fn)
+                    .map_err(RunnerError::ExecutionError)?
+            };
 
             match exec_result
             {
@@ -70,29 +72,49 @@ where
                 },
                 InstructionResult::Invoke(link, func) =>
                 {
-                    self.loader.with_link(link, |cont| -> Result<(), RunnerError> {
+                    // Split borrows: borrow each field independently
+                    let frame_ref = &mut self.frame;
+                    let loader_ref = &mut self.loader;
+
+                    loader_ref.with_link(link, |new_loader_context| -> Result<(), RunnerError> {
                         let (maxstack, maxlocals, code) = {
-                            let entrypoint = cont.get_function(func)?;
-
-                            let (maxstack, maxlocals) = entrypoint.setup_info();
-                            let code = entrypoint.code();
-
+                            let function_info = new_loader_context.get_function(func)?;
+                            let (maxstack, maxlocals) = function_info.setup_info();
+                            let code = function_info.code();
                             (maxstack, maxlocals, code)
                         };
 
-                        self.frame.with_next_frame(
+                        // Capture the result from the nested execution
+                        let mut invoke_result: Option<Result<Option<StackEntry>, RunnerError>> = None;
+
+                        let frame_created = frame_ref.with_next_frame(
                             maxlocals,
                             maxstack,
-                            |frame| {
-                                Self {
-                                    frame,
-                                    loader: cont,
-                                }.execute_function(code);
+                            |new_frame| {
+                                let mut new_context = ExecutionContext {
+                                    frame: new_frame,
+                                    loader: new_loader_context,
+                                };
+                                invoke_result = Some(new_context.execute_function(code));
                             }
                         );
 
+                        guard!(frame_created, RunnerError::StackOverflow);
+
+                        // Unwrap and propagate the result
+                        let return_value = invoke_result
+                            .ok_or(RunnerError::StackOverflow)??;
+
+                        // If the invoked function returned a value, push it onto the stack
+                        if let Some(value) = return_value
+                        {
+                            frame_ref.push(value)
+                                .then_some(())
+                                .ok_or(RunnerError::StackOverflow)?;
+                        }
+
                         Ok(())
-                    });
+                    }).map_err(|_| RunnerError::LoaderFailure)??;
                 }
             }
         }
