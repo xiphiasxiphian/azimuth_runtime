@@ -1,21 +1,32 @@
-pub mod tables;
 pub mod datum;
 pub mod runnable;
+pub mod tables;
 pub mod types;
 
 use std::{
-    alloc::Layout, collections::{HashMap, hash_map::Entry}, marker::PhantomData, ptr::NonNull
+    alloc::Layout,
+    collections::{HashMap, hash_map::Entry},
+    marker::PhantomData,
+    ptr::NonNull,
 };
 
 use itertools::{Itertools, process_results};
 
 use crate::{
-    loader::{SymbolId, parser::layout::{DataHeader, FileLayout, Link as ParsedLink, SymbolKind as ParsedSymbolKind}},
+    loader::{
+        SymbolId,
+        parser::layout::{DataHeader, FileLayout, Link as ParsedLink, SymbolKind as ParsedSymbolKind},
+    },
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
             datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
-            runnable::{Function, FunctionFlags, Runnable}, tables::{constant_table::{Constant, ConstantTableEntry, ConstantTableIndex, DataEntry}, link_table::{self, Link}, symbol_table::{Symbol, SymbolKind}},
+            runnable::{Function, FunctionFlags, Runnable},
+            tables::{
+                constant_table::{Constant, ConstantTableEntry, ConstantTableIndex, DataEntry},
+                link_table::{self, Link},
+                symbol_table::{Symbol, SymbolKind},
+            },
         },
     },
 };
@@ -74,65 +85,61 @@ impl<'d> Datumspace<'d>
     }
 
     #[must_use]
-    pub fn load_datum<'file>(
-        &mut self,
-        layout: &FileLayout,
-    ) -> DatumResult<DatumPage<'d>>
+    pub fn load_datum<'file>(&mut self, layout: &FileLayout) -> DatumResult<DatumPage<'d>>
     where
         'd: 'file,
     {
         let (header, required_layout) = Self::calculate_page_size(layout)?;
-        let base = self.allocator.raw_alloc(required_layout).ok_or(DatumspaceError::AllocationFailure)?;
+        let base = self
+            .allocator
+            .raw_alloc(required_layout)
+            .ok_or(DatumspaceError::AllocationFailure)?;
 
         let page = unsafe {
             let builder = || -> Option<_> {
                 let page_builder = PageBuilder::new(base, header)
                     .write_code_blob(&layout.code_directory.bytecode)?
                     .write_data_blob(&layout.data_directory.data)?
-                    .write_constants(
-                        layout.data_directory.entries.iter().map(|x| {
-                            ConstantTableEntry::Unresolved(
-                                DataEntry {
-                                    loc: (header.data_blob.0 + Offset(x.index), x.length),
-                                    tag: x.type_tag
-                                }
-                            )
+                    .write_constants(layout.data_directory.entries.iter().map(|x| {
+                        ConstantTableEntry::Unresolved(DataEntry {
+                            loc: (header.data_blob.0 + Offset(x.index), x.length),
+                            tag: x.type_tag,
                         })
-                    )?
-                    .write_functions(
-                        layout.code_directory.functions.iter().map(|x| {
-                            Runnable::Function(
-                                Function {
-                                    maxstack: x.maxstack,
-                                    maxlocals: x.maxlocals,
-                                    bytecode: (header.bytecode_blob.0 + Offset(x.index), x.length),
-                                    flags: FunctionFlags::from_bits_retain(x.flags.bits()),
-                                }
-                            )
+                    }))?
+                    .write_functions(layout.code_directory.functions.iter().map(|x| {
+                        Runnable::Function(Function {
+                            maxstack: x.maxstack,
+                            maxlocals: x.maxlocals,
+                            bytecode: (header.bytecode_blob.0 + Offset(x.index), x.length),
+                            flags: FunctionFlags::from_bits_retain(x.flags.bits()),
                         })
-                    )?
-                    .write_symbols(
-                        layout.symbol_table.symbols.iter().map(|x| {
-                            Symbol {
-                                kind: match x.kind {
-                                    ParsedSymbolKind::Function { body } => SymbolKind::Function { index: body },
-                                    ParsedSymbolKind::Type {  } => todo!()
-                                },
-                                id: x.id,
-                            }
-                        })
-                    )?;
+                    }))?
+                    .write_symbols(layout.symbol_table.symbols.iter().map(|x| Symbol {
+                        kind: match x.kind
+                        {
+                            ParsedSymbolKind::Function { body } => SymbolKind::Function { index: body },
+                            ParsedSymbolKind::Type {} => todo!(),
+                        },
+                        id: x.id,
+                    }))?;
 
                 let iter = layout.link_table.entries.iter().map(|x| {
                     Ok::<_, ()>(Link {
                         id: x.module_id,
                         path: {
-                            let DataHeader { length, index, type_tag} =
-                                layout.data_directory.entries.get(<usize>::try_from(x.module_path).map_err(|_| ())?).ok_or(())?;
+                            let DataHeader {
+                                length,
+                                index,
+                                type_tag,
+                            } = layout
+                                .data_directory
+                                .entries
+                                .get(<usize>::try_from(x.module_path).map_err(|_| ())?)
+                                .ok_or(())?;
 
                             // TODO: Ensure type tag is a string to prevent malformations
                             InlinedString::new((header.data_blob.0 + Offset(*index), *length))
-                        }
+                        },
                     })
                 });
 
@@ -150,21 +157,16 @@ impl<'d> Datumspace<'d>
 
     pub fn get_page(&self, id: &SymbolId) -> DatumResult<DatumPage<'d>>
     {
-        self.mapping.get(id)
+        self.mapping
+            .get(id)
             .map(|x| unsafe { DatumPage::from_base_ptr(*x) })
             .ok_or(DatumspaceError::PageNotLoaded)
     }
 
-    pub fn get_function(&self,
-        page_id: &SymbolId,
-        index: usize
-    ) -> Result<&'d Function, DatumspaceError>
+    pub fn get_function(&self, page_id: &SymbolId, index: usize) -> Result<&'d Function, DatumspaceError>
     {
         let page = self.get_page(page_id)?;
-        let runnable = page
-            .functions
-            .get(index)
-            .ok_or(DatumspaceError::ResourceDoesntExist)?;
+        let runnable = page.functions.get(index).ok_or(DatumspaceError::ResourceDoesntExist)?;
 
         match runnable
         {
@@ -172,21 +174,14 @@ impl<'d> Datumspace<'d>
         }
     }
 
-    pub fn get_functions(
-        &self,
-        page_id: &SymbolId
-    ) -> DatumResult<impl Iterator<Item = &'d Function> + 'd>
+    pub fn get_functions(&self, page_id: &SymbolId) -> DatumResult<impl Iterator<Item = &'d Function> + 'd>
     {
         let page = self.get_page(page_id)?;
-        Ok(
-            page
-                .functions
-                .iter()
-                .filter_map(|x| match x {
-                    Runnable::Function(f) => Some(f),
-                    _ => None,
-                })
-        )
+        Ok(page.functions.iter().filter_map(|x| match x
+        {
+            Runnable::Function(f) => Some(f),
+            _ => None,
+        }))
     }
 
     pub fn get_constant(&mut self, page_id: &SymbolId, index: usize) -> DatumResult<&'d Constant>
@@ -197,20 +192,24 @@ impl<'d> Datumspace<'d>
         match entry
         {
             ConstantTableEntry::Resolved(constant) => Ok(&constant),
-            ConstantTableEntry::Unresolved(entry) => unsafe {
+            ConstantTableEntry::Unresolved(entry) =>
+            unsafe {
                 self.write_constant(
                     page_id,
                     index,
-                    Constant::from_entry(
-                        *self.mapping.get(page_id).ok_or(DatumspaceError::PageNotLoaded)?,
-                        entry
-                    ).ok_or(DatumspaceError::InvalidConstantType)?
+                    Constant::from_entry(*self.mapping.get(page_id).ok_or(DatumspaceError::PageNotLoaded)?, entry)
+                        .ok_or(DatumspaceError::InvalidConstantType)?,
                 )
             },
         }
     }
 
-    unsafe fn write_constant(&mut self, page_id: &SymbolId, index: usize, constant: Constant) -> DatumResult<&'d Constant>
+    unsafe fn write_constant(
+        &mut self,
+        page_id: &SymbolId,
+        index: usize,
+        constant: Constant,
+    ) -> DatumResult<&'d Constant>
     {
         let base = self.mapping.get(page_id).ok_or(DatumspaceError::PageNotLoaded)?;
         let header: NonNull<DatumPageHeader> = base.cast();
@@ -218,44 +217,44 @@ impl<'d> Datumspace<'d>
 
         assert!(index < <usize>::try_from(constants_loc.1).unwrap() / size_of::<Constant>());
 
-        Ok(
-                unsafe {
-                let ptr = constants_loc.0.as_ptr(*base).add(index);
-                ptr.write(constant);
+        Ok(unsafe {
+            let ptr = constants_loc.0.as_ptr(*base).add(index);
+            ptr.write(constant);
 
-                ptr.as_ref()
-            }
-        )
+            ptr.as_ref()
+        })
     }
 
     pub fn resolve_location(&self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d [u8], DatumspaceError>
     {
-        self.mapping.get(page_id)
-            .map(|x| unsafe {
-                NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_ref()
-            })
+        self.mapping
+            .get(page_id)
+            .map(|x| unsafe { NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_ref() })
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    pub fn resolve_location_mut(&mut self, page_id: &SymbolId, loc: BlockLocation) -> Result<&'d mut [u8], DatumspaceError>
+    pub fn resolve_location_mut(
+        &mut self,
+        page_id: &SymbolId,
+        loc: BlockLocation,
+    ) -> Result<&'d mut [u8], DatumspaceError>
     {
-        self.mapping.get(page_id)
-            .map(|x| unsafe {
-                NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_mut()
-            })
+        self.mapping
+            .get(page_id)
+            .map(|x| unsafe { NonNull::slice_from_raw_parts(loc.0.as_ptr(*x), loc.1 as usize).as_mut() })
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    pub fn resolve_string<'a>(&self, page_id: &SymbolId, string: &'a InlinedString) -> Result<&'a str, DatumspaceError>
+    pub fn resolve_string<'a>(&self, page_id: &SymbolId, string: &'a InlinedString)
+    -> Result<&'a str, DatumspaceError>
     {
-        self.mapping.get(page_id)
+        self.mapping
+            .get(page_id)
             .and_then(|x| unsafe { string.get(*x) })
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    fn calculate_page_size<'file>(
-        layout: &FileLayout,
-    ) -> Result<(DatumPageHeader, Layout), DatumspaceError>
+    fn calculate_page_size<'file>(layout: &FileLayout) -> Result<(DatumPageHeader, Layout), DatumspaceError>
     {
         // link table
         // Each link gets slightly flattened, removing now unrequired metadata
@@ -276,30 +275,23 @@ impl<'d> Datumspace<'d>
         // Data size
         let data_size = layout.data_directory.data_byte_size();
 
-        let (
-            link_table_loc,
-            symbol_table_loc,
-            function_table_loc,
-            constant_table_loc,
-            code_loc,
-            data_loc,
-        ) = [
-                link_table_size,
-                symbol_table_size,
-                function_table_size,
-                constant_table_size,
-                code_size,
-                data_size,
-            ]
-            .iter()
-            .scan(size_of::<DatumPageHeader>(), |cursor, size| {
-                let start = *cursor;
-                *cursor += size;
+        let (link_table_loc, symbol_table_loc, function_table_loc, constant_table_loc, code_loc, data_loc) = [
+            link_table_size,
+            symbol_table_size,
+            function_table_size,
+            constant_table_size,
+            code_size,
+            data_size,
+        ]
+        .iter()
+        .scan(size_of::<DatumPageHeader>(), |cursor, size| {
+            let start = *cursor;
+            *cursor += size;
 
-                Some((Offset(start.try_into().ok()?), (*size).try_into().ok()?))
-            })
-            .collect_tuple()
-            .ok_or(DatumspaceError::InvalidStructure)?;
+            Some((Offset(start.try_into().ok()?), (*size).try_into().ok()?))
+        })
+        .collect_tuple()
+        .ok_or(DatumspaceError::InvalidStructure)?;
 
         let header = DatumPageHeader {
             id: layout.header.module_id,
@@ -311,11 +303,15 @@ impl<'d> Datumspace<'d>
             data_blob: data_loc,
         };
 
-        let size = data_loc.0.0.checked_add(data_loc.1)
+        let size = data_loc
+            .0
+            .0
+            .checked_add(data_loc.1)
             .ok_or(DatumspaceError::InvalidStructure)
             .and_then(|x| <usize>::try_from(x).map_err(|_| DatumspaceError::InvalidStructure))?;
 
-        let layout = Layout::from_size_align(size, align_of::<DatumPageHeader>()).map_err(|_| DatumspaceError::AllocationFailure)?;
+        let layout = Layout::from_size_align(size, align_of::<DatumPageHeader>())
+            .map_err(|_| DatumspaceError::AllocationFailure)?;
 
         Ok((header, layout))
     }

@@ -1,14 +1,25 @@
-use std::{
-    io, mem::transmute, path::Path, ptr::NonNull
-};
+use std::{io, mem::transmute, path::Path, ptr::NonNull};
 
 use binrw::binread;
 use itertools::Itertools;
 
-use crate::{loader::parser::parse_file, memory::{
+use crate::{
+    loader::parser::parse_file,
+    memory::{
         allocators::AllocatorError,
-        datumspace::{Datumspace, DatumspaceError, datum::DatumPage, runnable::{Function, FunctionFlags, Runnable}, tables::{constant_table::{Constant, ConstantTableEntry}, link_table::Link, symbol_table::Symbol}}, stack::entry,
-    }};
+        datumspace::{
+            Datumspace, DatumspaceError,
+            datum::DatumPage,
+            runnable::{Function, FunctionFlags, Runnable},
+            tables::{
+                constant_table::{Constant, ConstantTableEntry},
+                link_table::Link,
+                symbol_table::Symbol,
+            },
+        },
+        stack::entry,
+    },
+};
 
 pub(super) mod parser;
 
@@ -47,14 +58,16 @@ pub enum LoaderError
 
 impl From<DatumspaceError> for LoaderError
 {
-    fn from(value: DatumspaceError) -> Self {
+    fn from(value: DatumspaceError) -> Self
+    {
         Self::DatumspaceError(value)
     }
 }
 
 impl From<AllocatorError> for LoaderError
 {
-    fn from(value: AllocatorError) -> Self {
+    fn from(value: AllocatorError) -> Self
+    {
         Self::AllocatorError(value)
     }
 }
@@ -69,12 +82,10 @@ impl<'a> Loader<'a>
         let parsed_file = parse_file(Path::new(base))?;
         let initial_page = datumspace.load_datum(&parsed_file)?;
 
-        Ok(
-            Self {
-                datumspace,
-                base: *initial_page.id
-            }
-        )
+        Ok(Self {
+            datumspace,
+            base: *initial_page.id,
+        })
     }
 
     fn load_file(&mut self, path: &Path) -> Result<DatumPage<'a>, LoaderError>
@@ -94,10 +105,8 @@ impl<'a> Loader<'a>
             Ok(page) => Ok(page),
             Err(DatumspaceError::PageNotLoaded) => Ok(
                 // Load the file, then verify the correct module was loaded
-                self.load_file(
-                    Path::new(self.datumspace.resolve_string(from, &link.path)?)
-                )
-                .and_then(|x| (*x.id == link.id).then_some(x).ok_or(LoaderError::InvalidLink))?
+                self.load_file(Path::new(self.datumspace.resolve_string(from, &link.path)?))
+                    .and_then(|x| (*x.id == link.id).then_some(x).ok_or(LoaderError::InvalidLink))?,
             ),
             _ => Err(LoaderError::FailedToFindSymbol),
         }
@@ -113,7 +122,7 @@ pub struct LoaderContext<'a, 'b>
 {
     loader: &'a mut Loader<'b>,
     page_id: SymbolId,
-    page: DatumPage<'b>
+    page: DatumPage<'b>,
 }
 
 impl<'a, 'b> LoaderContext<'a, 'b>
@@ -122,28 +131,26 @@ impl<'a, 'b> LoaderContext<'a, 'b>
     {
         let base = loader.datumspace.get_page(&id)?;
 
-        Ok(
-            LoaderContext {
-                loader: loader,
-                page_id: id,
-                page: base,
-            }
-        )
+        Ok(LoaderContext {
+            loader: loader,
+            page_id: id,
+            page: base,
+        })
     }
 
     pub fn with_link<'c, F, T>(&'c mut self, link_index: usize, func: F) -> Result<T, LoaderError>
     where
         F: FnOnce(LoaderContext<'c, 'b>) -> T,
-        'a: 'c
+        'a: 'c,
     {
         let link = self.page.links.get(link_index).ok_or(LoaderError::FailedToFindSymbol)?;
         let page = self.loader.load_link(&self.page_id, link)?;
 
-        Ok(
-            func(
-                LoaderContext { loader: &mut self.loader, page_id: *page.id, page }
-            )
-        )
+        Ok(func(LoaderContext {
+            loader: &mut self.loader,
+            page_id: *page.id,
+            page,
+        }))
     }
 
     /// Special case of `get_function_by_flags` for one of its most common use cases
@@ -167,7 +174,8 @@ impl<'a, 'b> LoaderContext<'a, 'b>
         self.page
             .functions
             .iter()
-            .find_map(|x| match x {
+            .find_map(|x| match x
+            {
                 Runnable::Function(f) if f.flags == flags => Some(f),
                 _ => None,
             })
@@ -177,17 +185,20 @@ impl<'a, 'b> LoaderContext<'a, 'b>
 
     pub fn get_function(&'a self, index: usize) -> Result<FunctionInfo<'a>, LoaderError>
     {
-        self.page.functions
+        self.page
+            .functions
             .get(index)
             .ok_or(LoaderError::FailedToFindSymbol)
-            .and_then(|func| match func {
-                Runnable::Function(f) => FunctionInfo::from_datumspace(&self.page_id, &self.loader.datumspace, f)
+            .and_then(|func| match func
+            {
+                Runnable::Function(f) => FunctionInfo::from_datumspace(&self.page_id, &self.loader.datumspace, f),
             })
     }
 
     pub fn get_constant(&mut self, index: usize) -> Result<Constant, LoaderError>
     {
-        self.loader.datumspace
+        self.loader
+            .datumspace
             .get_constant(&self.page_id, index)
             .map_err(LoaderError::DatumspaceError)
             .copied()
@@ -196,25 +207,30 @@ impl<'a, 'b> LoaderContext<'a, 'b>
 
 // Wrapper Structs
 
-
 pub struct FunctionInfo<'a>
 {
     maxstack: usize,
     maxlocals: usize,
-    bytecode: &'a [u8]
+    bytecode: &'a [u8],
 }
 
 impl<'a> FunctionInfo<'a>
 {
-    pub fn from_datumspace(base: &SymbolId, datumspace: &'a Datumspace, function: &Function) -> Result<Self, LoaderError>
+    pub fn from_datumspace(
+        base: &SymbolId,
+        datumspace: &'a Datumspace,
+        function: &Function,
+    ) -> Result<Self, LoaderError>
     {
         // Extract important information, and resolve code location
         let (maxstack, maxlocals) = function.setup_info();
         let bytecode = datumspace.resolve_location(base, function.bytecode)?;
 
-        Ok(
-            FunctionInfo { maxstack, maxlocals, bytecode }
-        )
+        Ok(FunctionInfo {
+            maxstack,
+            maxlocals,
+            bytecode,
+        })
     }
 
     pub fn setup_info(&self) -> (usize, usize)

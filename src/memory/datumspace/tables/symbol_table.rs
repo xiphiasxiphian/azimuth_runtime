@@ -1,10 +1,14 @@
-use crate::{loader::SymbolId, memory::datumspace::datum::{InlinedString, Offset}};
+use crate::{
+    loader::SymbolId,
+    memory::datumspace::datum::{InlinedString, Offset},
+};
 
 #[derive(Clone, Copy)]
 pub enum SymbolKind
 {
-    Function {
-        index: u32,
+    Function
+    {
+        index: u32
     },
 }
 
@@ -12,5 +16,5 @@ pub enum SymbolKind
 pub struct Symbol
 {
     pub kind: SymbolKind,
-    pub id: SymbolId
+    pub id: SymbolId,
 }

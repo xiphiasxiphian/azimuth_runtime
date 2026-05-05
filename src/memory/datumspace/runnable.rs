@@ -1,8 +1,6 @@
 use bitflags::bitflags;
 
-use crate::{
-    memory::datumspace::{DatumAllocator, DatumspaceError, datum::BlockLocation},
-};
+use crate::memory::datumspace::{DatumAllocator, DatumspaceError, datum::BlockLocation};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Runnable
@@ -10,10 +8,7 @@ pub enum Runnable
     Function(Function),
 }
 
-impl Runnable
-{
-
-}
+impl Runnable {}
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

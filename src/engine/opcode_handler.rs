@@ -3,9 +3,13 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Su
 use num_traits::FromBytes;
 
 use crate::{
-    engine::opcodes::Opcode, guard, loader::{Loader, LoaderContext}, memory::{
-        datumspace::tables::constant_table::{Constant, ConstantTableIndex}, stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}
-    }
+    engine::opcodes::Opcode,
+    guard,
+    loader::{Loader, LoaderContext},
+    memory::{
+        datumspace::tables::constant_table::{Constant, ConstantTableIndex},
+        stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
+    },
 };
 
 /// Contains information given to each instruction handler
@@ -142,11 +146,10 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
     clippy::panic_in_result_fn,
     reason = "If this invariant check fails, the entire config is malformed"
 )]
-pub fn exec_instruction
-(
+pub fn exec_instruction(
     bytecode: &'static [u8],
     frame: &mut StackFrame,
-    mut constants: impl FnMut(usize) -> Option<Constant>
+    mut constants: impl FnMut(usize) -> Option<Constant>,
 ) -> ExecutionResult
 {
     // Get the bytecode out of the stream. As this is "user input", it is critical
@@ -259,13 +262,9 @@ fn swap(input: &mut HandlerInputInfo) -> ExecutionResult
 /// Returns from a function, optionally with a value
 fn ret(input: &mut HandlerInputInfo, with_value: bool) -> ExecutionResult
 {
-    Ok(
-        InstructionResult::Return(
-            with_value
-                .then(|| input.stack_pop())
-                .transpose()?
-        )
-    )
+    Ok(InstructionResult::Return(
+        with_value.then(|| input.stack_pop()).transpose()?,
+    ))
 }
 
 // Basic Local Variable Handlers

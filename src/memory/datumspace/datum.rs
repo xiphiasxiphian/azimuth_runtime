@@ -1,46 +1,55 @@
 use std::{marker::PhantomData, ops::Add, ptr::NonNull};
 
-use crate::{guard, loader::SymbolId, memory::datumspace::{link_table::Link, runnable::Runnable, tables::{constant_table::{Constant, ConstantTableEntry}, symbol_table::Symbol}}};
-
 use derive_more::{Add, Sub};
 
-/*  ┌─────────────────────────┐  <- base_ptr
-    │  DatumPageHeader        │  fixed size, contains section lengths
-    │  id_loc                 │
-    │  constants_loc          │
-    │  functions_loc          │
-    │  symbol_table_loc       │
-    │  import_table_loc       │
-    ├─────────────────────────┤  <- base + sizeof(DatumPageHeader)
-    │  id bytes               │  id_len bytes, no null terminator
-    │  (align padding)        │
-    ├─────────────────────────┤  <- base + sizeof(DatumPageHeader) + id_len
-    │  ImportEntry[]          │  import_table_len entries
-    ├─────────────────────────┤
-    │  SymbolEntry[]          │  symbol_table_len entries
-    ├─────────────────────────┤
-    │  Constant[]             │  constants_len entries
-    │  (each Constant stores  │  (these will be lazily evaluated)
-    │   an offset into the    │
-    │   data blob below)      │
-    ├─────────────────────────┤
-    │  Runnable[]             │  functions_len entries
-    │  (each Runnable stores  │  (these will be lazily evaluated)
-    │   an offset into the    │
-    │   code blob below)      │
-    ├─────────────────────────┤
-    │  data blob              │  raw bytes for all constants
-    ├─────────────────────────┤
-    │  code blob              │  raw bytecode for all functions
-    └─────────────────────────┘
+use crate::{
+    guard,
+    loader::SymbolId,
+    memory::datumspace::{
+        link_table::Link,
+        runnable::Runnable,
+        tables::{
+            constant_table::{Constant, ConstantTableEntry},
+            symbol_table::Symbol,
+        },
+    },
+};
 
- */
+/*  ┌─────────────────────────┐  <- base_ptr
+   │  DatumPageHeader        │  fixed size, contains section lengths
+   │  id_loc                 │
+   │  constants_loc          │
+   │  functions_loc          │
+   │  symbol_table_loc       │
+   │  import_table_loc       │
+   ├─────────────────────────┤  <- base + sizeof(DatumPageHeader)
+   │  id bytes               │  id_len bytes, no null terminator
+   │  (align padding)        │
+   ├─────────────────────────┤  <- base + sizeof(DatumPageHeader) + id_len
+   │  ImportEntry[]          │  import_table_len entries
+   ├─────────────────────────┤
+   │  SymbolEntry[]          │  symbol_table_len entries
+   ├─────────────────────────┤
+   │  Constant[]             │  constants_len entries
+   │  (each Constant stores  │  (these will be lazily evaluated)
+   │   an offset into the    │
+   │   data blob below)      │
+   ├─────────────────────────┤
+   │  Runnable[]             │  functions_len entries
+   │  (each Runnable stores  │  (these will be lazily evaluated)
+   │   an offset into the    │
+   │   code blob below)      │
+   ├─────────────────────────┤
+   │  data blob              │  raw bytes for all constants
+   ├─────────────────────────┤
+   │  code blob              │  raw bytecode for all functions
+   └─────────────────────────┘
+
+*/
 
 #[derive(Clone, Copy, Debug, Add, Sub)]
 #[repr(transparent)]
-pub struct Offset(
-    pub u32
-);
+pub struct Offset(pub u32);
 
 impl Offset
 {
@@ -69,7 +78,8 @@ impl InlinedString
     pub unsafe fn get<'a>(&'a self, base: NonNull<u8>) -> Option<&'a str>
     {
         unsafe {
-            let bytes: &[u8] = std::slice::from_raw_parts(self.location.0.as_ptr(base).as_ptr(), self.location.1 as usize);
+            let bytes: &[u8] =
+                std::slice::from_raw_parts(self.location.0.as_ptr(base).as_ptr(), self.location.1 as usize);
             str::from_utf8(bytes).ok()
         }
     }
@@ -77,7 +87,8 @@ impl InlinedString
     pub unsafe fn get_unchecked<'a>(&'a self, base: NonNull<u8>) -> &'a str
     {
         unsafe {
-            let bytes: &[u8] = std::slice::from_raw_parts(self.location.0.as_ptr(base).as_ptr(), self.location.1 as usize);
+            let bytes: &[u8] =
+                std::slice::from_raw_parts(self.location.0.as_ptr(base).as_ptr(), self.location.1 as usize);
             str::from_utf8_unchecked(bytes)
         }
     }
@@ -98,7 +109,6 @@ pub struct DatumPageHeader
 
 impl DatumPageHeader
 {
-
     /// Constructs a view over the Datumpage, from its header
     ///
     /// SAFETY: This is only safe is the given page header is embedded within datumspace
@@ -134,34 +144,22 @@ impl<'a> DatumPage<'a>
         let id = &header.id;
 
         // link table
-        let links: &'a [Link] = unsafe {
-            Self::get_slice(ptr, header.link_table)
-        };
+        let links: &'a [Link] = unsafe { Self::get_slice(ptr, header.link_table) };
 
         // symbol table
-        let symbols: &'a [Symbol] = unsafe {
-            Self::get_slice(ptr, header.symbol_table)
-        };
+        let symbols: &'a [Symbol] = unsafe { Self::get_slice(ptr, header.symbol_table) };
 
         // function table
-        let functions: &'a [Runnable] = unsafe {
-            Self::get_slice(ptr, header.functions)
-        };
+        let functions: &'a [Runnable] = unsafe { Self::get_slice(ptr, header.functions) };
 
         // constant table
-        let constants: &'a [ConstantTableEntry] = unsafe {
-            Self::get_slice(ptr, header.constants)
-        };
+        let constants: &'a [ConstantTableEntry] = unsafe { Self::get_slice(ptr, header.constants) };
 
         // bytecode and function headers
-        let bytecode_blob: &'a [u8] = unsafe {
-            Self::get_slice(ptr, header.bytecode_blob)
-        };
+        let bytecode_blob: &'a [u8] = unsafe { Self::get_slice(ptr, header.bytecode_blob) };
 
         // All constants and other data
-        let data_blob: &'a [u8] = unsafe {
-          Self::get_slice(ptr, header.data_blob)
-        };
+        let data_blob: &'a [u8] = unsafe { Self::get_slice(ptr, header.data_blob) };
 
         Self {
             id,
@@ -175,10 +173,14 @@ impl<'a> DatumPage<'a>
     }
 
     unsafe fn get_slice<T>(base: NonNull<u8>, location: BlockLocation) -> &'a [T]
-    where T: Sized
+    where
+        T: Sized,
     {
         unsafe {
-            std::slice::from_raw_parts(base.byte_add(location.0.0 as usize).cast().as_ptr(), location.1 as usize / size_of::<T>())
+            std::slice::from_raw_parts(
+                base.byte_add(location.0.0 as usize).cast().as_ptr(),
+                location.1 as usize / size_of::<T>(),
+            )
         }
     }
 }
@@ -203,9 +205,7 @@ impl PageBuilder
             base.write(header);
         }
 
-        Self {
-            base
-        }
+        Self { base }
     }
 
     pub unsafe fn resolve<'a>(self) -> DatumPage<'a>
@@ -215,54 +215,41 @@ impl PageBuilder
 
     pub unsafe fn write_links<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = Link>
+        I: Iterator<Item = Link>,
     {
-        unsafe {
-            self.write_iter(&self.base.as_ref().constants, src)
-        }
+        unsafe { self.write_iter(&self.base.as_ref().constants, src) }
     }
 
     pub unsafe fn write_symbols<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = Symbol>
+        I: Iterator<Item = Symbol>,
     {
-        unsafe {
-            self.write_iter(&self.base.as_ref().symbol_table, src)
-        }
+        unsafe { self.write_iter(&self.base.as_ref().symbol_table, src) }
     }
 
     pub unsafe fn write_functions<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = Runnable>
+        I: Iterator<Item = Runnable>,
     {
-        unsafe {
-            self.write_iter(&self.base.as_ref().functions, src)
-        }
+        unsafe { self.write_iter(&self.base.as_ref().functions, src) }
     }
 
     pub unsafe fn write_constants<'a, I>(self, src: I) -> Option<Self>
     where
-        I: Iterator<Item = ConstantTableEntry>
+        I: Iterator<Item = ConstantTableEntry>,
     {
-        unsafe {
-            self.write_iter(&self.base.as_ref().constants, src)
-        }
+        unsafe { self.write_iter(&self.base.as_ref().constants, src) }
     }
 
     pub unsafe fn write_code_blob(self, src: &[u8]) -> Option<Self>
     {
-        unsafe {
-            self.write_blob(src, &self.base.as_ref().bytecode_blob)
-        }
+        unsafe { self.write_blob(src, &self.base.as_ref().bytecode_blob) }
     }
 
     pub unsafe fn write_data_blob(self, src: &[u8]) -> Option<Self>
     {
-        unsafe {
-            self.write_blob(src, &self.base.as_ref().data_blob)
-        }
+        unsafe { self.write_blob(src, &self.base.as_ref().data_blob) }
     }
-
 
     unsafe fn write_blob(self, src: &[u8], loc: &BlockLocation) -> Option<Self>
     {
@@ -299,11 +286,10 @@ impl PageBuilder
 }
 
 #[cfg(test)]
-mod tests {
+mod tests
+{
     use super::*;
 
     #[test]
-    fn tmp() {
-
-    }
+    fn tmp() {}
 }

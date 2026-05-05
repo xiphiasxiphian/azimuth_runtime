@@ -1,6 +1,12 @@
-use crate::{engine::{RunnerError, opcode_handler::{InstructionResult, exec_instruction}}, guard, loader::{FunctionInfo, Loader, LoaderContext}, memory::stack::{Stack, StackFrame, entry::StackEntry}};
-
-
+use crate::{
+    engine::{
+        RunnerError,
+        opcode_handler::{InstructionResult, exec_instruction},
+    },
+    guard,
+    loader::{FunctionInfo, Loader, LoaderContext},
+    memory::stack::{Stack, StackFrame, entry::StackEntry},
+};
 
 pub struct ExecutionContext<'a, 'b, 'c>
 {
@@ -10,13 +16,14 @@ pub struct ExecutionContext<'a, 'b, 'c>
 
 impl<'a, 'b, 'c> ExecutionContext<'a, 'b, 'c>
 where
-    'a: 'c
+    'a: 'c,
 {
     pub fn run(loader: &'a mut Loader<'b>, stack: &'c mut Stack) -> Result<(), RunnerError>
     {
         let loader_context = loader.initial_context()?;
         let (maxstack, maxlocals, code) = {
-            let entrypoint = loader_context.get_entrypoint()?
+            let entrypoint = loader_context
+                .get_entrypoint()?
                 .ok_or(RunnerError::CannotAcquireEntrypoint)?;
 
             let (maxstack, maxlocals) = entrypoint.setup_info();
@@ -32,7 +39,9 @@ where
         Self {
             frame,
             loader: loader_context,
-        }.execute_function(code).map(|_| ())
+        }
+        .execute_function(code)
+        .map(|_| ())
     }
 
     fn execute_function(&'a mut self, code: &'static [u8]) -> Result<Option<StackEntry>, RunnerError>
@@ -45,8 +54,7 @@ where
         {
             let exec_result = {
                 let constant_fn = |x| self.loader.get_constant(x).ok();
-                exec_instruction(&code[pc..], &mut self.frame, constant_fn)
-                    .map_err(RunnerError::ExecutionError)?
+                exec_instruction(&code[pc..], &mut self.frame, constant_fn).map_err(RunnerError::ExecutionError)?
             };
 
             match exec_result
@@ -69,52 +77,47 @@ where
                 {
                     // Return the required value here?
                     break Ok(value);
-                },
+                }
                 InstructionResult::Invoke(link, func) =>
                 {
                     // Split borrows: borrow each field independently
                     let frame_ref = &mut self.frame;
                     let loader_ref = &mut self.loader;
 
-                    loader_ref.with_link(link, |new_loader_context| -> Result<(), RunnerError> {
-                        let (maxstack, maxlocals, code) = {
-                            let function_info = new_loader_context.get_function(func)?;
-                            let (maxstack, maxlocals) = function_info.setup_info();
-                            let code = function_info.code();
-                            (maxstack, maxlocals, code)
-                        };
+                    loader_ref
+                        .with_link(link, |new_loader_context| -> Result<(), RunnerError> {
+                            let (maxstack, maxlocals, code) = {
+                                let function_info = new_loader_context.get_function(func)?;
+                                let (maxstack, maxlocals) = function_info.setup_info();
+                                let code = function_info.code();
+                                (maxstack, maxlocals, code)
+                            };
 
-                        // Capture the result from the nested execution
-                        let mut invoke_result: Option<Result<Option<StackEntry>, RunnerError>> = None;
+                            // Capture the result from the nested execution
+                            let mut invoke_result: Option<Result<Option<StackEntry>, RunnerError>> = None;
 
-                        let frame_created = frame_ref.with_next_frame(
-                            maxlocals,
-                            maxstack,
-                            |new_frame| {
+                            let frame_created = frame_ref.with_next_frame(maxlocals, maxstack, |new_frame| {
                                 let mut new_context = ExecutionContext {
                                     frame: new_frame,
                                     loader: new_loader_context,
                                 };
                                 invoke_result = Some(new_context.execute_function(code));
+                            });
+
+                            guard!(frame_created, RunnerError::StackOverflow);
+
+                            // Unwrap and propagate the result
+                            let return_value = invoke_result.ok_or(RunnerError::StackOverflow)??;
+
+                            // If the invoked function returned a value, push it onto the stack
+                            if let Some(value) = return_value
+                            {
+                                frame_ref.push(value).then_some(()).ok_or(RunnerError::StackOverflow)?;
                             }
-                        );
 
-                        guard!(frame_created, RunnerError::StackOverflow);
-
-                        // Unwrap and propagate the result
-                        let return_value = invoke_result
-                            .ok_or(RunnerError::StackOverflow)??;
-
-                        // If the invoked function returned a value, push it onto the stack
-                        if let Some(value) = return_value
-                        {
-                            frame_ref.push(value)
-                                .then_some(())
-                                .ok_or(RunnerError::StackOverflow)?;
-                        }
-
-                        Ok(())
-                    }).map_err(|_| RunnerError::LoaderFailure)??;
+                            Ok(())
+                        })
+                        .map_err(|_| RunnerError::LoaderFailure)??;
                 }
             }
         }

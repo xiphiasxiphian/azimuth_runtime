@@ -4,8 +4,8 @@ use binrw::{BinRead, io::BufReader};
 
 use crate::loader::{LoaderError, parser::layout::FileLayout};
 
-pub mod table;
 pub mod layout;
+pub mod table;
 
 // Convert a set of bytes into a numeric type
 macro_rules! bytes_to_numeric {

@@ -1,9 +1,12 @@
+pub mod context;
 pub mod opcode_handler;
 pub mod opcodes;
-pub mod context;
 
 use crate::{
-    engine::{context::ExecutionContext, opcode_handler::{ExecutionError, InstructionResult, exec_instruction}},
+    engine::{
+        context::ExecutionContext,
+        opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
+    },
     loader::{self, Loader, LoaderError},
     memory::stack::{Stack, entry},
 };
@@ -20,7 +23,8 @@ pub enum RunnerError
 
 impl From<LoaderError> for RunnerError
 {
-    fn from(_value: LoaderError) -> Self {
+    fn from(_value: LoaderError) -> Self
+    {
         Self::LoaderFailure
     }
 }
@@ -34,7 +38,7 @@ pub struct Runner<'a, 'b>
 
 impl<'a, 'b> Runner<'a, 'b>
 where
-    'b: 'a
+    'b: 'a,
 {
     pub fn new(stack: &'a mut Stack, loader: &'a mut Loader<'b>) -> Self
     {
@@ -52,6 +56,6 @@ where
          * - TESTING
          */
 
-         ExecutionContext::run(self.loader, self.stack)
+        ExecutionContext::run(self.loader, self.stack)
     }
 }

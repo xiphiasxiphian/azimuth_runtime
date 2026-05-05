@@ -3,7 +3,11 @@ use std::ptr::NonNull;
 // This is a more formalised wrapper around the idea of the constant table.
 //
 use crate::{
-    loader::parser::layout::{DataHeader, TypeTag}, memory::{datumspace::datum::{BlockLocation, InlinedString}, stack::entry::StackEntry}
+    loader::parser::layout::{DataHeader, TypeTag},
+    memory::{
+        datumspace::datum::{BlockLocation, InlinedString},
+        stack::entry::StackEntry,
+    },
 };
 
 pub type ConstantTableIndex = u32;
@@ -19,7 +23,7 @@ pub struct DataEntry
 pub enum ConstantTableEntry
 {
     Unresolved(DataEntry),
-    Resolved(Constant)
+    Resolved(Constant),
 }
 
 /// A Constant stored within the constant table.

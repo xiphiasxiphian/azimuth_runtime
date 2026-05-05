@@ -5,7 +5,6 @@ use crate::loader::SymbolId;
 
 type Offset = u32;
 
-
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FileFlags: u8 {
@@ -13,19 +12,17 @@ bitflags! {
     }
 }
 
-impl BinRead for FileFlags {
+impl BinRead for FileFlags
+{
     type Args<'a> = ();
 
     fn read_options<R: binrw::io::Read + binrw::io::Seek>(
         reader: &mut R,
         endian: binrw::Endian,
         args: Self::Args<'_>,
-    ) -> BinResult<Self> {
-        Ok(
-            FileFlags::from_bits_retain(
-                u8::read_options(reader, endian, args)?
-            )
-        )
+    ) -> BinResult<Self>
+    {
+        Ok(FileFlags::from_bits_retain(u8::read_options(reader, endian, args)?))
     }
 }
 
@@ -42,7 +39,6 @@ pub struct FileHeader
     pub flags: FileFlags,
 }
 
-
 // Import Table
 
 #[binread]
@@ -53,7 +49,6 @@ pub struct Link
     index: u16,
     pub module_id: SymbolId,
     pub module_path: Offset,
-
     // lazy: bool
 }
 
@@ -66,9 +61,8 @@ pub struct LinkTable
     count: u32,
 
     #[br(count = count)]
-    pub entries: Vec<Link>
+    pub entries: Vec<Link>,
 }
-
 
 // Symbol Table
 
@@ -78,7 +72,8 @@ pub struct LinkTable
 pub enum SymbolKind
 {
     #[br(magic = 0u8)]
-    Function {
+    Function
+    {
         // signature:
         body: Offset,
     },
@@ -86,7 +81,7 @@ pub enum SymbolKind
     #[br(magic = 1u8)]
     Type {
         // typeref
-    }
+    },
 }
 
 #[binread]
@@ -108,7 +103,7 @@ pub struct SymbolTable
     count: u32,
 
     #[br(count = count)]
-    pub symbols: Vec<SymbolEntry>
+    pub symbols: Vec<SymbolEntry>,
 }
 
 // Types
@@ -119,14 +114,17 @@ pub struct SymbolTable
 #[repr(u8)]
 pub enum TypeTag
 {
-    #[br(magic = 0x0u8)] Integer32,
-    #[br(magic = 0x1u8)] Integer64,
-    #[br(magic = 0x2u8)] Float32,
-    #[br(magic = 0x3u8)] Float64,
-    #[br(magic = 0x4u8)] String,
+    #[br(magic = 0x0u8)]
+    Integer32,
+    #[br(magic = 0x1u8)]
+    Integer64,
+    #[br(magic = 0x2u8)]
+    Float32,
+    #[br(magic = 0x3u8)]
+    Float64,
+    #[br(magic = 0x4u8)]
+    String,
 }
-
-
 
 // Code blocks
 
@@ -137,19 +135,17 @@ bitflags! {
     }
 }
 
-impl BinRead for FunctionFlags {
+impl BinRead for FunctionFlags
+{
     type Args<'a> = ();
 
     fn read_options<R: binrw::io::Read + binrw::io::Seek>(
         reader: &mut R,
         endian: binrw::Endian,
         args: Self::Args<'_>,
-    ) -> BinResult<Self> {
-        Ok(
-            FunctionFlags::from_bits_retain(
-                u8::read_options(reader, endian, args)?
-            )
-        )
+    ) -> BinResult<Self>
+    {
+        Ok(FunctionFlags::from_bits_retain(u8::read_options(reader, endian, args)?))
     }
 }
 
@@ -241,7 +237,6 @@ impl DataDirectory
     }
 }
 
-
 // Overall File Layout
 
 #[binread]
@@ -263,30 +258,37 @@ pub struct FileLayout
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests
+{
     use binrw::{BinRead, io::Cursor};
+
+    use super::*;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    fn dummy_symbol_id(byte: u8) -> [u8; 16] {
+    fn dummy_symbol_id(byte: u8) -> [u8; 16]
+    {
         [byte; 16]
     }
 
     /// Builds a minimal but complete FileLayout byte buffer with the given
     /// header flags, links, symbols, functions + bytecode, and data entries.
-    struct FileBuilder {
+    struct FileBuilder
+    {
         data: Vec<u8>,
     }
 
-    impl FileBuilder {
-        fn new() -> Self {
+    impl FileBuilder
+    {
+        fn new() -> Self
+        {
             let mut b = Self { data: Vec::new() };
             b.data.extend_from_slice(b"azimuth\0");
             b
         }
 
-        fn header(mut self, file_version: u16, min_runtime: u16, module_id: [u8; 16], flags: u8) -> Self {
+        fn header(mut self, file_version: u16, min_runtime: u16, module_id: [u8; 16], flags: u8) -> Self
+        {
             self.data.extend_from_slice(&file_version.to_le_bytes());
             self.data.extend_from_slice(&min_runtime.to_le_bytes());
             self.data.extend_from_slice(&module_id);
@@ -294,9 +296,11 @@ mod tests {
             self
         }
 
-        fn link_table(mut self, links: &[(u16, [u8; 16], u32)]) -> Self {
+        fn link_table(mut self, links: &[(u16, [u8; 16], u32)]) -> Self
+        {
             self.data.extend_from_slice(&(links.len() as u32).to_le_bytes());
-            for (index, module_id, module_path) in links {
+            for (index, module_id, module_path) in links
+            {
                 self.data.extend_from_slice(&index.to_le_bytes());
                 self.data.extend_from_slice(module_id);
                 self.data.extend_from_slice(&module_path.to_le_bytes());
@@ -305,12 +309,15 @@ mod tests {
         }
 
         /// Each symbol: (id: [u8;16], kind_tag: u8, extra: Option<u32> for Function body)
-        fn symbol_table(mut self, symbols: &[([u8; 16], u8, Option<u32>)]) -> Self {
+        fn symbol_table(mut self, symbols: &[([u8; 16], u8, Option<u32>)]) -> Self
+        {
             self.data.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
-            for (id, kind, extra) in symbols {
+            for (id, kind, extra) in symbols
+            {
                 self.data.extend_from_slice(id);
                 self.data.push(*kind);
-                if let Some(body) = extra {
+                if let Some(body) = extra
+                {
                     self.data.extend_from_slice(&body.to_le_bytes());
                 }
             }
@@ -318,9 +325,11 @@ mod tests {
         }
 
         /// funcs: (symbol_id, index, length, maxlocals, maxstack, flags)
-        fn code_directory(mut self, funcs: &[([u8; 16], u32, u32, u32, u32, u8)], bytecode: &[u8]) -> Self {
+        fn code_directory(mut self, funcs: &[([u8; 16], u32, u32, u32, u32, u8)], bytecode: &[u8]) -> Self
+        {
             self.data.extend_from_slice(&(funcs.len() as u32).to_le_bytes());
-            for (sym, idx, len, locals, stack, flags) in funcs {
+            for (sym, idx, len, locals, stack, flags) in funcs
+            {
                 self.data.extend_from_slice(sym);
                 self.data.extend_from_slice(&idx.to_le_bytes());
                 self.data.extend_from_slice(&len.to_le_bytes());
@@ -334,9 +343,11 @@ mod tests {
         }
 
         /// entries: (length, index)
-        fn data_directory(mut self, entries: &[(u32, u32)], data: &[u8]) -> Self {
+        fn data_directory(mut self, entries: &[(u32, u32)], data: &[u8]) -> Self
+        {
             self.data.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-            for (length, index) in entries {
+            for (length, index) in entries
+            {
                 self.data.extend_from_slice(&length.to_le_bytes());
                 self.data.extend_from_slice(&index.to_le_bytes());
             }
@@ -345,12 +356,14 @@ mod tests {
             self
         }
 
-        fn build(self) -> Vec<u8> {
+        fn build(self) -> Vec<u8>
+        {
             self.data
         }
     }
 
-    fn minimal_layout(flags: u8) -> Vec<u8> {
+    fn minimal_layout(flags: u8) -> Vec<u8>
+    {
         FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), flags)
             .link_table(&[])
@@ -363,21 +376,24 @@ mod tests {
     // ── FileFlags ─────────────────────────────────────────────────────────────
 
     #[test]
-    fn file_flags_has_debug_set() {
+    fn file_flags_has_debug_set()
+    {
         let mut c = Cursor::new(vec![0b0000_0001]);
         let f = FileFlags::read_le(&mut c).unwrap();
         assert!(f.contains(FileFlags::HAS_DEBUG));
     }
 
     #[test]
-    fn file_flags_empty() {
+    fn file_flags_empty()
+    {
         let mut c = Cursor::new(vec![0u8]);
         let f = FileFlags::read_le(&mut c).unwrap();
         assert!(f.is_empty());
     }
 
     #[test]
-    fn file_flags_unknown_bits_retained() {
+    fn file_flags_unknown_bits_retained()
+    {
         // Bits that are not named flags must not be silently dropped
         let mut c = Cursor::new(vec![0b1111_1110]);
         let f = FileFlags::read_le(&mut c).unwrap();
@@ -386,7 +402,8 @@ mod tests {
     }
 
     #[test]
-    fn file_flags_all_bits_set() {
+    fn file_flags_all_bits_set()
+    {
         let mut c = Cursor::new(vec![0xFF]);
         let f = FileFlags::read_le(&mut c).unwrap();
         assert!(f.contains(FileFlags::HAS_DEBUG));
@@ -396,21 +413,24 @@ mod tests {
     // ── FunctionFlags ─────────────────────────────────────────────────────────
 
     #[test]
-    fn function_flags_entrypoint_set() {
+    fn function_flags_entrypoint_set()
+    {
         let mut c = Cursor::new(vec![0b0000_0001]);
         let f = FunctionFlags::read_le(&mut c).unwrap();
         assert!(f.contains(FunctionFlags::ENTRYPOINT));
     }
 
     #[test]
-    fn function_flags_empty() {
+    fn function_flags_empty()
+    {
         let mut c = Cursor::new(vec![0u8]);
         let f = FunctionFlags::read_le(&mut c).unwrap();
         assert!(f.is_empty());
     }
 
     #[test]
-    fn function_flags_unknown_bits_retained() {
+    fn function_flags_unknown_bits_retained()
+    {
         let mut c = Cursor::new(vec![0b1111_1110]);
         let f = FunctionFlags::read_le(&mut c).unwrap();
         assert_eq!(f.bits(), 0b1111_1110);
@@ -420,7 +440,8 @@ mod tests {
     // ── FileHeader ────────────────────────────────────────────────────────────
 
     #[test]
-    fn file_header_versions_roundtrip() {
+    fn file_header_versions_roundtrip()
+    {
         let bytes = minimal_layout(0);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.header.file_version, 1);
@@ -428,7 +449,8 @@ mod tests {
     }
 
     #[test]
-    fn file_header_large_version_numbers() {
+    fn file_header_large_version_numbers()
+    {
         let bytes = FileBuilder::new()
             .header(0xFFFF, 0xBEEF, dummy_symbol_id(7), 0)
             .link_table(&[])
@@ -442,7 +464,8 @@ mod tests {
     }
 
     #[test]
-    fn file_header_module_id_preserved() {
+    fn file_header_module_id_preserved()
+    {
         let id = dummy_symbol_id(0xAB);
         let bytes = FileBuilder::new()
             .header(1, 1, id, 0)
@@ -453,19 +476,20 @@ mod tests {
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         // SymbolId is 16 bytes; compare via Debug or raw bytes
-        assert_eq!(format!("{:?}", layout.header.module_id),
-                   format!("{:?}", SymbolId(id)));
+        assert_eq!(format!("{:?}", layout.header.module_id), format!("{:?}", SymbolId(id)));
     }
 
     #[test]
-    fn file_header_flags_debug_set() {
+    fn file_header_flags_debug_set()
+    {
         let bytes = minimal_layout(0b0000_0001);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.header.flags, FileFlags::HAS_DEBUG);
     }
 
     #[test]
-    fn file_header_flags_empty() {
+    fn file_header_flags_empty()
+    {
         let bytes = minimal_layout(0);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert!(layout.header.flags.is_empty());
@@ -474,30 +498,34 @@ mod tests {
     // ── Magic bytes ───────────────────────────────────────────────────────────
 
     #[test]
-    fn wrong_magic_returns_error() {
+    fn wrong_magic_returns_error()
+    {
         let mut bad = Vec::new();
-        bad.extend_from_slice(b"BADMAGIC");          // wrong 8 bytes
-        bad.extend_from_slice(&minimal_layout(0)[8..]);  // rest is valid
+        bad.extend_from_slice(b"BADMAGIC"); // wrong 8 bytes
+        bad.extend_from_slice(&minimal_layout(0)[8..]); // rest is valid
         assert!(FileLayout::read_le(&mut Cursor::new(bad)).is_err());
     }
 
     #[test]
-    fn truncated_magic_returns_error() {
-        let bytes = b"azimuth".to_vec();             // missing null terminator
+    fn truncated_magic_returns_error()
+    {
+        let bytes = b"azimuth".to_vec(); // missing null terminator
         assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
     }
 
     // ── LinkTable ─────────────────────────────────────────────────────────────
 
     #[test]
-    fn link_table_empty() {
+    fn link_table_empty()
+    {
         let bytes = minimal_layout(0);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.link_table.entries.len(), 0);
     }
 
     #[test]
-    fn link_table_single_entry() {
+    fn link_table_single_entry()
+    {
         let link = (42u16, dummy_symbol_id(1), 0xDEAD_BEEFu32);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -512,7 +540,8 @@ mod tests {
     }
 
     #[test]
-    fn link_table_multiple_entries() {
+    fn link_table_multiple_entries()
+    {
         let links = [
             (0u16, dummy_symbol_id(1), 100u32),
             (1u16, dummy_symbol_id(2), 200u32),
@@ -533,11 +562,9 @@ mod tests {
     }
 
     #[test]
-    fn link_table_module_ids_distinct() {
-        let links = [
-            (0u16, dummy_symbol_id(0xAA), 0u32),
-            (1u16, dummy_symbol_id(0xBB), 0u32),
-        ];
+    fn link_table_module_ids_distinct()
+    {
+        let links = [(0u16, dummy_symbol_id(0xAA), 0u32), (1u16, dummy_symbol_id(0xBB), 0u32)];
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&links)
@@ -555,14 +582,16 @@ mod tests {
     // ── SymbolTable ───────────────────────────────────────────────────────────
 
     #[test]
-    fn symbol_table_empty() {
+    fn symbol_table_empty()
+    {
         let bytes = minimal_layout(0);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.symbol_table.symbols.len(), 0);
     }
 
     #[test]
-    fn symbol_table_function_kind() {
+    fn symbol_table_function_kind()
+    {
         // kind tag 0 = Function, followed by body: Offset (u32)
         let sym = (dummy_symbol_id(1), 0u8, Some(0x1234_5678u32));
         let bytes = FileBuilder::new()
@@ -574,14 +603,16 @@ mod tests {
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.symbol_table.symbols.len(), 1);
-        match layout.symbol_table.symbols[0].kind {
+        match layout.symbol_table.symbols[0].kind
+        {
             SymbolKind::Function { body } => assert_eq!(body, 0x1234_5678),
             other => panic!("expected Function, got {:?}", other),
         }
     }
 
     #[test]
-    fn symbol_table_type_kind() {
+    fn symbol_table_type_kind()
+    {
         // kind tag 1 = Type (no extra fields)
         let sym = (dummy_symbol_id(2), 1u8, None);
         let bytes = FileBuilder::new()
@@ -597,7 +628,8 @@ mod tests {
     }
 
     #[test]
-    fn symbol_table_mixed_kinds() {
+    fn symbol_table_mixed_kinds()
+    {
         let syms = [
             (dummy_symbol_id(1), 0u8, Some(10u32)),
             (dummy_symbol_id(2), 1u8, None),
@@ -612,13 +644,20 @@ mod tests {
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.symbol_table.symbols.len(), 3);
-        assert!(matches!(layout.symbol_table.symbols[0].kind, SymbolKind::Function { body: 10 }));
+        assert!(matches!(
+            layout.symbol_table.symbols[0].kind,
+            SymbolKind::Function { body: 10 }
+        ));
         assert!(matches!(layout.symbol_table.symbols[1].kind, SymbolKind::Type {}));
-        assert!(matches!(layout.symbol_table.symbols[2].kind, SymbolKind::Function { body: 20 }));
+        assert!(matches!(
+            layout.symbol_table.symbols[2].kind,
+            SymbolKind::Function { body: 20 }
+        ));
     }
 
     #[test]
-    fn symbol_table_invalid_kind_tag_returns_error() {
+    fn symbol_table_invalid_kind_tag_returns_error()
+    {
         // Tag 0xFF is not a valid SymbolKind discriminant
         let sym = (dummy_symbol_id(1), 0xFFu8, None);
         let bytes = FileBuilder::new()
@@ -634,7 +673,8 @@ mod tests {
     // ── CodeDirectory ─────────────────────────────────────────────────────────
 
     #[test]
-    fn code_directory_empty() {
+    fn code_directory_empty()
+    {
         let bytes = minimal_layout(0);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.code_directory.function_count(), 0);
@@ -642,7 +682,8 @@ mod tests {
     }
 
     #[test]
-    fn code_directory_single_function_no_entrypoint() {
+    fn code_directory_single_function_no_entrypoint()
+    {
         let func = (dummy_symbol_id(1), 0u32, 10u32, 4u32, 8u32, 0u8);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -662,7 +703,8 @@ mod tests {
     }
 
     #[test]
-    fn code_directory_function_entrypoint_flag() {
+    fn code_directory_function_entrypoint_flag()
+    {
         let func = (dummy_symbol_id(1), 0u32, 5u32, 2u32, 4u32, 0b0000_0001u8);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -677,7 +719,8 @@ mod tests {
     }
 
     #[test]
-    fn code_directory_bytecode_preserved() {
+    fn code_directory_bytecode_preserved()
+    {
         let bytecode = vec![0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -692,7 +735,8 @@ mod tests {
     }
 
     #[test]
-    fn code_directory_multiple_functions() {
+    fn code_directory_multiple_functions()
+    {
         let funcs = [
             (dummy_symbol_id(1), 0u32, 3u32, 1u32, 2u32, 0u8),
             (dummy_symbol_id(2), 3u32, 5u32, 2u32, 4u32, 0b0000_0001u8),
@@ -707,13 +751,22 @@ mod tests {
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.code_directory.function_count(), 2);
-        assert!(!layout.code_directory.functions[0].flags.contains(FunctionFlags::ENTRYPOINT));
-        assert!(layout.code_directory.functions[1].flags.contains(FunctionFlags::ENTRYPOINT));
+        assert!(
+            !layout.code_directory.functions[0]
+                .flags
+                .contains(FunctionFlags::ENTRYPOINT)
+        );
+        assert!(
+            layout.code_directory.functions[1]
+                .flags
+                .contains(FunctionFlags::ENTRYPOINT)
+        );
         assert_eq!(layout.code_directory.functions[1].index, 3);
     }
 
     #[test]
-    fn code_directory_function_index_and_length() {
+    fn code_directory_function_index_and_length()
+    {
         // Verify index + length fields parse correctly with large values
         let func = (dummy_symbol_id(1), 0x0000_FFFFu32, 0xFFFF_0000u32, 0u32, 0u32, 0u8);
         let bytes = FileBuilder::new()
@@ -730,7 +783,8 @@ mod tests {
     }
 
     #[test]
-    fn code_directory_max_locals_and_stack() {
+    fn code_directory_max_locals_and_stack()
+    {
         let func = (dummy_symbol_id(1), 0u32, 0u32, u32::MAX, u32::MAX, 0u8);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -748,7 +802,8 @@ mod tests {
     // ── DataDirectory ─────────────────────────────────────────────────────────
 
     #[test]
-    fn data_directory_empty() {
+    fn data_directory_empty()
+    {
         let bytes = minimal_layout(0);
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.data_directory.data_byte_size(), 0);
@@ -757,7 +812,8 @@ mod tests {
     }
 
     #[test]
-    fn data_directory_single_entry() {
+    fn data_directory_single_entry()
+    {
         let entry = (16u32, 0u32);
         let payload = vec![0xBE; 16];
         let bytes = FileBuilder::new()
@@ -776,7 +832,8 @@ mod tests {
     }
 
     #[test]
-    fn data_directory_multiple_entries() {
+    fn data_directory_multiple_entries()
+    {
         let entries = [(8u32, 0u32), (4u32, 8u32), (16u32, 12u32)];
         let payload: Vec<u8> = (0..28).collect();
         let bytes = FileBuilder::new()
@@ -795,7 +852,8 @@ mod tests {
     }
 
     #[test]
-    fn data_directory_entries_byte_size() {
+    fn data_directory_entries_byte_size()
+    {
         // entries_byte_size = count * size_of::<DataHeader>()
         // DataHeader = length: u32 + index: u32 = 8 bytes each
         let entries = [(1u32, 0u32), (1u32, 1u32)];
@@ -811,7 +869,8 @@ mod tests {
     }
 
     #[test]
-    fn data_directory_raw_bytes_preserved() {
+    fn data_directory_raw_bytes_preserved()
+    {
         let payload: Vec<u8> = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE];
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -827,7 +886,8 @@ mod tests {
     // ── Full compound FileLayout ───────────────────────────────────────────────
 
     #[test]
-    fn full_layout_all_sections_populated() {
+    fn full_layout_all_sections_populated()
+    {
         let links = [(0u16, dummy_symbol_id(0xAA), 50u32)];
         let syms = [
             (dummy_symbol_id(0x11), 0u8, Some(0u32)),
@@ -858,12 +918,19 @@ mod tests {
 
         // Symbols
         assert_eq!(layout.symbol_table.symbols.len(), 2);
-        assert!(matches!(layout.symbol_table.symbols[0].kind, SymbolKind::Function { body: 0 }));
+        assert!(matches!(
+            layout.symbol_table.symbols[0].kind,
+            SymbolKind::Function { body: 0 }
+        ));
         assert!(matches!(layout.symbol_table.symbols[1].kind, SymbolKind::Type {}));
 
         // Code
         assert_eq!(layout.code_directory.function_count(), 1);
-        assert!(layout.code_directory.functions[0].flags.contains(FunctionFlags::ENTRYPOINT));
+        assert!(
+            layout.code_directory.functions[0]
+                .flags
+                .contains(FunctionFlags::ENTRYPOINT)
+        );
         assert_eq!(layout.code_directory.bytecode, bytecode);
 
         // Data
@@ -872,7 +939,8 @@ mod tests {
     }
 
     #[test]
-    fn full_layout_large_bytecode() {
+    fn full_layout_large_bytecode()
+    {
         let bytecode: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -887,9 +955,19 @@ mod tests {
     }
 
     #[test]
-    fn full_layout_many_functions() {
+    fn full_layout_many_functions()
+    {
         let funcs: Vec<([u8; 16], u32, u32, u32, u32, u8)> = (0..50)
-            .map(|i| (dummy_symbol_id(i as u8), i * 10, 10, i, i * 2, if i == 0 { 1 } else { 0 }))
+            .map(|i| {
+                (
+                    dummy_symbol_id(i as u8),
+                    i * 10,
+                    10,
+                    i,
+                    i * 2,
+                    if i == 0 { 1 } else { 0 },
+                )
+            })
             .collect();
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -901,14 +979,20 @@ mod tests {
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.code_directory.function_count(), 50);
         // Only function 0 should have ENTRYPOINT
-        assert!(layout.code_directory.functions[0].flags.contains(FunctionFlags::ENTRYPOINT));
-        for f in &layout.code_directory.functions[1..] {
+        assert!(
+            layout.code_directory.functions[0]
+                .flags
+                .contains(FunctionFlags::ENTRYPOINT)
+        );
+        for f in &layout.code_directory.functions[1..]
+        {
             assert!(f.flags.is_empty());
         }
     }
 
     #[test]
-    fn truncated_input_returns_error() {
+    fn truncated_input_returns_error()
+    {
         // Cut the valid buffer in half
         let bytes = minimal_layout(0);
         let half = bytes.len() / 2;
@@ -916,7 +1000,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_returns_error() {
+    fn empty_input_returns_error()
+    {
         assert!(FileLayout::read_le(&mut Cursor::new(vec![])).is_err());
     }
 }
