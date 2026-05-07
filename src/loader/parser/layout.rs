@@ -159,6 +159,7 @@ pub struct Function
     pub length: u32,
     pub maxlocals: u32,
     pub maxstack: u32,
+    pub param_count: u8,
     pub flags: FunctionFlags,
 }
 

@@ -5,7 +5,7 @@ use num_traits::FromBytes;
 use crate::{
     engine::opcodes::Opcode,
     guard,
-    loader::{Loader, LoaderContext},
+    loader::{Loader, LoaderContext, SymbolId},
     memory::{
         datumspace::tables::constant_table::{Constant, ConstantTableIndex},
         stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
@@ -71,6 +71,16 @@ impl HandlerInputInfo<'_, '_, '_>
         self.params
             .split_at_checked(count)
             .map(|(x, _)| x)
+            .ok_or(ExecutionError::MissingParams)
+    }
+
+    fn get_numeric<T, const N: usize>(&self, start: usize) -> Result<T, ExecutionError>
+    where
+        T: FromBytes<Bytes = [u8; N]>
+    {
+        self.params
+            .split_at_checked(start)
+            .and_then(|(_, x)| Some(<T>::from_le_bytes(x.first_chunk()?)))
             .ok_or(ExecutionError::MissingParams)
     }
 
@@ -316,6 +326,28 @@ where
     input
         .stack_push(value.cast::<I, O>().ok_or(ExecutionError::TypeMismatch)?)
         .map(|()| InstructionResult::Next)
+}
+
+// Conditionals
+
+
+
+
+// Functions
+
+fn invoke(input: &mut HandlerInputInfo) -> ExecutionResult
+{
+    let link_index: usize = input.get_numeric(0)?;
+    let func: usize = input.get_numeric(size_of::<usize>())?;
+    // let symbol_id = SymbolId(
+    //     input.params
+    //     .get(1..size_of::<SymbolId>())
+    //     .ok_or(ExecutionError::MissingParams)
+    //     .and_then(|x| x.try_into().map_err(|_| ExecutionError::IllegalParam))?
+    // );
+
+
+    Ok(InstructionResult::Invoke(link_index, func))
 }
 
 // Debugging Handlers. Not for actual use

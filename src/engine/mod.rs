@@ -29,6 +29,14 @@ impl From<LoaderError> for RunnerError
     }
 }
 
+impl From<ExecutionError> for RunnerError
+{
+    fn from(value: ExecutionError) -> Self
+    {
+        Self::ExecutionError(value)
+    }
+}
+
 pub struct Runner<'a, 'b>
 {
     stack: &'a mut Stack,

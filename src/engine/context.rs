@@ -52,10 +52,8 @@ where
         // error
         loop
         {
-            let exec_result = {
-                let constant_fn = |x| self.loader.get_constant(x).ok();
-                exec_instruction(&code[pc..], &mut self.frame, constant_fn).map_err(RunnerError::ExecutionError)?
-            };
+            let exec_result =
+                exec_instruction(&code[pc..], &mut self.frame, |x| self.loader.get_constant(x).ok())?;
 
             match exec_result
             {

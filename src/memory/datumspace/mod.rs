@@ -15,7 +15,7 @@ use itertools::{Itertools, process_results};
 use crate::{
     loader::{
         SymbolId,
-        parser::layout::{DataHeader, FileLayout, Link as ParsedLink, SymbolKind as ParsedSymbolKind},
+        parser::layout::{DataHeader, FileLayout, SymbolKind as ParsedSymbolKind},
     },
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
@@ -23,7 +23,7 @@ use crate::{
             datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
             runnable::{Function, FunctionFlags, Runnable},
             tables::{
-                constant_table::{Constant, ConstantTableEntry, ConstantTableIndex, DataEntry},
+                constant_table::{Constant, ConstantTableEntry, DataEntry},
                 link_table::{self, Link},
                 symbol_table::{Symbol, SymbolKind},
             },
@@ -56,7 +56,6 @@ type DatumResult<T, E = DatumspaceError> = Result<T, E>;
 #[derive(Clone, Copy, Debug)]
 pub enum DatumspaceError
 {
-    LeftOverBytes,
     InvalidStructure,
     AllocationFailure,
     Duplication,
@@ -84,7 +83,6 @@ impl<'d> Datumspace<'d>
         })
     }
 
-    #[must_use]
     pub fn load_datum<'file>(&mut self, layout: &FileLayout) -> DatumResult<DatumPage<'d>>
     where
         'd: 'file,
