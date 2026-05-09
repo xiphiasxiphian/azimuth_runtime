@@ -110,6 +110,7 @@ impl<'d> Datumspace<'d>
                             maxlocals: x.maxlocals,
                             bytecode: (header.bytecode_blob.0 + Offset(x.index), x.length),
                             flags: FunctionFlags::from_bits_retain(x.flags.bits()),
+                            param_count: x.param_count,
                         })
                     }))?
                     .write_symbols(layout.symbol_table.symbols.iter().map(|x| Symbol {

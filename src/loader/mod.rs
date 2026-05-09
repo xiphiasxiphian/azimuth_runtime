@@ -211,6 +211,7 @@ pub struct FunctionInfo<'a>
 {
     maxstack: usize,
     maxlocals: usize,
+    param_count: u8,
     bytecode: &'a [u8],
 }
 
@@ -229,6 +230,7 @@ impl<'a> FunctionInfo<'a>
         Ok(FunctionInfo {
             maxstack,
             maxlocals,
+            param_count: function.param_count,
             bytecode,
         })
     }
@@ -249,5 +251,10 @@ impl<'a> FunctionInfo<'a>
         // Very dodgy looking but trust me broz
         // If something starts going wrong, THIS is the first place to look
         unsafe { transmute(self.bytecode) }
+    }
+
+    pub fn param_count(&self) -> u8
+    {
+        self.param_count
     }
 }

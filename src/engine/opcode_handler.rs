@@ -50,7 +50,7 @@ impl HandlerInputInfo<'_, '_, '_>
         self.frame.push(val).then_some(()).ok_or(ExecutionError::StackOverflow)
     }
 
-    pub fn local_get(&mut self, index: u8) -> Result<StackEntry, ExecutionError>
+    pub fn local_get(&mut self, index: u8) -> Result<&StackEntry, ExecutionError>
     {
         self.frame
             .get_local(index as usize)
@@ -282,7 +282,7 @@ fn ret(input: &mut HandlerInputInfo, with_value: bool) -> ExecutionResult
 /// Loads a local variable at the provided index onto the stack
 fn load_local(input: &mut HandlerInputInfo, index: u8) -> ExecutionResult
 {
-    let val = input.local_get(index)?;
+    let val = *input.local_get(index)?;
     input.stack_push(val).map(|()| InstructionResult::Next)
 }
 

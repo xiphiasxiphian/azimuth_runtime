@@ -1,7 +1,10 @@
+use std::iter::{repeat, repeat_with};
+
+use itertools::Itertools;
+
 use crate::{
     engine::{
-        RunnerError,
-        opcode_handler::{InstructionResult, exec_instruction},
+        Runner, RunnerError, opcode_handler::{ExecutionError, InstructionResult, exec_instruction}
     },
     guard,
     loader::{FunctionInfo, Loader, LoaderContext},
@@ -84,28 +87,35 @@ where
 
                     loader_ref
                         .with_link(link, |new_loader_context| -> Result<(), RunnerError> {
-                            let (maxstack, maxlocals, code) = {
+                            let (maxstack, maxlocals, param_count, code) = {
                                 let function_info = new_loader_context.get_function(func)?;
                                 let (maxstack, maxlocals) = function_info.setup_info();
                                 let code = function_info.code();
-                                (maxstack, maxlocals, code)
+                                let param_count = function_info.param_count();
+
+                                (maxstack, maxlocals, param_count, code)
                             };
 
-                            // Capture the result from the nested execution
-                            let mut invoke_result: Option<Result<Option<StackEntry>, RunnerError>> = None;
+                            let params: Vec<StackEntry>
+                                = repeat_with(|| frame_ref.pop())
+                                    .take(param_count.into())
+                                    .collect::<Option<Vec<StackEntry>>>()
+                                    .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
 
-                            let frame_created = frame_ref.with_next_frame(maxlocals, maxstack, |new_frame| {
+                            let return_value = frame_ref.with_next_frame(maxlocals, maxstack, |mut new_frame| {
+                                // Move parameters into local variables
+                                for (i, param) in params.into_iter().enumerate()
+                                {
+                                    let _ = new_frame.set_local(i, param);
+                                }
+
                                 let mut new_context = ExecutionContext {
                                     frame: new_frame,
                                     loader: new_loader_context,
                                 };
-                                invoke_result = Some(new_context.execute_function(code));
-                            });
 
-                            guard!(frame_created, RunnerError::StackOverflow);
-
-                            // Unwrap and propagate the result
-                            let return_value = invoke_result.ok_or(RunnerError::StackOverflow)??;
+                                new_context.execute_function(code)
+                            })?;
 
                             // If the invoked function returned a value, push it onto the stack
                             if let Some(value) = return_value

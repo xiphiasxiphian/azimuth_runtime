@@ -1,4 +1,6 @@
-use crate::memory::stack::entry::StackEntry;
+use std::{ops::{Bound, RangeBounds}, slice::SliceIndex};
+
+use crate::{engine::RunnerError, memory::stack::entry::StackEntry};
 
 pub mod convert;
 pub mod entry;
@@ -113,11 +115,16 @@ impl<'a> StackFrame<'a>
     /// ### Warning
     /// If the provided inputs cannot be used to create a valid stack frame (because of overflow)
     /// then this operation will fail. While the failure will be safe (see return value), it is
-    /// worth saying that rarely will the execution of the program overall be able to continue from
+    /// worth noting that rarely will the execution of the program overall be able to continue from
     /// this.
-    pub fn with_next_frame<'b, F>(&'b mut self, locals_size: usize, stack_size: usize, action: F) -> bool
+    pub fn with_next_frame<'b, F>(
+        &'b mut self,
+        locals_size: usize,
+        stack_size: usize,
+        action: F
+    ) -> Result<Option<StackEntry>, RunnerError>
     where
-        F: FnOnce(StackFrame<'b>),
+        F: FnOnce(StackFrame<'b>) -> Result<Option<StackEntry>, RunnerError>,
     {
         (self.size + locals_size + stack_size <= self.origin.stack.len()) // Check if the new frame fits
             .then(|| {
@@ -127,9 +134,9 @@ impl<'a> StackFrame<'a>
                     self.size,
                     self.size + locals_size,
                     locals_size + stack_size,
-                ));
+                ))
             })
-            .is_some() // If the creation failed, return false, otherwise return true.
+            .ok_or(RunnerError::StackOverflow)?
     }
 
     /* As a general rule, all the stack operations are in some way "well defined".
@@ -187,11 +194,16 @@ impl<'a> StackFrame<'a>
     ///
     /// ### Possible Errors
     /// Index out of Bounds - return `None`
-    pub fn get_local(&self, index: usize) -> Option<StackEntry>
-    {
-        let idx = self.locals_base + index;
-        (idx < self.stack_base + self.size).then(|| self.origin.stack[idx])
-    }
+    pub fn get_local<I>(&self, index: I) -> Option<&I::Output>
+        where
+            I: SliceIndex<[StackEntry]>,
+        {
+            let limit = self.stack_base + self.size;
+            self.origin.stack
+                .get(self.locals_base..limit)?
+                .get(index)
+        }
+
 
     /// Set the value of a local variable at the given index, returning the previous
     /// value at that position.
@@ -242,7 +254,9 @@ mod stack_tests
             assert_eq!(f.locals_base, 8);
             assert_eq!(f.stack_base, 12);
             assert_eq!(f.stack_pointer, 0);
-        }));
+
+            Ok(None)
+        }).is_ok());
     }
 
     #[test]
@@ -254,7 +268,7 @@ mod stack_tests
         assert!(frame1.is_none());
         let mut frame2 = stack.initial_frame(512, 512).unwrap();
 
-        assert!(!frame2.with_next_frame(20, 20, |_| {}));
+        assert!(frame2.with_next_frame(20, 20, |_| { Ok(None) }).is_err());
     }
 
     #[test]
@@ -292,7 +306,7 @@ mod stack_tests
         frame.set_local(0, 10_u64.into());
         frame.set_local(1, StackEntry::from((1 as u64) << 33));
 
-        assert_eq!(frame.get_local(0), Some(StackEntry::Unsigned(10)));
-        assert_eq!(frame.get_local(1), Some(StackEntry::Unsigned(1 << 33)));
+        assert_eq!(frame.get_local(0), Some(&StackEntry::Unsigned(10)));
+        assert_eq!(frame.get_local(1), Some(&StackEntry::Unsigned(1 << 33)));
     }
 }

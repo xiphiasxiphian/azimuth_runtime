@@ -22,6 +22,7 @@ pub struct Function
 {
     pub maxstack: u32,
     pub maxlocals: u32,
+    pub param_count: u8,
     pub bytecode: BlockLocation,
     pub flags: FunctionFlags,
 }
