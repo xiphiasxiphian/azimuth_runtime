@@ -4,7 +4,8 @@ use itertools::Itertools;
 
 use crate::{
     engine::{
-        Runner, RunnerError, opcode_handler::{ExecutionError, InstructionResult, exec_instruction}
+        Runner, RunnerError,
+        opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
     },
     guard,
     loader::{FunctionInfo, Loader, LoaderContext},
@@ -55,8 +56,7 @@ where
         // error
         loop
         {
-            let exec_result =
-                exec_instruction(&code[pc..], &mut self.frame, |x| self.loader.get_constant(x).ok())?;
+            let exec_result = exec_instruction(&code[pc..], &mut self.frame, |x| self.loader.get_constant(x).ok())?;
 
             match exec_result
             {
@@ -96,11 +96,10 @@ where
                                 (maxstack, maxlocals, param_count, code)
                             };
 
-                            let params: Vec<StackEntry>
-                                = repeat_with(|| frame_ref.pop())
-                                    .take(param_count.into())
-                                    .collect::<Option<Vec<StackEntry>>>()
-                                    .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
+                            let params: Vec<StackEntry> = repeat_with(|| frame_ref.pop())
+                                .take(param_count.into())
+                                .collect::<Option<Vec<StackEntry>>>()
+                                .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
 
                             let return_value = frame_ref.with_next_frame(maxlocals, maxstack, |mut new_frame| {
                                 // Move parameters into local variables
@@ -109,12 +108,11 @@ where
                                     let _ = new_frame.set_local(i, param);
                                 }
 
-                                let mut new_context = ExecutionContext {
+                                ExecutionContext {
                                     frame: new_frame,
                                     loader: new_loader_context,
-                                };
-
-                                new_context.execute_function(code)
+                                }
+                                .execute_function(code)
                             })?;
 
                             // If the invoked function returned a value, push it onto the stack

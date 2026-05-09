@@ -1,4 +1,7 @@
-use std::{ops::{Bound, RangeBounds}, slice::SliceIndex};
+use std::{
+    ops::{Bound, RangeBounds},
+    slice::SliceIndex,
+};
 
 use crate::{engine::RunnerError, memory::stack::entry::StackEntry};
 
@@ -121,7 +124,7 @@ impl<'a> StackFrame<'a>
         &'b mut self,
         locals_size: usize,
         stack_size: usize,
-        action: F
+        action: F,
     ) -> Result<Option<StackEntry>, RunnerError>
     where
         F: FnOnce(StackFrame<'b>) -> Result<Option<StackEntry>, RunnerError>,
@@ -195,15 +198,12 @@ impl<'a> StackFrame<'a>
     /// ### Possible Errors
     /// Index out of Bounds - return `None`
     pub fn get_local<I>(&self, index: I) -> Option<&I::Output>
-        where
-            I: SliceIndex<[StackEntry]>,
-        {
-            let limit = self.stack_base + self.size;
-            self.origin.stack
-                .get(self.locals_base..limit)?
-                .get(index)
-        }
-
+    where
+        I: SliceIndex<[StackEntry]>,
+    {
+        let limit = self.stack_base + self.size;
+        self.origin.stack.get(self.locals_base..limit)?.get(index)
+    }
 
     /// Set the value of a local variable at the given index, returning the previous
     /// value at that position.
@@ -250,13 +250,17 @@ mod stack_tests
     {
         let mut stack: Stack = Stack::new(1024);
         let mut frame1 = stack.initial_frame(4, 4).unwrap();
-        assert!(frame1.with_next_frame(4, 4, |f| {
-            assert_eq!(f.locals_base, 8);
-            assert_eq!(f.stack_base, 12);
-            assert_eq!(f.stack_pointer, 0);
+        assert!(
+            frame1
+                .with_next_frame(4, 4, |f| {
+                    assert_eq!(f.locals_base, 8);
+                    assert_eq!(f.stack_base, 12);
+                    assert_eq!(f.stack_pointer, 0);
 
-            Ok(None)
-        }).is_ok());
+                    Ok(None)
+                })
+                .is_ok()
+        );
     }
 
     #[test]

@@ -76,7 +76,7 @@ impl HandlerInputInfo<'_, '_, '_>
 
     fn get_numeric<T, const N: usize>(&self, start: usize) -> Result<T, ExecutionError>
     where
-        T: FromBytes<Bytes = [u8; N]>
+        T: FromBytes<Bytes = [u8; N]>,
     {
         self.params
             .split_at_checked(start)
@@ -330,9 +330,6 @@ where
 
 // Conditionals
 
-
-
-
 // Functions
 
 fn invoke(input: &mut HandlerInputInfo) -> ExecutionResult
@@ -345,7 +342,6 @@ fn invoke(input: &mut HandlerInputInfo) -> ExecutionResult
     //     .ok_or(ExecutionError::MissingParams)
     //     .and_then(|x| x.try_into().map_err(|_| ExecutionError::IllegalParam))?
     // );
-
 
     Ok(InstructionResult::Invoke(link_index, func))
 }
