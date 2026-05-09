@@ -3,7 +3,7 @@ use std::{
     slice::SliceIndex,
 };
 
-use crate::{engine::RunnerError, memory::stack::entry::StackEntry};
+use crate::{engine::{RunnerError, opcode_handler::ExecutionError}, memory::stack::entry::StackEntry};
 
 pub mod convert;
 pub mod entry;
@@ -124,22 +124,44 @@ impl<'a> StackFrame<'a>
         &'b mut self,
         locals_size: usize,
         stack_size: usize,
+        param_count: usize,
         action: F,
     ) -> Result<Option<StackEntry>, RunnerError>
     where
         F: FnOnce(StackFrame<'b>) -> Result<Option<StackEntry>, RunnerError>,
     {
-        (self.size + locals_size + stack_size <= self.origin.stack.len()) // Check if the new frame fits
-            .then(|| {
-                // Create the new frame and run the action given it.
-                action(StackFrame::new(
-                    self.origin,
-                    self.size,
-                    self.size + locals_size,
-                    locals_size + stack_size,
-                ))
-            })
-            .ok_or(RunnerError::StackOverflow)?
+        // Calculate where the parameters start relative to the physical stack.
+        // The parameters are the last `param_count` items pushed to the current frame.
+        let current_top = self.stack_base + self.stack_pointer;
+        let new_locals_base = current_top.checked_sub(param_count)
+            .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
+
+        let new_stack_base = new_locals_base + locals_size;
+        let total_required_capacity = locals_size + stack_size;
+
+        // bounds check against the physical stack limit.
+        if new_stack_base + stack_size > self.origin.stack.len() {
+            return Err(RunnerError::StackOverflow);
+        }
+
+        // Create the new frame.
+        // Its "locals" now point directly to the parameters sitting on the stack.
+        let new_frame = StackFrame::new(
+            self.origin,
+            new_locals_base,
+            new_stack_base,
+            total_required_capacity,
+        );
+
+        // 5. Execute the function.
+        let result = action(new_frame)?;
+
+        // 6. Cleanup: "Pop" the parameters from the caller's perspective.
+        // Since the callee is done, the caller's stack pointer moves back
+        // to before the arguments were pushed.
+        self.stack_pointer -= param_count;
+
+        Ok(result)
     }
 
     /* As a general rule, all the stack operations are in some way "well defined".

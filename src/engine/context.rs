@@ -96,24 +96,18 @@ where
                                 (maxstack, maxlocals, param_count, code)
                             };
 
-                            let params: Vec<StackEntry> = repeat_with(|| frame_ref.pop())
-                                .take(param_count.into())
-                                .collect::<Option<Vec<StackEntry>>>()
-                                .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
-
-                            let return_value = frame_ref.with_next_frame(maxlocals, maxstack, |mut new_frame| {
-                                // Move parameters into local variables
-                                for (i, param) in params.into_iter().enumerate()
-                                {
-                                    let _ = new_frame.set_local(i, param);
+                            let return_value = frame_ref.with_next_frame(
+                                maxlocals,
+                                maxstack,
+                                param_count.into(),
+                                |new_frame| {
+                                    ExecutionContext {
+                                        frame: new_frame,
+                                        loader: new_loader_context,
+                                    }
+                                    .execute_function(code)
                                 }
-
-                                ExecutionContext {
-                                    frame: new_frame,
-                                    loader: new_loader_context,
-                                }
-                                .execute_function(code)
-                            })?;
+                            )?;
 
                             // If the invoked function returned a value, push it onto the stack
                             if let Some(value) = return_value
