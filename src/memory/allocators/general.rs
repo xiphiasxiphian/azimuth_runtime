@@ -131,7 +131,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         self.raw_dealloc(ptr.cast(), size_of::<T>(), align_of::<T>());
     }
 
-    pub fn copy_bytes<'a>(&'a mut self, src: &[u8]) -> Option<NonNull<[u8]>>
+    pub fn copy_bytes(&mut self, src: &[u8]) -> Option<NonNull<[u8]>>
     {
         let dest = self.raw_alloc(Layout::for_value(src))?;
         unsafe {

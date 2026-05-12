@@ -71,14 +71,14 @@ pub struct LinkTable
 #[br(little)]
 pub enum SymbolKind
 {
-    #[br(magic = 0u8)]
+    #[br(magic = 0_u8)]
     Function
     {
         // signature:
         body: Offset,
     },
 
-    #[br(magic = 1u8)]
+    #[br(magic = 1_u8)]
     Type {
         // typeref
     },
@@ -114,15 +114,15 @@ pub struct SymbolTable
 #[repr(u8)]
 pub enum TypeTag
 {
-    #[br(magic = 0x0u8)]
+    #[br(magic = 0x0_u8)]
     Integer32,
-    #[br(magic = 0x1u8)]
+    #[br(magic = 0x1_u8)]
     Integer64,
-    #[br(magic = 0x2u8)]
+    #[br(magic = 0x2_u8)]
     Float32,
-    #[br(magic = 0x3u8)]
+    #[br(magic = 0x3_u8)]
     Float64,
-    #[br(magic = 0x4u8)]
+    #[br(magic = 0x4_u8)]
     String,
 }
 

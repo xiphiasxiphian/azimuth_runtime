@@ -1,7 +1,7 @@
 use std::{io, mem::transmute, path::Path};
 
 use binrw::binread;
-use itertools::Itertools;
+use itertools::Itertools as _;
 
 use crate::{
     loader::parser::parse_file,
@@ -23,7 +23,7 @@ pub(super) mod parser;
 
 /// 128-bit content-derived identifier for a symbol.
 ///
-/// For functions and types, computed as: hash(namespace + name + type_descriptor), truncated to 16 bytes.
+/// For functions and types, computed as: hash(namespace + name + `type_descriptor`), truncated to 16 bytes.
 /// Being content-derived means two independent compilers targeting the same
 /// source produce identical UUIDs, enabling cross-compiler linking.
 ///
@@ -130,7 +130,7 @@ impl<'a, 'b> LoaderContext<'a, 'b>
         let base = loader.datumspace.get_page(&id)?;
 
         Ok(LoaderContext {
-            loader: loader,
+            loader,
             page_id: id,
             page: base,
         })
@@ -145,7 +145,7 @@ impl<'a, 'b> LoaderContext<'a, 'b>
         let page = self.loader.load_link(&self.page_id, link)?;
 
         Ok(func(LoaderContext {
-            loader: &mut self.loader,
+            loader: self.loader,
             page_id: *page.id,
             page,
         }))

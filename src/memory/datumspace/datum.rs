@@ -1,4 +1,4 @@
-use std::{ops::Add, ptr::NonNull};
+use std::{ops::Add as _, ptr::NonNull};
 
 use derive_more::{Add, Sub};
 
@@ -75,7 +75,7 @@ impl InlinedString
         Self { location }
     }
 
-    pub unsafe fn get<'a>(&'a self, base: NonNull<u8>) -> Option<&'a str>
+    pub unsafe fn get(&self, base: NonNull<u8>) -> Option<&str>
     {
         unsafe {
             let bytes: &[u8] =
@@ -84,7 +84,7 @@ impl InlinedString
         }
     }
 
-    pub unsafe fn get_unchecked<'a>(&'a self, base: NonNull<u8>) -> &'a str
+    pub unsafe fn get_unchecked(&self, base: NonNull<u8>) -> &str
     {
         unsafe {
             let bytes: &[u8] =
@@ -112,14 +112,14 @@ impl DatumPageHeader
     /// Constructs a view over the Datumpage, from its header
     ///
     /// SAFETY: This is only safe is the given page header is embedded within datumspace
-    /// in an _actual_ DatumPage. Otherwise, this will end up reading into nonsense memory
+    /// in an _actual_ `DatumPage`. Otherwise, this will end up reading into nonsense memory
     pub unsafe fn get_page(&self) -> DatumPage<'_>
     {
         unsafe { DatumPage::from_base_ptr(NonNull::from_ref(self).cast()) }
     }
 }
 
-/// A typed view over a raw DatumPage block.
+/// A typed view over a raw `DatumPage` block.
 /// All slices point into the same contiguous allocation.
 pub struct DatumPage<'a>
 {
@@ -194,7 +194,7 @@ pub struct PageBuilder
 
 impl PageBuilder
 {
-    /// SAFETY: raw_base must have space for the header to be written to it,
+    /// SAFETY: `raw_base` must have space for the header to be written to it,
     /// and realistically must have space for anything future to be written to
     /// the page
     pub unsafe fn new(raw_base: NonNull<u8>, header: DatumPageHeader) -> Self
@@ -202,8 +202,8 @@ impl PageBuilder
         let base = raw_base.cast();
 
         unsafe {
-            base.write(header);
-        }
+            base.write(header)
+        };
 
         Self { base }
     }
@@ -261,8 +261,8 @@ impl PageBuilder
         unsafe {
             loc.0
                 .as_ptr::<u8>(self.base.cast())
-                .copy_from_nonoverlapping(NonNull::from_ref(src).cast(), src.len());
-        }
+                .copy_from_nonoverlapping(NonNull::from_ref(src).cast(), src.len())
+        };
 
         Some(self)
     }

@@ -237,7 +237,7 @@ fn push_constant(input: &mut HandlerInputInfo) -> ExecutionResult
     // Copy the constant from the constant table onto the stack.
     // This function will take care of the differing behaviours depending on
     // the type of constant
-    input.move_constant(index).map(|_| InstructionResult::Next)
+    input.move_constant(index).map(|()| InstructionResult::Next)
 }
 
 /// Pops a value off the stack, explicitly discarding it

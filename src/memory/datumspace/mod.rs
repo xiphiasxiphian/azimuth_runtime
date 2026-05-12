@@ -10,7 +10,7 @@ use std::{
     ptr::NonNull,
 };
 
-use itertools::{Itertools, process_results};
+use itertools::{Itertools as _, process_results};
 
 use crate::{
     loader::{
@@ -190,7 +190,7 @@ impl<'d> Datumspace<'d>
         let entry = page.constants.get(index).ok_or(DatumspaceError::ResourceDoesntExist)?;
         match entry
         {
-            ConstantTableEntry::Resolved(constant) => Ok(&constant),
+            ConstantTableEntry::Resolved(constant) => Ok(constant),
             ConstantTableEntry::Unresolved(entry) =>
             unsafe {
                 self.write_constant(

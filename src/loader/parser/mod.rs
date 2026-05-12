@@ -1,6 +1,6 @@
 use std::{fs::File, path::Path};
 
-use binrw::{BinRead, io::BufReader};
+use binrw::{BinRead as _, io::BufReader};
 
 use crate::loader::{LoaderError, parser::layout::FileLayout};
 
