@@ -334,8 +334,8 @@ where
 
 fn invoke(input: &mut HandlerInputInfo) -> ExecutionResult
 {
-    let link_index: usize = input.get_numeric(0)?;
-    let func: usize = input.get_numeric(size_of::<usize>())?;
+    let link_index: u32 = input.get_numeric(0)?;
+    let func: u32 = input.get_numeric(size_of::<u32>())?;
     // let symbol_id = SymbolId(
     //     input.params
     //     .get(1..size_of::<SymbolId>())
@@ -343,7 +343,10 @@ fn invoke(input: &mut HandlerInputInfo) -> ExecutionResult
     //     .and_then(|x| x.try_into().map_err(|_| ExecutionError::IllegalParam))?
     // );
 
-    Ok(InstructionResult::Invoke(link_index, func))
+    Ok(InstructionResult::Invoke(
+        link_index.try_into().expect("Running on sub 32-bit machine"),
+        func.try_into().expect("Running on sub 32-bit machine"),
+    ))
 }
 
 // Debugging Handlers. Not for actual use

@@ -3,7 +3,10 @@ use std::{
     slice::SliceIndex,
 };
 
-use crate::{engine::{RunnerError, opcode_handler::ExecutionError}, memory::stack::entry::StackEntry};
+use crate::{
+    engine::{RunnerError, opcode_handler::ExecutionError},
+    memory::stack::entry::StackEntry,
+};
 
 pub mod convert;
 pub mod entry;
@@ -133,32 +136,27 @@ impl<'a> StackFrame<'a>
         // Calculate where the parameters start relative to the physical stack.
         // The parameters are the last `param_count` items pushed to the current frame.
         let current_top = self.stack_base + self.stack_pointer;
-        let new_locals_base = current_top.checked_sub(param_count)
+        let new_locals_base = current_top
+            .checked_sub(param_count)
             .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
 
         let new_stack_base = new_locals_base + locals_size;
         let total_required_capacity = locals_size + stack_size;
 
         // bounds check against the physical stack limit.
-        if new_stack_base + stack_size > self.origin.stack.len() {
+        if new_stack_base + stack_size > self.origin.stack.len()
+        {
             return Err(RunnerError::StackOverflow);
         }
 
         // Create the new frame.
         // Its "locals" now point directly to the parameters sitting on the stack.
-        let new_frame = StackFrame::new(
-            self.origin,
-            new_locals_base,
-            new_stack_base,
-            total_required_capacity,
-        );
+        let new_frame = StackFrame::new(self.origin, new_locals_base, new_stack_base, total_required_capacity);
 
-        // 5. Execute the function.
+        // execute the function.
         let result = action(new_frame)?;
 
-        // 6. Cleanup: "Pop" the parameters from the caller's perspective.
-        // Since the callee is done, the caller's stack pointer moves back
-        // to before the arguments were pushed.
+        // pop off the arguments
         self.stack_pointer -= param_count;
 
         Ok(result)
@@ -274,7 +272,7 @@ mod stack_tests
         let mut frame1 = stack.initial_frame(4, 4).unwrap();
         assert!(
             frame1
-                .with_next_frame(4, 4, |f| {
+                .with_next_frame(4, 4, 0, |f| {
                     assert_eq!(f.locals_base, 8);
                     assert_eq!(f.stack_base, 12);
                     assert_eq!(f.stack_pointer, 0);
@@ -294,7 +292,7 @@ mod stack_tests
         assert!(frame1.is_none());
         let mut frame2 = stack.initial_frame(512, 512).unwrap();
 
-        assert!(frame2.with_next_frame(20, 20, |_| { Ok(None) }).is_err());
+        assert!(frame2.with_next_frame(20, 20, 0, |_| { Ok(None) }).is_err());
     }
 
     #[test]
