@@ -3,8 +3,7 @@ use crate::{
         RunnerError,
         opcode_handler::{InstructionResult, exec_instruction},
     },
-    guard,
-    loader::{FunctionInfo, Loader, LoaderContext},
+    loader::{Loader, LoaderContext},
     memory::stack::{Stack, StackFrame, entry::StackEntry},
 };
 

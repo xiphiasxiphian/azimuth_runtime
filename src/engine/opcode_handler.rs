@@ -5,7 +5,6 @@ use num_traits::FromBytes;
 use crate::{
     engine::opcodes::Opcode,
     guard,
-    loader::{Loader, LoaderContext, SymbolId},
     memory::{
         datumspace::tables::constant_table::{Constant, ConstantTableIndex},
         stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},

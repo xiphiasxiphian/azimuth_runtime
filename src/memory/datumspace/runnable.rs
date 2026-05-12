@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::memory::datumspace::{DatumAllocator, DatumspaceError, datum::BlockLocation};
+use crate::memory::datumspace::datum::BlockLocation;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Runnable

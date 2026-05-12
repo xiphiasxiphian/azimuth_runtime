@@ -129,7 +129,7 @@ impl<'d> Datumspace<'d>
                             let DataHeader {
                                 length,
                                 index,
-                                type_tag,
+                                type_tag: _,
                             } = layout
                                 .data_directory
                                 .entries

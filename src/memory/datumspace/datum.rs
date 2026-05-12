@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::Add, ptr::NonNull};
+use std::{ops::Add, ptr::NonNull};
 
 use derive_more::{Add, Sub};
 
@@ -9,7 +9,7 @@ use crate::{
         link_table::Link,
         runnable::Runnable,
         tables::{
-            constant_table::{Constant, ConstantTableEntry},
+            constant_table::ConstantTableEntry,
             symbol_table::Symbol,
         },
     },
@@ -113,7 +113,7 @@ impl DatumPageHeader
     ///
     /// SAFETY: This is only safe is the given page header is embedded within datumspace
     /// in an _actual_ DatumPage. Otherwise, this will end up reading into nonsense memory
-    pub unsafe fn get_page(&self) -> DatumPage
+    pub unsafe fn get_page(&self) -> DatumPage<'_>
     {
         unsafe { DatumPage::from_base_ptr(NonNull::from_ref(self).cast()) }
     }

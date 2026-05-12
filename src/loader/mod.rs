@@ -1,4 +1,4 @@
-use std::{io, mem::transmute, path::Path, ptr::NonNull};
+use std::{io, mem::transmute, path::Path};
 
 use binrw::binread;
 use itertools::Itertools;
@@ -12,12 +12,10 @@ use crate::{
             datum::DatumPage,
             runnable::{Function, FunctionFlags, Runnable},
             tables::{
-                constant_table::{Constant, ConstantTableEntry},
+                constant_table::Constant,
                 link_table::Link,
-                symbol_table::Symbol,
             },
         },
-        stack::entry,
     },
 };
 

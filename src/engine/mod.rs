@@ -5,10 +5,10 @@ pub mod opcodes;
 use crate::{
     engine::{
         context::ExecutionContext,
-        opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
+        opcode_handler::ExecutionError,
     },
-    loader::{self, Loader, LoaderError},
-    memory::stack::{Stack, entry},
+    loader::{Loader, LoaderError},
+    memory::stack::Stack,
 };
 
 #[derive(Debug, Clone, Copy)]

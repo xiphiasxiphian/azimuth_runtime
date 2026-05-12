@@ -68,12 +68,12 @@ impl<'a> Table<'a>
         Some((Self { entries }, remaining))
     }
 
-    pub fn get(&self, idx: u32) -> Option<&TableEntry>
+    pub fn get(&self, idx: u32) -> Option<&TableEntry<'_>>
     {
         self.entries.get(idx as usize)
     }
 
-    pub fn entries(&self) -> &[TableEntry]
+    pub fn entries(&self) -> &[TableEntry<'_>]
     {
         &self.entries
     }

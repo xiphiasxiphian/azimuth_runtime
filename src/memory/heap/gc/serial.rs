@@ -9,7 +9,7 @@ pub struct Serial;
 
 impl GarbageCollector for Serial
 {
-    fn mark(stack: &Stack, heap: &Heap) -> impl Iterator<Item = NonNull<u8>>
+    fn mark(stack: &Stack, _heap: &Heap) -> impl Iterator<Item = NonNull<u8>>
     {
         stack.iter().filter_map(|x| match x
         {

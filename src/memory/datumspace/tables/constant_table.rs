@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 // This is a more formalised wrapper around the idea of the constant table.
 //
 use crate::{
-    loader::parser::layout::{DataHeader, TypeTag},
+    loader::parser::layout::TypeTag,
     memory::{
         datumspace::datum::{BlockLocation, InlinedString},
         stack::entry::StackEntry,
@@ -70,7 +70,7 @@ impl From<Constant> for StackEntry
             Constant::Unsigned64(x) => x.into(),
             Constant::Float32(x) => x.into(),
             Constant::Float64(x) => x.into(),
-            Constant::String(x) => todo!(), // How does the possibly not pinned string get translated here
+            Constant::String(_x) => todo!(), // How does the possibly not pinned string get translated here
         }
     }
 }
