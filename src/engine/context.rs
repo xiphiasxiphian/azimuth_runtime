@@ -1,11 +1,7 @@
-use std::iter::{repeat, repeat_with};
-
-use itertools::Itertools;
-
 use crate::{
     engine::{
-        Runner, RunnerError,
-        opcode_handler::{ExecutionError, InstructionResult, exec_instruction},
+        RunnerError,
+        opcode_handler::{InstructionResult, exec_instruction},
     },
     guard,
     loader::{FunctionInfo, Loader, LoaderContext},
