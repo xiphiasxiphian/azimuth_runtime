@@ -5,16 +5,6 @@ use binrw::{BinRead, io::BufReader};
 use crate::loader::{LoaderError, parser::layout::FileLayout};
 
 pub mod layout;
-pub mod table;
-
-// Convert a set of bytes into a numeric type
-macro_rules! bytes_to_numeric {
-    ($t:ty, $input:expr) => {
-        <$t>::from_le_bytes(*$input.first_chunk()?)
-    };
-}
-
-pub(super) use bytes_to_numeric;
 
 pub fn parse_file(filepath: &Path) -> Result<FileLayout, LoaderError>
 {
