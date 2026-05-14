@@ -31,23 +31,6 @@ use crate::{
     },
 };
 
-/*
-+---------------------+       +-------------------------+       +-------------------------+
-|     1. File I/O     |       |   2. Transient Parsing  |       | 3. Datumspace Storage   |
-|  (Global Memory)    |       |   (Native Heap/Stack)   |       |  (Custom Allocator)     |
-+---------------------+       +-------------------------+       +-------------------------+
-|                     |       |                         |       |                         |
-|  [u8 Buffer]        |       |  Table<'file>           |       |  Datumspace<'datum>     |
-|  "05 0A 00 00 00..."| ----> |  Vec<TableEntry<'file>> | ----> |  GeneralAllocator       |
-|                     |       |    |-- Integer(42)      |       |    |-- Integer(42)      |
-|                     |       |    |-- String(&str)  ---------+ |    |-- String(&str)     |
-+---------------------+       +-------------------------+     | +-------------------------+
-          |                               |                   |               ^
-          | Drops when file closed        | Drops after phase |               | Bytes copied into
-          v                               v                   +---------------+ allocator memory
-     [Memory Freed]                 [Memory Freed]              (Data lives as long as Datumspace)
-*/
-
 const ALLOCATOR_DEPTH: usize = 8;
 type DatumAllocator = GeneralAllocator<ALLOCATOR_DEPTH>;
 
@@ -330,4 +313,175 @@ impl<'d> Datumspace<'d>
     }
 }
 
-// TODO: Write tests for this
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::loader::parser::layout::{
+        CodeDirectory, DataDirectory, DataHeader, FileFlags, FileHeader,
+        LinkTable, SymbolTable, TypeTag, SymbolEntry, SymbolKind,
+        Function, FunctionFlags,
+    };
+
+    /// Helper to create a dummy FileLayout for testing based on the new structure.
+    fn mock_layout(id: SymbolId, code: Vec<u8>, data: Vec<u8>) -> FileLayout {
+        FileLayout {
+            header: FileHeader {
+                module_id: id,
+                file_version: 1,
+                min_runtime_version: 1,
+                flags: FileFlags::empty(),
+            },
+            link_table: LinkTable {
+                entries: vec![],
+            },
+            symbol_table: SymbolTable {
+                symbols: vec![SymbolEntry {
+                    id,
+                    kind: SymbolKind::Function { body: 0 },
+                }],
+            },
+            code_directory: CodeDirectory {
+                functions: vec![Function {
+                    symbol_id: id,
+                    index: 0,
+                    length: code.len() as u32,
+                    maxlocals: 5,
+                    maxstack: 10,
+                    param_count: 2,
+                    flags: FunctionFlags::empty(),
+                }],
+                bytecode: code,
+            },
+            data_directory: DataDirectory {
+                entries: vec![DataHeader {
+                    index: 0,
+                    length: data.len() as u32,
+                    type_tag: TypeTag::Integer32,
+                }],
+                data,
+            },
+        }
+    }
+
+    #[test]
+    fn test_datumspace_initialization() {
+        let ds = Datumspace::with_capacity(1024);
+        assert!(ds.is_ok());
+    }
+
+    #[test]
+    fn test_load_and_retrieve_page() {
+        let mut ds = Datumspace::with_capacity(4096).unwrap();
+        let id = SymbolId([0; 16]);
+        let layout = mock_layout(id, vec![0x01, 0x02], vec![0xAA, 0xBB, 0xCC, 0xDD]);
+
+        let load_result = ds.load_datum(&layout);
+        assert!(load_result.is_ok());
+
+        let page = ds.get_page(&id).expect("Page should be loaded");
+        assert_eq!(*page.id, id);
+
+        // Verify code and data blobs are correctly mapped via the resolved page
+        assert_eq!(page.bytecode_blob, &[0x01, 0x02]);
+        assert_eq!(page.data_blob, &[0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn test_duplicate_load_fails() {
+        let mut ds = Datumspace::with_capacity(4096).unwrap();
+        let id = SymbolId([0; 16]);
+        let layout = mock_layout(id, vec![0], vec![0, 0, 0, 0]);
+
+        ds.load_datum(&layout).expect("First load should succeed");
+        let result = ds.load_datum(&layout);
+
+        assert!(matches!(result, Err(DatumspaceError::Duplication)));
+    }
+
+    #[test]
+    fn test_function_retrieval() {
+        let mut ds = Datumspace::with_capacity(4096).unwrap();
+        let id = SymbolId([0; 16]);
+        let layout = mock_layout(id, vec![0xDE, 0xAD], vec![0, 0, 0, 0]);
+
+        ds.load_datum(&layout).unwrap();
+        let func = ds.get_function(&id, 0).expect("Should find function at index 0");
+
+        assert_eq!(func.maxstack, 10);
+        assert_eq!(func.param_count, 2);
+
+        // Verify the function's bytecode location resolves to the correct bytes
+        let code = ds.resolve_location(&id, func.bytecode).unwrap();
+        assert_eq!(code, &[0xDE, 0xAD]);
+    }
+
+    #[test]
+    fn test_lazy_constant_resolution() {
+        let mut ds = Datumspace::with_capacity(4096).unwrap();
+        let id = SymbolId([0; 16]);
+        // 42 in Little Endian for Unsigned32/Integer32
+        let data = vec![42, 0, 0, 0];
+        let layout = mock_layout(id, vec![0], data);
+
+        ds.load_datum(&layout).unwrap();
+
+        // 1. Check initial state via the page (should be Unresolved)
+        {
+            let page = ds.get_page(&id).unwrap();
+            match page.constants[0] {
+                ConstantTableEntry::Unresolved(_) => {},
+                _ => panic!("Constant should start as Unresolved"),
+            }
+        }
+
+        // 2. Resolve the constant via the Datumspace
+        let constant = ds.get_constant(&id, 0).expect("Failed to resolve constant");
+        if let Constant::Unsigned32(val) = constant {
+            assert_eq!(*val, 42);
+        } else {
+            panic!("Expected Unsigned32 constant, got {:?}", constant);
+        }
+
+        // 3. Verify it is now mutated to Resolved in memory
+        let page = ds.get_page(&id).unwrap();
+        match page.constants[0] {
+            ConstantTableEntry::Resolved(c) => {
+                if let Constant::Unsigned32(v) = c {
+                    assert_eq!(v, 42);
+                }
+            },
+            _ => panic!("Constant should be Resolved in-place"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_string() {
+        let mut ds = Datumspace::with_capacity(4096).unwrap();
+        let id = SymbolId([0; 16]);
+        let string_text = "Azimuth";
+        let string_data = string_text.as_bytes().to_vec();
+
+        let mut layout = mock_layout(id, vec![0], string_data);
+        layout.data_directory.entries[0].type_tag = TypeTag::String;
+
+        ds.load_datum(&layout).unwrap();
+
+        let constant = ds.get_constant(&id, 0).unwrap();
+        if let Constant::String(inlined) = constant {
+            let resolved = ds.resolve_string(&id, inlined).unwrap();
+            assert_eq!(resolved, string_text);
+        } else {
+            panic!("Expected String constant");
+        }
+    }
+
+    #[test]
+    fn test_allocation_failure_on_small_capacity() {
+        // Try to allocate a space that is clearly too small for the headers and tables
+        let mut ds = Datumspace::with_capacity(64).unwrap();
+        let layout = mock_layout(SymbolId([0; 16]), vec![0; 512], vec![0; 512]);
+
+        let result = ds.load_datum(&layout);
+        assert!(matches!(result, Err(DatumspaceError::AllocationFailure)));
+    }
+}
