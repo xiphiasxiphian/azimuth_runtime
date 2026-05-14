@@ -3,10 +3,7 @@ pub mod opcode_handler;
 pub mod opcodes;
 
 use crate::{
-    engine::{
-        context::ExecutionContext,
-        opcode_handler::ExecutionError,
-    },
+    engine::{context::ExecutionContext, opcode_handler::ExecutionError},
     loader::{Loader, LoaderError},
     memory::stack::Stack,
 };

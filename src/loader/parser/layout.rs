@@ -328,11 +328,7 @@ mod tests
         ///
         /// NOTE: `param_count` sits between `maxstack` and `flags` in the binary
         /// layout, matching the definition of `Function` exactly.
-        fn code_directory(
-            mut self,
-            funcs: &[([u8; 16], u32, u32, u32, u32, u8, u8)],
-            bytecode: &[u8],
-        ) -> Self
+        fn code_directory(mut self, funcs: &[([u8; 16], u32, u32, u32, u32, u8, u8)], bytecode: &[u8]) -> Self
         {
             self.data.extend_from_slice(&(funcs.len() as u32).to_le_bytes());
             for (sym, idx, len, locals, stack, param_count, flags) in funcs
@@ -524,10 +520,7 @@ mod tests
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
-        assert_eq!(
-            format!("{:?}", layout.header.module_id),
-            format!("{:?}", SymbolId(id))
-        );
+        assert_eq!(format!("{:?}", layout.header.module_id), format!("{:?}", SymbolId(id)));
     }
 
     #[test]
@@ -935,10 +928,7 @@ mod tests
         assert_eq!(layout.data_directory.entries.len(), 1);
         assert_eq!(layout.data_directory.entries[0].length, 16);
         assert_eq!(layout.data_directory.entries[0].index, 0);
-        assert!(matches!(
-            layout.data_directory.entries[0].type_tag,
-            TypeTag::Integer32
-        ));
+        assert!(matches!(layout.data_directory.entries[0].type_tag, TypeTag::Integer32));
         assert_eq!(layout.data_directory.data, payload);
         assert_eq!(layout.data_directory.data_byte_size(), 16);
     }
@@ -948,8 +938,8 @@ mod tests
     {
         // Use distinct type tags so we can verify them individually.
         let entries = [
-            (8u32, 0u32, 0x0u8),  // Integer32
-            (4u32, 8u32, 0x2u8),  // Float32
+            (8u32, 0u32, 0x0u8),   // Integer32
+            (4u32, 8u32, 0x2u8),   // Float32
             (16u32, 12u32, 0x4u8), // String
         ];
         let payload: Vec<u8> = (0..28).collect();
@@ -966,18 +956,9 @@ mod tests
         assert_eq!(layout.data_directory.entries[1].index, 8);
         assert_eq!(layout.data_directory.entries[2].length, 16);
         assert_eq!(layout.data_directory.data_byte_size(), 28);
-        assert!(matches!(
-            layout.data_directory.entries[0].type_tag,
-            TypeTag::Integer32
-        ));
-        assert!(matches!(
-            layout.data_directory.entries[1].type_tag,
-            TypeTag::Float32
-        ));
-        assert!(matches!(
-            layout.data_directory.entries[2].type_tag,
-            TypeTag::String
-        ));
+        assert!(matches!(layout.data_directory.entries[0].type_tag, TypeTag::Integer32));
+        assert!(matches!(layout.data_directory.entries[1].type_tag, TypeTag::Float32));
+        assert!(matches!(layout.data_directory.entries[2].type_tag, TypeTag::String));
     }
 
     #[test]
@@ -986,11 +967,11 @@ mod tests
         // One entry per TypeTag variant to confirm each survives a full
         // FileLayout parse, not just an isolated TypeTag::read_le.
         let entries = [
-            (1u32, 0u32, 0x0u8),  // Integer32
-            (1u32, 1u32, 0x1u8),  // Integer64
-            (1u32, 2u32, 0x2u8),  // Float32
-            (1u32, 3u32, 0x3u8),  // Float64
-            (1u32, 4u32, 0x4u8),  // String
+            (1u32, 0u32, 0x0u8), // Integer32
+            (1u32, 1u32, 0x1u8), // Integer64
+            (1u32, 2u32, 0x2u8), // Float32
+            (1u32, 3u32, 0x3u8), // Float64
+            (1u32, 4u32, 0x4u8), // String
         ];
         let payload = vec![0u8; 5];
         let bytes = FileBuilder::new()
@@ -1001,12 +982,7 @@ mod tests
             .data_directory(&entries, &payload)
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
-        let tags: Vec<TypeTag> = layout
-            .data_directory
-            .entries
-            .iter()
-            .map(|e| e.type_tag)
-            .collect();
+        let tags: Vec<TypeTag> = layout.data_directory.entries.iter().map(|e| e.type_tag).collect();
         assert!(matches!(tags[0], TypeTag::Integer32));
         assert!(matches!(tags[1], TypeTag::Integer64));
         assert!(matches!(tags[2], TypeTag::Float32));
@@ -1045,10 +1021,7 @@ mod tests
             .data_directory(&entries, &[0u8; 2])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
-        assert_eq!(
-            layout.data_directory.entries_byte_size(),
-            2 * size_of::<DataHeader>()
-        );
+        assert_eq!(layout.data_directory.entries_byte_size(), 2 * size_of::<DataHeader>());
     }
 
     #[test]
@@ -1121,10 +1094,7 @@ mod tests
 
         // Data
         assert_eq!(layout.data_directory.entries.len(), 1);
-        assert!(matches!(
-            layout.data_directory.entries[0].type_tag,
-            TypeTag::Float64
-        ));
+        assert!(matches!(layout.data_directory.entries[0].type_tag, TypeTag::Float64));
         assert_eq!(layout.data_directory.data, raw_data);
     }
 
@@ -1156,7 +1126,7 @@ mod tests
                     10,
                     i,
                     i * 2,
-                    i as u8,              // param_count
+                    i as u8,                    // param_count
                     if i == 0 { 1 } else { 0 }, // flags
                 )
             })

@@ -8,10 +8,7 @@ use crate::{
     memory::datumspace::{
         link_table::Link,
         runnable::Runnable,
-        tables::{
-            constant_table::ConstantTableEntry,
-            symbol_table::Symbol,
-        },
+        tables::{constant_table::ConstantTableEntry, symbol_table::Symbol},
     },
 };
 
@@ -201,9 +198,7 @@ impl PageBuilder
     {
         let base = raw_base.cast();
 
-        unsafe {
-            base.write(header)
-        };
+        unsafe { base.write(header) };
 
         Self { base }
     }

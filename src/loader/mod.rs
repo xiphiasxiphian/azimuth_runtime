@@ -11,10 +11,7 @@ use crate::{
             Datumspace, DatumspaceError,
             datum::DatumPage,
             runnable::{Function, FunctionFlags, Runnable},
-            tables::{
-                constant_table::Constant,
-                link_table::Link,
-            },
+            tables::{constant_table::Constant, link_table::Link},
         },
     },
 };

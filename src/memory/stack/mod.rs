@@ -2,6 +2,7 @@ use std::slice::SliceIndex;
 
 use crate::{
     engine::{RunnerError, opcode_handler::ExecutionError},
+    guard,
     memory::stack::entry::StackEntry,
 };
 
@@ -94,9 +95,9 @@ impl Stack
 ///   └──────────────────┴──────────────────────┘
 ///                           ↑ callee locals_base
 ///                      callee frame
-///                      ┌──────────────────────────┬─────────────────┐
+///                      ┌───────────────────────────┬─────────────────┐
 ///                      │ arg0 │ arg1 │ extra local │ callee op stack │
-///                      └──────────────────────────┴─────────────────┘
+///                      └───────────────────────────┴─────────────────┘
 /// ```
 #[derive(Debug)]
 pub struct StackFrame<'a>
@@ -144,10 +145,10 @@ impl<'a> StackFrame<'a>
     where
         F: FnOnce(StackFrame<'b>) -> Result<Option<StackEntry>, RunnerError>,
     {
-        if param_count > self.stack_pointer
-        {
-            return Err(RunnerError::ExecutionError(ExecutionError::MissingParams));
-        }
+        guard!(
+            param_count <= self.stack_pointer,
+            RunnerError::ExecutionError(ExecutionError::MissingParams)
+        );
 
         // The parameters are the last `param_count` items on the operand stack.
         // They become the first `param_count` locals of the new frame.
