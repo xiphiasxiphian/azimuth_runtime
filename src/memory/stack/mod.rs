@@ -73,18 +73,30 @@ impl Stack
 /// The size of both these components are defined within the bytecode and are thus provided
 /// by the compiler.
 ///
-/// ## Example
+/// ## Memory layout
+///
+/// ```text
+///   ┌──────────────────────────────────────────────────────────────────┐
+///   │ locals[0..locals_size]        │ operand stack[0..stack_size]     │
+///   └──────────────────────────────────────────────────────────────────┘
+///   ↑ locals_base                  ↑ stack_base
 /// ```
-///     entry.push(1); // Add 1 onto the stack
-///     assert_eq!(entry.pop(), Some(1)); // The variable on top of the stack is 1
 ///
-///     entry.set_local(0, 1); // Set local variable 0 to 1
-///     assert_eq!(entry.get_local(0), Some(1));
+/// When `with_next_frame` is called with `param_count > 0`, the last
+/// `param_count` entries that the *caller* pushed onto its operand stack
+/// overlap with the *callee*'s first `param_count` locals.  No data is
+/// copied; the callee sees the arguments already in place.
 ///
-///     entry.with_next_frame(|x| {
-///         entry.push(1);
-///         assert_eq(entry.peek(), Some(1));
-///     })
+/// ```text
+///   caller frame
+///   ┌──────────────────┬──────────────────────┐
+///   │ caller locals    │ … │ arg0 │ arg1 │    │
+///   └──────────────────┴──────────────────────┘
+///                           ↑ callee locals_base
+///                      callee frame
+///                      ┌──────────────────────────┬─────────────────┐
+///                      │ arg0 │ arg1 │ extra local │ callee op stack │
+///                      └──────────────────────────┴─────────────────┘
 /// ```
 #[derive(Debug)]
 pub struct StackFrame<'a>
@@ -111,9 +123,11 @@ impl<'a> StackFrame<'a>
 
     /// Runs the given function within the context of the "next" stack frame.
     ///
-    /// This functions creates a new stack frame on top of the current one, and will then run
-    /// the given `action` within the context of that stack frame. This can mainly be used
-    /// when functions are called to create its new stack frame and run it.
+    /// The last `param_count` entries currently on top of *this* frame's
+    /// operand stack become the first `param_count` locals of the new frame
+    /// (zero-copy overlap).  After `action` returns the caller's
+    /// `stack_pointer` is decremented by `param_count`, consuming the
+    /// arguments.
     ///
     /// ### Warning
     /// If the provided inputs cannot be used to create a valid stack frame (because of overflow)
@@ -130,30 +144,33 @@ impl<'a> StackFrame<'a>
     where
         F: FnOnce(StackFrame<'b>) -> Result<Option<StackEntry>, RunnerError>,
     {
-        // Calculate where the parameters start relative to the physical stack.
-        // The parameters are the last `param_count` items pushed to the current frame.
+        if param_count > self.stack_pointer
+        {
+            return Err(RunnerError::ExecutionError(ExecutionError::MissingParams));
+        }
+
+        // The parameters are the last `param_count` items on the operand stack.
+        // They become the first `param_count` locals of the new frame.
         let current_top = self.stack_base + self.stack_pointer;
-        let new_locals_base = current_top
-            .checked_sub(param_count)
-            .ok_or(RunnerError::ExecutionError(ExecutionError::MissingParams))?;
+        let new_locals_base = current_top - param_count;
 
         let new_stack_base = new_locals_base + locals_size;
         let total_required_capacity = locals_size + stack_size;
 
-        // bounds check against the physical stack limit.
+        // Bounds check against the physical stack limit.
         if new_stack_base + stack_size > self.origin.stack.len()
         {
             return Err(RunnerError::StackOverflow);
         }
 
-        // Create the new frame.
-        // Its "locals" now point directly to the parameters sitting on the stack.
+        // Create the new frame.  Its first locals already contain the
+        // arguments, which are physically sitting on the caller's operand
+        // stack region.
         let new_frame = StackFrame::new(self.origin, new_locals_base, new_stack_base, total_required_capacity);
 
-        // execute the function.
         let result = action(new_frame)?;
 
-        // pop off the arguments
+        // Consume the arguments from the caller's operand stack.
         self.stack_pointer -= param_count;
 
         Ok(result)
@@ -166,7 +183,7 @@ impl<'a> StackFrame<'a>
      * In practice, this means that a "Stack Overflow" for the stack component, or an
      * "Index out of Bounds" for the locals component, the respective function will
      * refuse to perform the operation and instead return a value indicating this
-     * failure. These failures can then theorectically be handled however at the
+     * failure. These failures can then theoretically be handled however at the
      * call site, but in general these errors are rarely recoverable.
      */
 
@@ -207,7 +224,7 @@ impl<'a> StackFrame<'a>
     /// Empty Stack - return `None`
     pub fn peek(&self) -> Option<&StackEntry>
     {
-        (self.stack_pointer > 0).then(|| &self.origin.stack[self.stack_base + self.stack_pointer])
+        (self.stack_pointer > 0).then(|| &self.origin.stack[self.stack_base + self.stack_pointer - 1])
     }
 
     /// Get the value of a local variable at the given index.
@@ -218,7 +235,10 @@ impl<'a> StackFrame<'a>
     where
         I: SliceIndex<[StackEntry]>,
     {
-        let limit = self.stack_base + self.size;
+        // BUG FIX: was `self.stack_base + self.size`, which overestimates the
+        // upper bound by `locals_size` entries (stack_base already includes the
+        // locals offset).  The correct ceiling is `locals_base + size`.
+        let limit = self.locals_base + self.size;
         self.origin.stack.get(self.locals_base..limit)?.get(index)
     }
 
@@ -229,11 +249,11 @@ impl<'a> StackFrame<'a>
     /// Index out of Bounds - return `None`
     pub fn set_local(&mut self, index: usize, value: StackEntry) -> Option<StackEntry>
     {
-        let idx = self.locals_base + index; // Calculate the index based on the offset from the local base
-        (idx < self.stack_base + self.size).then(|| {
-            let prev = self.origin.stack[idx]; // Store previous value to return
+        let idx = self.locals_base + index;
+        // BUG FIX: same ceiling correction as get_local.
+        (idx < self.locals_base + self.size).then(|| {
+            let prev = self.origin.stack[idx];
             self.origin.stack[idx] = value;
-
             prev
         })
     }
@@ -244,12 +264,26 @@ mod stack_tests
 {
     use super::*;
 
+    // ── Stack ─────────────────────────────────────────────────────────────────
+
     #[test]
     fn stack_init_works()
     {
         let stack: Stack = Stack::new(1024);
         assert_eq!(stack.stack.len(), 1024);
     }
+
+    #[test]
+    fn stack_zero_capacity()
+    {
+        let stack = Stack::new(0);
+        assert_eq!(stack.stack.len(), 0);
+        // Neither of these should be constructable.
+        // initial_frame(0, 0) requires 0 <= 0, which is true,
+        // so it *can* be created; any subsequent frame would overflow.
+    }
+
+    // ── StackFrame construction ───────────────────────────────────────────────
 
     #[test]
     fn new_stack_frame_correct_info()
@@ -260,20 +294,164 @@ mod stack_tests
         assert_eq!(frame.locals_base, 0);
         assert_eq!(frame.stack_base, 4);
         assert_eq!(frame.stack_pointer, 0);
+        assert_eq!(frame.size, 8); // locals_size + stack_size
     }
 
     #[test]
-    fn stack_frame_nesting()
+    fn initial_frame_exact_capacity_succeeds()
+    {
+        let mut stack = Stack::new(8);
+        assert!(stack.initial_frame(4, 4).is_some());
+    }
+
+    #[test]
+    fn initial_frame_exceeds_capacity_fails()
+    {
+        let mut stack = Stack::new(1024);
+        assert!(stack.initial_frame(513, 513).is_none());
+    }
+
+    // ── push / pop / peek ─────────────────────────────────────────────────────
+
+    #[test]
+    fn push_pop_lifo_order()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        frame.push(10_u64.into());
+        frame.push(20_u64.into());
+
+        assert_eq!(frame.pop().unwrap(), StackEntry::Unsigned(20));
+        assert_eq!(frame.pop().unwrap(), StackEntry::Unsigned(10));
+        assert!(frame.pop().is_none());
+    }
+
+    #[test]
+    fn pop_empty_stack_returns_none()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+        assert!(frame.pop().is_none());
+    }
+
+    #[test]
+    fn push_64bit_value_roundtrips()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+        let large = StackEntry::Unsigned(1u64 << 33);
+        frame.push(large);
+        assert_eq!(frame.pop().unwrap(), large);
+    }
+
+    #[test]
+    fn peek_returns_top_without_removing()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        // Stack is empty.
+        assert!(frame.peek().is_none());
+
+        frame.push(StackEntry::Unsigned(42));
+        assert_eq!(frame.peek(), Some(&StackEntry::Unsigned(42)));
+
+        // peek must not advance the pointer: pop still returns 42.
+        assert_eq!(frame.pop().unwrap(), StackEntry::Unsigned(42));
+
+        // Stack is empty again.
+        assert!(frame.peek().is_none());
+    }
+
+    #[test]
+    fn peek_reflects_most_recently_pushed_item()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(0, 8).unwrap();
+
+        frame.push(StackEntry::Unsigned(1));
+        assert_eq!(frame.peek(), Some(&StackEntry::Unsigned(1)));
+
+        frame.push(StackEntry::Unsigned(2));
+        assert_eq!(frame.peek(), Some(&StackEntry::Unsigned(2)));
+
+        frame.pop();
+        assert_eq!(frame.peek(), Some(&StackEntry::Unsigned(1)));
+    }
+
+    // ── get_local / set_local ─────────────────────────────────────────────────
+
+    #[test]
+    fn locals_read_write()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        frame.set_local(0, 10_u64.into());
+        frame.set_local(1, StackEntry::Unsigned(1u64 << 33));
+
+        assert_eq!(frame.get_local(0), Some(&StackEntry::Unsigned(10)));
+        assert_eq!(frame.get_local(1), Some(&StackEntry::Unsigned(1 << 33)));
+    }
+
+    #[test]
+    fn set_local_returns_previous_value()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+
+        frame.set_local(0, StackEntry::Unsigned(1));
+        let prev = frame.set_local(0, StackEntry::Unsigned(2));
+
+        assert_eq!(prev, Some(StackEntry::Unsigned(1)));
+        assert_eq!(frame.get_local(0), Some(&StackEntry::Unsigned(2)));
+    }
+
+    #[test]
+    fn get_local_out_of_bounds_returns_none()
+    {
+        let mut stack = Stack::new(1024);
+        let frame = stack.initial_frame(4, 4).unwrap();
+        // locals_size = 4, stack_size = 4; total addressable = 8 entries.
+        // Index 8 is one past the end.
+        assert!(frame.get_local(8).is_none());
+    }
+
+    #[test]
+    fn set_local_out_of_bounds_returns_none()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(4, 4).unwrap();
+        assert!(frame.set_local(8, StackEntry::Unsigned(99)).is_none());
+    }
+
+    // ── with_next_frame — basic nesting ───────────────────────────────────────
+
+    /// With no params and an empty operand stack the new frame's locals start
+    /// immediately where the caller's operand stack begins (they share the same
+    /// physical address, just interpreted differently).
+    ///
+    /// Before the fix the test expected `locals_base=8, stack_base=12`, which
+    /// matched the *old* non-overlapping layout where every frame was appended
+    /// after the previous one's full `size`.  With overlap the new frame starts
+    /// at `stack_base + stack_pointer = 4 + 0 = 4`.
+    #[test]
+    fn stack_frame_nesting_layout()
     {
         let mut stack: Stack = Stack::new(1024);
         let mut frame1 = stack.initial_frame(4, 4).unwrap();
+        // frame1: locals_base=0, stack_base=4, stack_pointer=0
+
         assert!(
             frame1
                 .with_next_frame(4, 4, 0, |f| {
-                    assert_eq!(f.locals_base, 8);
-                    assert_eq!(f.stack_base, 12);
+                    // new_locals_base = stack_base + stack_pointer - param_count
+                    //                 = 4 + 0 - 0 = 4
+                    // new_stack_base  = 4 + locals_size = 4 + 4 = 8
+                    assert_eq!(f.locals_base, 4);
+                    assert_eq!(f.stack_base, 8);
                     assert_eq!(f.stack_pointer, 0);
-
                     Ok(None)
                 })
                 .is_ok()
@@ -281,16 +459,273 @@ mod stack_tests
     }
 
     #[test]
+    fn with_next_frame_return_value_propagates()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(0, 8).unwrap();
+
+        let result = frame
+            .with_next_frame(0, 4, 0, |_| Ok(Some(StackEntry::Unsigned(0xDEAD_BEEF))))
+            .unwrap();
+
+        assert_eq!(result, Some(StackEntry::Unsigned(0xDEAD_BEEF)));
+    }
+
+    #[test]
+    fn with_next_frame_none_return_value_propagates()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(0, 8).unwrap();
+        let result = frame.with_next_frame(0, 4, 0, |_| Ok(None)).unwrap();
+        assert!(result.is_none());
+    }
+
+    // ── with_next_frame — overflow ────────────────────────────────────────────
+
+    /// Before the fix the test used `with_next_frame(20, 20, 0)` which, with
+    /// the new overlap layout, starts at `stack_base + stack_pointer = 512`
+    /// and only needs `512 + 20 + 20 = 552 ≤ 1024` — not an overflow.
+    /// The inner frame must be large enough that `new_stack_base + stack_size`
+    /// exceeds 1024; here `512 + 300 + 300 = 1112 > 1024`.
+    #[test]
     fn stack_overflow_detected()
     {
         let mut stack: Stack = Stack::new(1024);
-        let frame1 = stack.initial_frame(513, 513);
 
-        assert!(frame1.is_none());
-        let mut frame2 = stack.initial_frame(512, 512).unwrap();
+        // A frame requiring more than the total capacity must be rejected.
+        assert!(stack.initial_frame(513, 513).is_none());
 
-        assert!(frame2.with_next_frame(20, 20, 0, |_| { Ok(None) }).is_err());
+        // A frame that fills the stack exactly is fine…
+        let mut frame = stack.initial_frame(512, 512).unwrap();
+        // …but a sub-frame that would extend beyond the end must fail.
+        assert!(frame.with_next_frame(300, 300, 0, |_| Ok(None)).is_err());
     }
+
+    #[test]
+    fn stack_overflow_when_pushed_items_displace_inner_frame()
+    {
+        // Use a small stack to make the arithmetic easy to follow.
+        //   capacity = 24
+        //   outer: locals_base=0, stack_base=8, size=16 (locals=8, stack=8)
+        let mut stack = Stack::new(24);
+        let mut outer = stack.initial_frame(8, 8).unwrap();
+
+        // Push 6 items; stack_pointer is now 6.
+        // current_top = 8 + 6 = 14
+        for i in 0..6u64
+        {
+            outer.push(StackEntry::Unsigned(i));
+        }
+
+        // with_next_frame(6, 6, 0):
+        //   new_locals_base = 14
+        //   new_stack_base  = 14 + 6 = 20
+        //   check: 20 + 6 = 26 > 24  →  StackOverflow
+        assert!(outer.with_next_frame(6, 6, 0, |_| Ok(None)).is_err());
+    }
+
+    // ── with_next_frame — parameter overlap ───────────────────────────────────
+
+    /// The last `param_count` entries on the caller's operand stack must be
+    /// visible as the first `param_count` locals inside the callee — with no
+    /// data copy: they share the same physical slots.
+    #[test]
+    fn params_overlap_with_callee_locals()
+    {
+        let mut stack = Stack::new(1024);
+        // outer: locals_base=0, stack_base=4, size=12 (locals=4, stack=8)
+        let mut outer = stack.initial_frame(4, 8).unwrap();
+
+        outer.push(StackEntry::Unsigned(111));
+        outer.push(StackEntry::Unsigned(222));
+        // stack_pointer = 2; current_top = 4 + 2 = 6
+
+        outer
+            .with_next_frame(4, 4, 2, |inner| {
+                // new_locals_base = 6 - 2 = 4
+                // local[0] ← stack[4] = 111
+                // local[1] ← stack[5] = 222
+                assert_eq!(inner.locals_base, 4);
+                assert_eq!(inner.get_local(0), Some(&StackEntry::Unsigned(111)));
+                assert_eq!(inner.get_local(1), Some(&StackEntry::Unsigned(222)));
+                Ok(None)
+            })
+            .unwrap();
+    }
+
+    /// After `with_next_frame` returns the caller's `stack_pointer` must be
+    /// decremented by `param_count`, consuming the arguments.
+    #[test]
+    fn caller_stack_pointer_decremented_after_call()
+    {
+        let mut stack = Stack::new(1024);
+        let mut outer = stack.initial_frame(0, 8).unwrap();
+
+        outer.push(StackEntry::Unsigned(1));
+        outer.push(StackEntry::Unsigned(2));
+        outer.push(StackEntry::Unsigned(3));
+        assert_eq!(outer.stack_pointer, 3);
+
+        outer.with_next_frame(3, 4, 3, |_| Ok(None)).unwrap();
+
+        // All three arguments were consumed.
+        assert_eq!(outer.stack_pointer, 0);
+        assert!(outer.pop().is_none());
+    }
+
+    #[test]
+    fn caller_retains_non_param_entries_after_call()
+    {
+        let mut stack = Stack::new(1024);
+        let mut outer = stack.initial_frame(0, 8).unwrap();
+
+        // Push 3 items; only the top 2 are params.
+        outer.push(StackEntry::Unsigned(10));
+        outer.push(StackEntry::Unsigned(20));
+        outer.push(StackEntry::Unsigned(30));
+
+        outer.with_next_frame(2, 4, 2, |_| Ok(None)).unwrap();
+
+        // stack_pointer should be back to 1 (the non-param entry remains).
+        assert_eq!(outer.stack_pointer, 1);
+        assert_eq!(outer.pop(), Some(StackEntry::Unsigned(10)));
+    }
+
+    /// Extra locals beyond `param_count` are zero-initialised from the
+    /// pre-zeroed backing Vec and are independently writable by the callee.
+    #[test]
+    fn callee_extra_locals_are_independent()
+    {
+        let mut stack = Stack::new(1024);
+        let mut outer = stack.initial_frame(0, 8).unwrap();
+
+        outer.push(StackEntry::Unsigned(42));
+
+        outer
+            .with_next_frame(3, 4, 1, |mut inner| {
+                // local[0] = param = 42
+                assert_eq!(inner.get_local(0), Some(&StackEntry::Unsigned(42)));
+                // local[1] and local[2] are extra locals — write to them.
+                inner.set_local(1, StackEntry::Unsigned(100));
+                inner.set_local(2, StackEntry::Unsigned(200));
+                assert_eq!(inner.get_local(1), Some(&StackEntry::Unsigned(100)));
+                assert_eq!(inner.get_local(2), Some(&StackEntry::Unsigned(200)));
+                Ok(None)
+            })
+            .unwrap();
+    }
+
+    /// Because the param slots are *shared* memory, a write by the callee to
+    /// one of its first `param_count` locals is immediately visible in the
+    /// backing store (though the caller will not normally access those slots
+    /// via get_local after the call).
+    #[test]
+    fn callee_write_to_param_local_is_visible_in_backing_store()
+    {
+        let mut stack = Stack::new(1024);
+        let mut outer = stack.initial_frame(0, 8).unwrap();
+
+        outer.push(StackEntry::Unsigned(1));
+        outer.push(StackEntry::Unsigned(2));
+
+        outer
+            .with_next_frame(2, 4, 2, |mut inner| {
+                // Overwrite the shared param slots.
+                inner.set_local(0, StackEntry::Unsigned(99));
+                inner.set_local(1, StackEntry::Unsigned(100));
+                Ok(None)
+            })
+            .unwrap();
+
+        // The original push values live in the backing store; the callee
+        // overwrote them.  Verify via the raw backing Vec through iter().
+        let vals: Vec<StackEntry> = stack.iter().take(4).cloned().collect();
+        // slot 0 = local[0] of outer = callee's local[0] = 99
+        assert_eq!(vals[0], StackEntry::Unsigned(99));
+        // slot 1 = local[1] of outer = callee's local[1] = 100
+        assert_eq!(vals[1], StackEntry::Unsigned(100));
+    }
+
+    // ── with_next_frame — MissingParams ──────────────────────────────────────
+
+    /// Requesting more params than items on the operand stack must fail, even
+    /// when `stack_base` is large enough that the old `current_top.checked_sub`
+    /// guard would have silently succeeded.
+    #[test]
+    fn missing_params_error_when_stack_is_empty()
+    {
+        let mut stack = Stack::new(1024);
+        // locals_size=8 means stack_base=8; the old checked_sub on current_top
+        // (= 8 + 0 = 8) would have returned Some(6) for param_count=2,
+        // incorrectly harvesting params from the locals region.
+        let mut frame = stack.initial_frame(8, 8).unwrap();
+
+        let result = frame.with_next_frame(4, 4, 2, |_| Ok(None));
+        assert!(matches!(
+            result,
+            Err(RunnerError::ExecutionError(ExecutionError::MissingParams))
+        ));
+    }
+
+    #[test]
+    fn missing_params_error_when_fewer_items_than_requested()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(0, 8).unwrap();
+        frame.push(StackEntry::Unsigned(1)); // only 1 item pushed
+
+        let result = frame.with_next_frame(4, 4, 3, |_| Ok(None)); // wants 3
+        assert!(matches!(
+            result,
+            Err(RunnerError::ExecutionError(ExecutionError::MissingParams))
+        ));
+    }
+
+    #[test]
+    fn zero_params_always_succeeds_regardless_of_stack_depth()
+    {
+        let mut stack = Stack::new(1024);
+        let mut frame = stack.initial_frame(0, 8).unwrap();
+        // Nothing pushed; param_count=0 must never trigger MissingParams.
+        assert!(frame.with_next_frame(4, 4, 0, |_| Ok(None)).is_ok());
+    }
+
+    // ── with_next_frame — deep nesting with overlap ───────────────────────────
+
+    #[test]
+    fn three_level_nesting_layouts_correctly()
+    {
+        //  frame1: locals=0, stack_base=4, sp=0
+        let mut stack = Stack::new(1024);
+        let mut frame1 = stack.initial_frame(4, 8).unwrap();
+
+        frame1.push(StackEntry::Unsigned(10)); // will be param for frame2
+        // frame1.sp = 1; current_top = 4 + 1 = 5
+
+        frame1
+            .with_next_frame(2, 8, 1, |mut frame2| {
+                // frame2: new_locals_base = 5 - 1 = 4
+                //         new_stack_base  = 4 + 2 = 6
+                assert_eq!(frame2.locals_base, 4);
+                assert_eq!(frame2.stack_base, 6);
+                assert_eq!(frame2.get_local(0), Some(&StackEntry::Unsigned(10)));
+
+                frame2.push(StackEntry::Unsigned(20)); // param for frame3
+                // frame2.sp = 1; current_top = 6 + 1 = 7
+
+                frame2.with_next_frame(1, 4, 1, |frame3| {
+                    // frame3: new_locals_base = 7 - 1 = 6
+                    //         new_stack_base  = 6 + 1 = 7
+                    assert_eq!(frame3.locals_base, 6);
+                    assert_eq!(frame3.stack_base, 7);
+                    assert_eq!(frame3.get_local(0), Some(&StackEntry::Unsigned(20)));
+                    Ok(None)
+                })
+            })
+            .unwrap();
+    }
+
+    // ── Legacy regression tests (kept for coverage) ───────────────────────────
 
     #[test]
     fn stack_frame_singles()
