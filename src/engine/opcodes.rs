@@ -48,6 +48,18 @@ pub enum Opcode
     F8ConvertI,      // f8.convert.i: Convert from float64 to integer. [float64] -> [integer]
     F8ConvertF4,     // f8.convert.f4: Convert from float64 to float32. [float64] -> [float32] (SHOULD THIS BE ALLOWED?)
     Invoke,          // invoke: Invoke a function. [...params] -> [result?]
+    IfEq,            // if.eq: Branch if == 0. [value] ->
+    IfNe,            // if.ne: Branch if != 0. [value] ->
+    IfLt,            // if.lt: Branch if < 0. [value] ->
+    IfGe,            // if.ge: Branch if >= 0. [value] ->
+    IfGt,            // if.gt: Branch if > 0. [value] ->
+    IfLe,            // if.le: Branch if <= 0. [value] ->
+    IfEqCmp,         // if.eq.cmp: Branch if value1 == value2. [value1, value2] ->
+    IfNeCmp,         // if.ne.cmp: Branch if value1 != value2. [value1, value2] ->
+    IfLtCmp,         // if.lt.cmp: Branch if value1 < value2. [value1, value2] ->
+    IfGeCmp,         // if.ge.cmp: Branch if value1 >= value2. [value1, value2] ->
+    IfGtCmp,         // if.gt.cmp: Branch if value1 > value2. [value1, value2] ->
+    IfLeCmp,         // if.le.cmp: Branch if value1 <= value2. [value1, value2] ->
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }

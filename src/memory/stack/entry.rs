@@ -7,13 +7,12 @@
 #![allow(clippy::min_ident_chars)]
 
 use std::{
-    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub},
-    ptr::NonNull,
+    cmp::Ordering, ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub}, ptr::NonNull
 };
 
 use crate::memory::stack::convert::StackableConvert;
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy)]
 pub enum StackEntry
 {
     Unsigned(u64),
@@ -54,10 +53,72 @@ impl StackEntry
     {
         self.try_map(<T>::convert)
     }
+
+    fn as_f64(&self) -> Option<f64>
+    {
+        match self
+        {
+            Self::Unsigned(n) => Some(*n as f64),
+            Self::Signed(n) => Some(*n as f64),
+            Self::Float(n) => Some(*n as f64),
+            Self::Double(n) => Some(*n),
+            _ => None,
+        }
+    }
+}
+
+impl PartialEq for StackEntry {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // Same-type comparisons
+            (Self::Unsigned(a), Self::Unsigned(b)) => a == b,
+            (Self::Signed(a), Self::Signed(b)) => a == b,
+            (Self::Character(a), Self::Character(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => a == b,
+            (Self::Double(a), Self::Double(b)) => a == b,
+            (Self::Reference(a), Self::Reference(b)) => a == b,
+
+            // Cross-type integer comparisons
+            (Self::Unsigned(a), Self::Signed(b)) => *b >= 0 && *a == (*b as u64),
+            (Self::Signed(a), Self::Unsigned(b)) => *a >= 0 && (*a as u64) == *b,
+
+            // Cross-type float/integer mixing fallback
+            _ => match (self.as_f64(), other.as_f64()) {
+                (Some(a), Some(b)) => a == b,
+                _ => false, // Non-numeric mismatched types (e.g., Character == Float) are false
+            },
+        }
+    }
+}
+
+impl PartialOrd for StackEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            // Same-type comparisons
+            (Self::Unsigned(a), Self::Unsigned(b)) => a.partial_cmp(b),
+            (Self::Signed(a), Self::Signed(b)) => a.partial_cmp(b),
+            (Self::Character(a), Self::Character(b)) => a.partial_cmp(b),
+            (Self::Float(a), Self::Float(b)) => a.partial_cmp(b),
+            (Self::Double(a), Self::Double(b)) => a.partial_cmp(b),
+            (Self::Reference(a), Self::Reference(b)) => a.partial_cmp(b),
+
+            // Cross-type integer comparisons
+            (Self::Unsigned(a), Self::Signed(b)) if *b < 0 => Some(Ordering::Greater),
+            (Self::Unsigned(a), Self::Signed(b)) => a.partial_cmp(&(*b as u64)),
+            (Self::Signed(a), Self::Unsigned(b)) if *a < 0 => Some(Ordering::Less),
+            (Self::Signed(a), Self::Unsigned(b)) => (*a as u64).partial_cmp(b),
+
+            // Cross-type float/integer mixing fallback
+            _ => match (self.as_f64(), other.as_f64()) {
+                (Some(a), Some(b)) => a.partial_cmp(&b),
+                _ => None, // Non-numeric mismatched types return None
+            },
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
-// 1. ARITHMETIC MACRO (Add, Sub, Mul, Div, Rem)
+// ARITHMETIC MACRO (Add, Sub, Mul, Div, Rem)
 //    - Integers: uses `wrapping_<method>` (e.g., wrapping_add)
 //    - Floats: uses standard operators (e.g., +)
 // ---------------------------------------------------------------------------
@@ -91,7 +152,7 @@ impl_arithmetic!(Div, div, |a, b| a.wrapping_div(b), |a, b| a / b);
 impl_arithmetic!(Rem, rem, |a, b| a.wrapping_rem(b), |a, b| a % b);
 
 // ---------------------------------------------------------------------------
-// 2. BITWISE MACRO (BitAnd, BitOr, BitXor)
+// BITWISE MACRO (BitAnd, BitOr, BitXor)
 //    - Integers Only. Floats return None.
 // ---------------------------------------------------------------------------
 macro_rules! impl_bitwise {
@@ -114,7 +175,7 @@ impl_bitwise!(BitOr, bitor, |a, b| a | b);
 impl_bitwise!(BitXor, bitxor, |a, b| a ^ b);
 
 // ---------------------------------------------------------------------------
-// 3. SHIFT MACRO (Shl, Shr)
+// SHIFT MACRO (Shl, Shr)
 //    - Integers Only.
 //    - Special Case: shifts require the RHS to be cast to u32.
 // ---------------------------------------------------------------------------
@@ -140,7 +201,7 @@ impl_shift!(Shl, shl, wrapping_shl);
 impl_shift!(Shr, shr, wrapping_shr);
 
 // ---------------------------------------------------------------------------
-// 4. UNARY MACRO (Not, Neg)
+// UNARY MACRO (Not, Neg)
 //    - Not (!): Integers only.
 //    - Neg (-): Signed Ints (wrapping), Floats (standard).
 // ---------------------------------------------------------------------------

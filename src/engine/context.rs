@@ -62,11 +62,12 @@ where
                         .then(|| pc += 1)
                         .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
-                InstructionResult::Jump(target) =>
+                InstructionResult::Offset(target) =>
                 {
                     // Jump to given target instruction after checking validity
-                    (target < code.len())
-                        .then(|| pc = target)
+                    let offset = <usize>::from(target);
+                    (pc + offset < code.len())
+                        .then(|| pc += offset)
                         .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
                 InstructionResult::Return(value) =>

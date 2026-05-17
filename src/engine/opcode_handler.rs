@@ -125,7 +125,7 @@ struct HandlerInfo<'a>
 pub enum InstructionResult
 {
     Next,
-    Jump(usize),
+    Offset(u16),
     Return(Option<StackEntry>),
     Invoke(usize, usize),
 }
@@ -329,6 +329,20 @@ where
 
 // Conditionals
 
+fn branch<F, const N: usize>(input: &mut HandlerInputInfo, condition: F) -> ExecutionResult
+where
+    F: FnOnce([StackEntry; N]) -> bool
+{
+    let test_values = input.stack_pop_many()?;
+
+    if !condition(test_values) { return Ok(InstructionResult::Next) }
+
+    // Get branch offset
+    let offset: u16 = input.get_numeric(0)?;
+    Ok(InstructionResult::Offset(offset))
+}
+
+
 // Functions
 
 fn invoke(input: &mut HandlerInputInfo) -> ExecutionResult
@@ -415,39 +429,39 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::Pop,           0, pop },
     { Opcode::Dup,           0, dup },
     { Opcode::Swap,          0, swap },
-    { Opcode::Ret,           0, &(|x| ret(x, false)) },
-    { Opcode::RetVal,        0, &(|x| ret(x, true)) },
-    { Opcode::Add,           0, &(|x| binop(x, Add::add)) },
-    { Opcode::Sub,           0, &(|x| binop(x, Sub::sub)) },
-    { Opcode::Mul,           0, &(|x| binop(x, Mul::mul)) },
-    { Opcode::Div,           0, &(|x| binop(x, Div::div)) },
-    { Opcode::Rem,           0, &(|x| binop(x, Rem::rem)) },
-    { Opcode::Neg,           0, &(|x| unaryop(x, Neg::neg)) },
-    { Opcode::Shl,           0, &(|x| binop(x, Shl::shl)) },
-    { Opcode::Shr,           0, &(|x| binop(x, Shr::shr)) },
-    { Opcode::And,           0, &(|x| binop(x, BitAnd::bitand)) },
-    { Opcode::Or,            0, &(|x| binop(x, BitOr::bitor)) },
-    { Opcode::Xor,           0, &(|x| binop(x, BitXor::bitxor)) },
-    { Opcode::Not,           0, &(|x| unaryop(x, Not::not)) },
+    { Opcode::Ret,           0, ret, false },
+    { Opcode::RetVal,        0, ret, true },
+    { Opcode::Add,           0, binop, Add::add },
+    { Opcode::Sub,           0, binop, Sub::sub },
+    { Opcode::Mul,           0, binop, Mul::mul },
+    { Opcode::Div,           0, binop, Div::div },
+    { Opcode::Rem,           0, binop, Rem::rem },
+    { Opcode::Neg,           0, unaryop, Neg::neg },
+    { Opcode::Shl,           0, binop, Shl::shl },
+    { Opcode::Shr,           0, binop, Shr::shr },
+    { Opcode::And,           0, binop, BitAnd::bitand },
+    { Opcode::Or,            0, binop, BitOr::bitor },
+    { Opcode::Xor,           0, binop, BitXor::bitxor },
+    { Opcode::Not,           0, unaryop, Not::not },
     { Opcode::IConvertF4,    0, &(|x| convert::<i64, f32>(x)) }, // Using i64 to avoid sign loss
     { Opcode::IConvertF8,    0, &(|x| convert::<i64, f64>(x)) },
     { Opcode::F4ConvertI,    0, &(|x| convert::<f32, i64>(x)) },
     { Opcode::F4ConvertF8,   0, &(|x| convert::<f32, f64>(x)) },
     { Opcode::F8ConvertI,    0, &(|x| convert::<f64, i64>(x)) },
     { Opcode::F8ConvertF4,   0, &(|x| convert::<f64, f32>(x)) },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Invoke,        8, invoke },
+    { Opcode::IfEq,          2, branch, |[y]| y == StackEntry::Unsigned(0) },
+    { Opcode::IfNe,          2, branch, |[y]| y != StackEntry::Unsigned(0) },
+    { Opcode::IfLt,          2, branch, |[y]| y < StackEntry::Unsigned(0) },
+    { Opcode::IfGe,          2, branch, |[y]| y >= StackEntry::Unsigned(0) },
+    { Opcode::IfGt,          2, branch, |[y]| y > StackEntry::Unsigned(0) },
+    { Opcode::IfLe,          2, branch, |[y]| y <= StackEntry::Unsigned(0) },
+    { Opcode::IfEqCmp,       2, branch, |[a, b]| a == b },
+    { Opcode::IfNeCmp,       2, branch, |[a, b]| a != b },
+    { Opcode::IfLtCmp,       2, branch, |[a, b]| a < b },
+    { Opcode::IfGeCmp,       2, branch, |[a, b]| a >= b },
+    { Opcode::IfGtCmp,       2, branch, |[a, b]| a > b},
+    { Opcode::IfLeCmp,       2, branch, |[a, b]| a <= b },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
