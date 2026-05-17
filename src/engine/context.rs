@@ -62,12 +62,14 @@ where
                         .then(|| pc += 1)
                         .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
-                InstructionResult::Offset(target) =>
+                InstructionResult::Offset(offset) =>
                 {
                     // Jump to given target instruction after checking validity
-                    let offset = <usize>::from(target);
-                    (pc + offset < code.len())
-                        .then(|| pc += offset)
+                    let target = <usize>::try_from(pc as i128 + offset as i128)
+                        .map_err(|_| RunnerError::ProgramCounterOverflow)?;
+
+                    ((0..code.len()).contains(&target))
+                        .then(|| pc = target)
                         .ok_or(RunnerError::ProgramCounterOverflow)?;
                 }
                 InstructionResult::Return(value) =>

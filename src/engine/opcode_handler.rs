@@ -125,7 +125,7 @@ struct HandlerInfo<'a>
 pub enum InstructionResult
 {
     Next,
-    Offset(u16),
+    Offset(i32),
     Return(Option<StackEntry>),
     Invoke(usize, usize),
 }
@@ -338,7 +338,7 @@ where
     if !condition(test_values) { return Ok(InstructionResult::Next) }
 
     // Get branch offset
-    let offset: u16 = input.get_numeric(0)?;
+    let offset: i32 = input.get_numeric(0)?;
     Ok(InstructionResult::Offset(offset))
 }
 
@@ -462,7 +462,7 @@ const HANDLERS: [HandlerInfo; u8::MAX as usize + 1] = handlers!(
     { Opcode::IfGeCmp,       2, branch, |[a, b]| a >= b },
     { Opcode::IfGtCmp,       2, branch, |[a, b]| a > b},
     { Opcode::IfLeCmp,       2, branch, |[a, b]| a <= b },
-    { Opcode::Unimplemented, 0, unimplemented_handler },
+    { Opcode::Jump,          0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },
     { Opcode::Unimplemented, 0, unimplemented_handler },

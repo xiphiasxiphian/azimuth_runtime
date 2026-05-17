@@ -60,6 +60,7 @@ pub enum Opcode
     IfGeCmp,         // if.ge.cmp: Branch if value1 >= value2. [value1, value2] ->
     IfGtCmp,         // if.gt.cmp: Branch if value1 > value2. [value1, value2] ->
     IfLeCmp,         // if.le.cmp: Branch if value1 <= value2. [value1, value2] ->
+    Jump,            // jump: Jump to another instruction by given offset. [No Change]
     Directive = 254, // .X: Directives for supplying metadata
     Unimplemented = 255,
 }

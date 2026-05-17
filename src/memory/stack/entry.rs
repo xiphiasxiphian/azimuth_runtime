@@ -82,6 +82,12 @@ impl PartialEq for StackEntry {
             (Self::Unsigned(a), Self::Signed(b)) => *b >= 0 && *a == (*b as u64),
             (Self::Signed(a), Self::Unsigned(b)) => *a >= 0 && (*a as u64) == *b,
 
+            // Reference null checks
+            (Self::Reference(None), Self::Unsigned(0))
+            | (Self::Reference(None), Self::Signed(0))
+            | (Self::Unsigned(0), Self::Reference(None)) => true,
+            | (Self::Signed(0), Self::Reference(None)) => true,
+
             // Cross-type float/integer mixing fallback
             _ => match (self.as_f64(), other.as_f64()) {
                 (Some(a), Some(b)) => a == b,
