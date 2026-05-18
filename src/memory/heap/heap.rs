@@ -82,12 +82,12 @@ impl Heap {
         let base = NonNull::new(unsafe { alloc(layout) })
             .ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
 
-        // 4. Calculate continuous base offsets
+        // calculate continuous base offsets
         let infant_base = base;
         let teen_base = unsafe { infant_base.byte_add(infant_capacity) };
         let adult_base = unsafe { teen_base.byte_add(total_teen_capacity) };
 
-        // 5. Provision Allocators
+        // provision allocators
         let infant = ArenaAllocator::from_existing_allocation(infant_base, infant_capacity);
 
         let teen = from_fn::<Option<GeneralAllocator<_>>, TEEN_COUNT, _>(|i| {
@@ -113,10 +113,10 @@ impl Heap {
         })
     }
 
-    pub fn raw_alloc(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>
+    pub fn raw_alloc(&mut self, layout: Layout) -> Option<NonNull<u8>>
     {
         // allocation first attempt
-        let ptr = self.infant.raw_alloc(size, align);
+        let ptr = self.infant.raw_alloc(layout);
 
         // If the first allocation succeeded, then we can just return it and not
         // have to worry about GC
@@ -130,12 +130,12 @@ impl Heap {
 
         // Allocation retry.
         // If this allocation fails, its because something as truly gone wrong
-        self.infant.raw_alloc(size, align)
+        self.infant.raw_alloc(layout)
     }
 
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
-        self.raw_alloc(size_of_val(&value), align_of_val(&value)).map(|x| {
+        self.raw_alloc(Layout::new::<T>()).map(|x| {
             let new_ptr = x.cast();
             unsafe { new_ptr.write(value) };
 

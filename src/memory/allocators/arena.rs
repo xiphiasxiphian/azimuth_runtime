@@ -51,9 +51,9 @@ impl ArenaAllocator
         }
     }
 
-    pub fn raw_alloc(&mut self, size: usize, align: usize) -> Option<NonNull<u8>>
+    pub fn raw_alloc(&mut self, layout: Layout) -> Option<NonNull<u8>>
     {
-        let adjusted_size = size.next_multiple_of(align);
+        let adjusted_size = layout.pad_to_align().size();
         (adjusted_size + self.head_offset <= self.capacity).then(|| {
             let result = unsafe { self.base.byte_add(self.head_offset) };
             self.head_offset += adjusted_size;
