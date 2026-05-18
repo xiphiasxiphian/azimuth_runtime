@@ -7,52 +7,50 @@ use std::{
 use crate::memory::allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator};
 
 const HEAP_ALIGN: usize = 4096;
-
 const TEEN_COUNT: usize = 2;
 const TEEN_ALLOCATOR_DEPTH: usize = 16;
-
 const ADULT_ALLOCATOR_DEPTH: usize = 16;
 
-struct Ratio(u32, u32);
+/// Helper to round up to the nearest multiple of `align`.
+/// Note: `align` MUST be a power of two.
+const fn align_up(value: usize, align: usize) -> usize {
+    (value + align - 1) & !(align - 1)
+}
+
+struct Ratio(usize, usize);
+
+// JVM NewRatio=2 (Old is 2x the size of Young)
 const YOUNG_OLD_RATIO: Ratio = Ratio(1, 2);
-const INFANT_TEEN_RATIO: Ratio = Ratio(15, 1);
 
-impl Ratio
-{
-    #[expect(
-        clippy::cast_sign_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        reason = "who cares lol"
-    )]
-    pub const fn split(&self, value: usize) -> (usize, usize)
-    {
+// JVM SurvivorRatio=8 (Eden is 8x the size of ONE survivor space).
+// For 2 survivor spaces, Eden vs Total Survivor is 8:2, which simplifies to 4:1.
+const INFANT_TEEN_RATIO: Ratio = Ratio(4, 1);
+
+impl Ratio {
+    pub const fn split(&self, value: usize) -> (usize, usize) {
         let total = self.0 + self.1;
-
-        let first = ((self.0 as f64 / total as f64) * value as f64).round() as usize;
+        // Integer arithmetic: multiply first to prevent aggressive truncation
+        let first = (value * self.0) / total;
+        // Subtract to ensure the two parts sum EXACTLY to `value`
         let second = value - first;
-
         (first, second)
     }
 }
 
 #[derive(Clone, Copy)]
-enum PoolType
-{
+enum PoolType {
     Infant,
     Teen(usize),
     Adult,
 }
 
 #[derive(Debug, Clone)]
-pub enum HeapError
-{
+pub enum HeapError {
     InvalidLayout(LayoutError),
     CannotProvision(AllocatorError),
 }
 
-pub struct Heap
-{
+pub struct Heap {
     base: NonNull<u8>,
     layout: Layout,
     infant: ArenaAllocator,
@@ -60,34 +58,43 @@ pub struct Heap
     adult: GeneralAllocator<ADULT_ALLOCATOR_DEPTH>,
 }
 
-impl Heap
-{
-    pub fn with_capacity(capacity: usize) -> Result<Self, HeapError>
-    {
-        let (young_init, old_init) = YOUNG_OLD_RATIO.split(capacity);
-        let (infant_init, teen_init) = INFANT_TEEN_RATIO.split(young_init);
+impl Heap {
+    pub fn with_capacity(capacity: usize) -> Result<Self, HeapError> {
+        // calculate raw splits
+        let (young_raw, old_raw) = YOUNG_OLD_RATIO.split(capacity);
+        let (infant_raw, teen_total_raw) = INFANT_TEEN_RATIO.split(young_raw);
 
-        let infant_capacity = infant_init.next_power_of_two();
-        let teen_capacity = teen_init.next_power_of_two();
-        let adult_capacity = old_init.next_power_of_two();
+        // split the teen pool amongst the spaces (usually 2)
+        let teen_raw = teen_total_raw / TEEN_COUNT;
 
-        let total_capacity = infant_capacity + teen_capacity + adult_capacity;
+        // align sizes to page boundaries
+        let infant_capacity = align_up(infant_raw, HEAP_ALIGN);
+        let teen_capacity = align_up(teen_raw, HEAP_ALIGN); // per teen space
+        let adult_capacity = align_up(old_raw, HEAP_ALIGN);
 
-        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN).map_err(HeapError::InvalidLayout)?;
+        // compute final layout
+        let total_teen_capacity = teen_capacity * TEEN_COUNT;
+        let total_capacity = infant_capacity + total_teen_capacity + adult_capacity;
+
+        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN)
+            .map_err(HeapError::InvalidLayout)?;
 
         let base = NonNull::new(unsafe { alloc(layout) })
             .ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
+
+        // 4. Calculate continuous base offsets
         let infant_base = base;
         let teen_base = unsafe { infant_base.byte_add(infant_capacity) };
-        let adult_base = unsafe { teen_base.byte_add(teen_capacity) };
+        let adult_base = unsafe { teen_base.byte_add(total_teen_capacity) };
 
+        // 5. Provision Allocators
         let infant = ArenaAllocator::from_existing_allocation(infant_base, infant_capacity);
-        let teen = from_fn::<Option<GeneralAllocator<_>>, TEEN_COUNT, _>(|x| {
+
+        let teen = from_fn::<Option<GeneralAllocator<_>>, TEEN_COUNT, _>(|i| {
             GeneralAllocator::from_existing_allocation(
-                unsafe { teen_base.byte_add((teen_capacity * x) / TEEN_COUNT) },
-                teen_capacity / TEEN_COUNT,
-            )
-            .ok()
+                unsafe { teen_base.byte_add(teen_capacity * i) },
+                teen_capacity,
+            ).ok()
         })
         .into_iter()
         .collect::<Option<Vec<_>>>()
