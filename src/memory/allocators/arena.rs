@@ -79,6 +79,11 @@ impl ArenaAllocator
         self.head_offset = 0;
     }
 
+    pub fn capacity(&self) -> usize
+    {
+        self.capacity
+    }
+
     pub fn contains(&self, ptr: NonNull<u8>) -> bool
     {
         (self.base..(unsafe { self.base.byte_add(self.capacity) })).contains(&ptr)
