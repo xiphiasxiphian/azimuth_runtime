@@ -50,6 +50,40 @@ pub enum HeapError {
     CannotProvision(AllocatorError),
 }
 
+#[repr(C)]
+pub struct ObjectHeader {
+    pub mark_word: usize, // Used for locking, age tracking, and FORWARDING POINTERS
+    pub vtable_or_type: NonNull<()>, // Used to find the GC metadata/map of fields
+}
+
+impl ObjectHeader {
+    const FORWARDED_BIT: usize = 1 << 0; // High or low bit depending on tagging strategy
+
+    pub fn is_forwarded(&self) -> bool {
+        (self.mark_word & Self::FORWARDED_BIT) != 0
+    }
+
+    pub fn forwarding_address(&self) -> NonNull<u8> {
+        NonNull::new((self.mark_word & !Self::FORWARDED_BIT) as *mut u8)
+            .expect("Object Header has become corrupted. This shouldn't be possible")
+    }
+
+    pub fn set_forwarding_address(&mut self, addr: NonNull<u8>) {
+        self.mark_word = addr.as_ptr() as usize | Self::FORWARDED_BIT;
+    }
+
+    pub fn age(&self) -> usize {
+        (self.mark_word >> 1) & 0x0F // 4 bits for age tracking (Max 15)
+    }
+}
+
+pub trait Traceable {
+    /// Returns a list of memory offsets inside this object that contain object pointers.
+    fn references(&self) -> &[usize];
+    /// Returns total size of the allocation including header.
+    fn size(&self) -> usize;
+}
+
 pub struct Heap {
     base: NonNull<u8>,
     layout: Layout,
@@ -64,7 +98,7 @@ impl Heap {
         let (young_raw, old_raw) = YOUNG_OLD_RATIO.split(capacity);
         let (infant_raw, teen_total_raw) = INFANT_TEEN_RATIO.split(young_raw);
 
-        // split the teen pool amongst the spaces (usually 2)
+        // split the teen pool amongst the spaces
         let teen_raw = teen_total_raw / TEEN_COUNT;
 
         // align sizes to page boundaries
