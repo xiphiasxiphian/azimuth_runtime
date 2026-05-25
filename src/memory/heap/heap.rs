@@ -25,6 +25,8 @@ pub type ObjRef = NonNull<u8>;
 /// The GC reads and overwrites these during evacuation / write barriers.
 type FieldPtr = *mut ObjRef;
 
+pub type HeapResult<T> = Result<T, HeapError>;
+
 /// Round `value` up to the nearest multiple of `align` (which must be a power of two).
 const fn align_up(value: usize, align: usize) -> usize
 {
@@ -228,7 +230,7 @@ impl Heap
         })
     }
 
-    pub fn raw_alloc(&mut self, layout: Layout) -> Option<ObjRef>
+    fn raw_alloc(&mut self, layout: Layout, stack: &mut Stack) -> Option<ObjRef>
     {
         // large objects skip the infant space entirely.
         if layout.size() > self.infant.capacity() / Self::MAX_INFANT_ALLOC_DIVISOR
@@ -242,8 +244,8 @@ impl Heap
             return ptr;
         }
 
-        // Perform minor gc here. TODO: Figure how to get stack ref here
-        // self.collect_minor(stack);
+        // Perform minor gc
+        self.collect_minor(stack);
 
         // second try
         if let ptr @ Some(_) = self.infant.raw_alloc(layout)
@@ -251,13 +253,15 @@ impl Heap
             return ptr;
         }
 
+        // TODO: When to perform major GC
+
         // try and allocate into adult if everything else fails
         self.adult.raw_alloc(layout)
     }
 
-    pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
+    fn alloc<T>(&mut self, value: T, stack: &mut Stack) -> Option<NonNull<T>>
     {
-        self.raw_alloc(Layout::new::<T>())
+        self.raw_alloc(Layout::new::<T>(), stack)
             .map(|x| x.cast::<T>())
             .inspect(|x| unsafe {
                 x.write(value);
@@ -269,7 +273,7 @@ impl Heap
         match self.get_pool(ptr.cast())
         {
             None | Some(PoolType::Infant) =>
-            {}
+            {} // All infant space just gets deallocated at once anyway
             Some(PoolType::Teen(i)) => self.teen[i].dealloc(ptr),
             Some(PoolType::Adult) => self.adult.dealloc(ptr),
         }
@@ -282,18 +286,17 @@ impl Heap
     /// without scanning the entire old gen.
     pub fn write_barrier(&mut self, parent_ptr: ObjRef, field_addr: FieldPtr, new_value: ObjRef)
     {
-        // Perform the store.
+        // perform the actual write
         unsafe {
             *field_addr = new_value;
         }
 
         // Record the cross-generational pointer.
-        if !self.is_youth(parent_ptr) && self.is_youth(new_value)
+        if !self.is_youth(parent_ptr)
+            && self.is_youth(new_value)
+            && let Some(card_idx) = self.card_index_of(parent_ptr)
         {
-            if let Some(card_idx) = self.card_index_of(parent_ptr)
-            {
-                self.card_table[card_idx] = DIRTY;
-            }
+            self.card_table[card_idx] = DIRTY;
         }
     }
 
@@ -368,8 +371,12 @@ impl Heap
             }
         }
 
+        // remove all remaining infants
         self.infant.release_all();
+
+        // purge half teen space
         self.teen[from_teen_idx].release_all();
+
         self.active_teen = to_teen_idx;
     }
 
@@ -380,7 +387,7 @@ impl Heap
     /// forwarding address stored in the old header is returned immediately.
     ///
     /// Destination policy:
-    /// - age ≥ `ADULT_THRESHOLD` -> adult gen (normal promotion).
+    /// - age >= `ADULT_THRESHOLD` -> adult gen (normal promotion).
     /// - teen "to" space has room -> teen "to" space (age incremented).
     /// - teen "to" space is full -> adult gen (emergency / overflow promotion).
     ///
@@ -402,6 +409,8 @@ impl Heap
 
         let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
         let size = metadata.size();
+
+        // TODO: Figure how the error for these allocation fails will work
 
         // using objectheader alignment to not waste space
         let layout = Layout::from_size_align(size, align_of::<ObjectHeader>())
@@ -549,5 +558,100 @@ impl Heap
     unsafe fn get_metadata(&self, _vtable: NonNull<u8>) -> &dyn Traceable
     {
         todo!("Waiting for type system setup")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ptr::NonNull;
+
+    #[test]
+    fn test_align_up() {
+        assert_eq!(align_up(0, 4096), 0);
+        assert_eq!(align_up(1, 4096), 4096);
+        assert_eq!(align_up(4095, 4096), 4096);
+        assert_eq!(align_up(4096, 4096), 4096);
+        assert_eq!(align_up(4097, 4096), 8192);
+    }
+
+    #[test]
+    fn test_ratio_split_exact() {
+        let ratio = Ratio(1, 2);
+        assert_eq!(ratio.split(300), (100, 200));
+
+        let ratio2 = Ratio(4, 1);
+        assert_eq!(ratio2.split(100), (80, 20));
+    }
+
+    #[test]
+    fn test_ratio_split_imperfect() {
+        let ratio = Ratio(4, 1);
+        // 10 * 4 / 5 = 8. 10 - 8 = 2.
+        assert_eq!(ratio.split(10), (8, 2));
+        // 11 * 4 / 5 = 8. 11 - 8 = 3. Ensures no dropped bytes.
+        assert_eq!(ratio.split(11), (8, 3));
+    }
+
+
+    #[test]
+    fn test_object_header_initial_state() {
+        let header = ObjectHeader {
+            mark_word: 0,
+            vtable_or_type: NonNull::dangling(),
+            size: 32,
+        };
+        assert!(!header.is_forwarded());
+        assert_eq!(header.age(), 0);
+    }
+
+    #[test]
+    fn test_object_header_age_increment_and_saturation() {
+        let mut header = ObjectHeader {
+            mark_word: 0,
+            vtable_or_type: NonNull::dangling(),
+            size: 32,
+        };
+
+        header.increment_age();
+        assert_eq!(header.age(), 1);
+        assert!(!header.is_forwarded(), "Age increment should not trigger forwarded bit");
+
+        // Force saturation
+        for _ in 0..20 {
+            header.increment_age();
+        }
+
+        // Age should cap at 15 (0x0F) according to AGE_MASK
+        assert_eq!(header.age(), 15);
+    }
+
+    #[test]
+    fn test_object_header_forwarding() {
+        let mut header = ObjectHeader {
+            mark_word: 0,
+            vtable_or_type: NonNull::dangling(),
+            size: 32,
+        };
+
+        // Create a dummy forwarding address
+        let target_addr = NonNull::new(0xABCD_1200 as *mut u8).unwrap();
+        header.set_forwarding_address(target_addr);
+
+        assert!(header.is_forwarded());
+        assert_eq!(header.forwarding_address(), target_addr);
+    }
+
+    #[test]
+    #[should_panic(expected = "called forwarding_address on a live object")]
+    fn test_forwarding_address_on_live_object_panics() {
+        let header = ObjectHeader {
+            mark_word: 0, // Not forwarded
+            vtable_or_type: NonNull::dangling(),
+            size: 32,
+        };
+
+        // This should panic
+        let _ = header.forwarding_address();
     }
 }

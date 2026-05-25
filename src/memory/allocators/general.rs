@@ -115,7 +115,7 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         for order in initial..DEPTH
         {
             if let Some(buddy) = self.find_buddy(order, block)
-                && self.block_remove(order, block)
+                && self.block_remove(order, buddy)
             {
                 block = block.min(buddy);
                 continue;
