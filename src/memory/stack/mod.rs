@@ -63,6 +63,11 @@ impl Stack
     {
         self.stack.iter()
     }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut StackEntry>
+    {
+        self.stack.iter_mut()
+    }
 }
 
 /// A frame within the stack.

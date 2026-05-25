@@ -308,7 +308,7 @@ fn binop<F>(input: &mut HandlerInputInfo, op: F) -> ExecutionResult
 where
     F: Fn(StackEntry, StackEntry) -> Option<StackEntry>,
 {
-    let [value1, value2] = input.stack_pop_many::<2>()?;
+    let [value1, value2] = input.stack_pop_many()?;
     input
         .stack_push(op(value1, value2).ok_or(ExecutionError::TypeMismatch)?)
         .map(|()| InstructionResult::Next)
@@ -331,17 +331,19 @@ where
 
 fn branch<F, const N: usize>(input: &mut HandlerInputInfo, condition: F) -> ExecutionResult
 where
-    F: FnOnce([StackEntry; N]) -> bool
+    F: FnOnce([StackEntry; N]) -> bool,
 {
     let test_values = input.stack_pop_many()?;
 
-    if !condition(test_values) { return Ok(InstructionResult::Next) }
+    if !condition(test_values)
+    {
+        return Ok(InstructionResult::Next);
+    }
 
     // Get branch offset
     let offset: i32 = input.get_numeric(0)?;
     Ok(InstructionResult::Offset(offset))
 }
-
 
 // Functions
 

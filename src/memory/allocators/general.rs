@@ -105,10 +105,10 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
     }
 
     #[expect(clippy::expect_used, reason = "If somehow the align and size, it doesn't make sense")]
-    pub fn raw_dealloc(&mut self, ptr: NonNull<u8>, size: usize, align: usize)
+    pub fn raw_dealloc(&mut self, ptr: NonNull<u8>, layout: Layout)
     {
         let initial = self
-            .get_allocation_order(size, align)
+            .get_allocation_order(layout.size(), layout.align())
             .expect("Invalid Block Deallocation Request");
 
         let mut block = ptr;
@@ -128,7 +128,13 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
     pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
     {
-        self.raw_dealloc(ptr.cast(), size_of::<T>(), align_of::<T>());
+        self.raw_dealloc(ptr.cast(), Layout::new::<T>());
+    }
+
+    pub fn release_all(&mut self)
+    {
+        // TODO: is this really all that is needed?
+        self.freelists = [None; DEPTH].also_mut(|x| x[DEPTH - 1] = Some(self.base.cast()))
     }
 
     pub fn copy_bytes(&mut self, src: &[u8]) -> Option<NonNull<[u8]>>

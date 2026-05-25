@@ -7,7 +7,9 @@
 #![allow(clippy::min_ident_chars)]
 
 use std::{
-    cmp::Ordering, ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub}, ptr::NonNull
+    cmp::Ordering,
+    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub},
+    ptr::NonNull,
 };
 
 use crate::memory::stack::convert::StackableConvert;
@@ -67,9 +69,12 @@ impl StackEntry
     }
 }
 
-impl PartialEq for StackEntry {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
+impl PartialEq for StackEntry
+{
+    fn eq(&self, other: &Self) -> bool
+    {
+        match (self, other)
+        {
             // Same-type comparisons
             (Self::Unsigned(a), Self::Unsigned(b)) => a == b,
             (Self::Signed(a), Self::Signed(b)) => a == b,
@@ -86,10 +91,11 @@ impl PartialEq for StackEntry {
             (Self::Reference(None), Self::Unsigned(0))
             | (Self::Reference(None), Self::Signed(0))
             | (Self::Unsigned(0), Self::Reference(None)) => true,
-            | (Self::Signed(0), Self::Reference(None)) => true,
+            (Self::Signed(0), Self::Reference(None)) => true,
 
             // Cross-type float/integer mixing fallback
-            _ => match (self.as_f64(), other.as_f64()) {
+            _ => match (self.as_f64(), other.as_f64())
+            {
                 (Some(a), Some(b)) => a == b,
                 _ => false, // Non-numeric mismatched types (e.g., Character == Float) are false
             },
@@ -97,9 +103,12 @@ impl PartialEq for StackEntry {
     }
 }
 
-impl PartialOrd for StackEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
+impl PartialOrd for StackEntry
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering>
+    {
+        match (self, other)
+        {
             // Same-type comparisons
             (Self::Unsigned(a), Self::Unsigned(b)) => a.partial_cmp(b),
             (Self::Signed(a), Self::Signed(b)) => a.partial_cmp(b),
@@ -115,7 +124,8 @@ impl PartialOrd for StackEntry {
             (Self::Signed(a), Self::Unsigned(b)) => (*a as u64).partial_cmp(b),
 
             // Cross-type float/integer mixing fallback
-            _ => match (self.as_f64(), other.as_f64()) {
+            _ => match (self.as_f64(), other.as_f64())
+            {
                 (Some(a), Some(b)) => a.partial_cmp(&b),
                 _ => None, // Non-numeric mismatched types return None
             },

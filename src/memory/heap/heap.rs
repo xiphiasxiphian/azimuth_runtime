@@ -4,185 +4,264 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::memory::allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator};
+use crate::memory::{
+    allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator},
+    stack::{Stack, entry::StackEntry},
+};
 
 const HEAP_ALIGN: usize = 4096;
 const TEEN_COUNT: usize = 2;
 const TEEN_ALLOCATOR_DEPTH: usize = 16;
 const ADULT_ALLOCATOR_DEPTH: usize = 16;
 
-/// Helper to round up to the nearest multiple of `align`.
-/// Note: `align` MUST be a power of two.
-const fn align_up(value: usize, align: usize) -> usize {
+const CARD_SIZE: usize = 512;
+const DIRTY: u8 = 1;
+const CLEAN: u8 = 0;
+
+/// A pointer to a heap-allocated object.
+pub type ObjRef = NonNull<u8>;
+
+/// A raw pointer to a reference *field* inside an object.
+/// The GC reads and overwrites these during evacuation / write barriers.
+type FieldPtr = *mut ObjRef;
+
+/// Round `value` up to the nearest multiple of `align` (which must be a power of two).
+const fn align_up(value: usize, align: usize) -> usize
+{
     (value + align - 1) & !(align - 1)
 }
 
 struct Ratio(usize, usize);
 
-// JVM NewRatio=2 (Old is 2x the size of Young)
 const YOUNG_OLD_RATIO: Ratio = Ratio(1, 2);
 
-// JVM SurvivorRatio=8 (Eden is 8x the size of ONE survivor space).
-// For 2 survivor spaces, Eden vs Total Survivor is 8:2, which simplifies to 4:1.
 const INFANT_TEEN_RATIO: Ratio = Ratio(4, 1);
 
-impl Ratio {
-    pub const fn split(&self, value: usize) -> (usize, usize) {
+impl Ratio
+{
+    /// Splits `value` into two parts whose sizes are proportional to `self.0`
+    /// and `self.1`.  The two parts sum *exactly* to `value`.
+    pub const fn split(&self, value: usize) -> (usize, usize)
+    {
         let total = self.0 + self.1;
-        // Integer arithmetic: multiply first to prevent aggressive truncation
         let first = (value * self.0) / total;
-        // Subtract to ensure the two parts sum EXACTLY to `value`
-        let second = value - first;
+        let second = value - first; // ensures no rounding loss
         (first, second)
     }
 }
 
-#[derive(Clone, Copy)]
-enum PoolType {
+#[derive(Clone, Copy, Debug)]
+enum PoolType
+{
     Infant,
     Teen(usize),
     Adult,
 }
 
 #[derive(Debug, Clone)]
-pub enum HeapError {
+pub enum HeapError
+{
     InvalidLayout(LayoutError),
     CannotProvision(AllocatorError),
 }
 
+/// Every heap-allocated object is preceded by this header.
+///
+/// `mark_word` layout (while the object is *live*):
+/// ```text
+/// bit 0          : 0 = live, 1 = forwarded
+/// bits [4 : 1]   : GC age (0–15 minor collections survived)
+/// bits [N : 5]   : reserved / future GC flags
+/// ```
+/// When the object has been *forwarded* (moved by the GC), `mark_word`
+/// holds the new address OR-ed with `FORWARDED_BIT`.  The age bits are
+/// meaningless at that point — the object is considered dead.
 #[repr(C)]
-pub struct ObjectHeader {
-    pub mark_word: usize, // Used for locking, age tracking, and FORWARDING POINTERS
-    pub vtable_or_type: NonNull<u8>, // Used to find the GC metadata/map of fields
+pub struct ObjectHeader
+{
+    pub mark_word: usize,
+    pub vtable_or_type: NonNull<u8>,
+    pub size: usize, // includes the size of the header itself
 }
 
-impl ObjectHeader {
-    const FORWARDED_BIT: usize = 1 << 0; // High or low bit depending on tagging strategy
+impl ObjectHeader
+{
+    const FORWARDED_BIT: usize = 1;
+    const AGE_SHIFT: usize = 1;
+    const AGE_BITS: usize = 4;
+    const AGE_MASK: usize = (1 << Self::AGE_BITS) - 1; // 0x0F
 
-    pub fn is_forwarded(&self) -> bool {
+    pub fn is_forwarded(&self) -> bool
+    {
         (self.mark_word & Self::FORWARDED_BIT) != 0
     }
 
-    pub fn forwarding_address(&self) -> NonNull<u8> {
+    /// Returns the address the object was moved to.
+    ///
+    /// # Panics
+    /// Panics if the object is not forwarded, or if the forwarding address is null
+    /// (which would indicate heap corruption).
+    pub fn forwarding_address(&self) -> ObjRef
+    {
+        debug_assert!(self.is_forwarded(), "called forwarding_address on a live object");
         NonNull::new((self.mark_word & !Self::FORWARDED_BIT) as *mut u8)
-            .expect("Object Header has become corrupted. This shouldn't be possible")
+            .expect("ObjectHeader corrupted: null forwarding address")
     }
 
-    pub fn set_forwarding_address(&mut self, addr: NonNull<u8>) {
+    pub fn set_forwarding_address(&mut self, addr: ObjRef)
+    {
         self.mark_word = addr.as_ptr() as usize | Self::FORWARDED_BIT;
     }
 
-    pub fn age(&self) -> usize {
-        (self.mark_word >> 1) & 0x0F // 4 bits for age tracking (Max 15)
+    /// Returns the number of minor GCs this object has survived (0–15).
+    pub fn age(&self) -> usize
+    {
+        (self.mark_word >> Self::AGE_SHIFT) & Self::AGE_MASK
+    }
+
+    /// Increments the GC age in-place, saturating at `AGE_MASK`.
+    pub fn increment_age(&mut self)
+    {
+        let new_age = (self.age() + 1).min(Self::AGE_MASK);
+        // Clear the old age bits, then write the new value.
+        self.mark_word = (self.mark_word & !(Self::AGE_MASK << Self::AGE_SHIFT)) | (new_age << Self::AGE_SHIFT);
     }
 }
 
-pub trait Traceable {
-    /// Returns a list of memory offsets inside this object that contain object pointers.
+pub trait Traceable
+{
+    /// Returns byte offsets (from the object base pointer) of every field
+    /// that holds an `ObjRef`.
     fn references(&self) -> &[usize];
-    /// Returns total size of the allocation including header.
+
+    /// Total byte size of this allocation, including `ObjectHeader`.
     fn size(&self) -> usize;
 }
 
-pub struct Heap {
+// ---------------------------------------------------------------------------
+// Heap
+// ---------------------------------------------------------------------------
+
+pub struct Heap
+{
+    /// Base of the entire contiguous allocation.
     base: NonNull<u8>,
     layout: Layout,
+
+    // Young generation
     infant: ArenaAllocator,
     teen: [GeneralAllocator<TEEN_ALLOCATOR_DEPTH>; TEEN_COUNT],
-    adult: GeneralAllocator<ADULT_ALLOCATOR_DEPTH>,
     active_teen: usize,
+
+    // Old generation
+    adult: GeneralAllocator<ADULT_ALLOCATOR_DEPTH>,
+    /// Base pointer of the adult region — needed to compute card indices.
+    adult_base: NonNull<u8>,
+
+    /// One byte per `CARD_SIZE`-byte region of the adult gen.
+    /// Set to `DIRTY` by the write barrier when an old-gen object gains a
+    /// pointer into young gen.  Cleared and scanned during minor GC.
+    card_table: Vec<u8>,
 }
 
-impl Heap {
-    const MAX_INFANT_SINGLE_ALLOCATION_DIVISOR: usize = 2;
+impl Heap
+{
+    /// Objects larger than `infant.capacity() / MAX_INFANT_ALLOC_DIVISOR`
+    /// bypass the infant space and go straight to the adult gen.
+    const MAX_INFANT_ALLOC_DIVISOR: usize = 2;
 
-    pub fn with_capacity(capacity: usize) -> Result<Self, HeapError> {
-        // calculate raw splits
+    /// Objects that survive this many minor GCs are promoted to the adult gen.
+    const ADULT_THRESHOLD: usize = 8;
+
+    pub fn with_capacity(capacity: usize) -> Result<Self, HeapError>
+    {
+        // Compute raw region sizes.
         let (young_raw, old_raw) = YOUNG_OLD_RATIO.split(capacity);
         let (infant_raw, teen_total_raw) = INFANT_TEEN_RATIO.split(young_raw);
-
-        // split the teen pool amongst the spaces
         let teen_raw = teen_total_raw / TEEN_COUNT;
 
-        // align sizes to page boundaries
+        // Align every region to a page boundary.
         let infant_capacity = align_up(infant_raw, HEAP_ALIGN);
         let teen_capacity = align_up(teen_raw, HEAP_ALIGN); // per teen space
         let adult_capacity = align_up(old_raw, HEAP_ALIGN);
 
-        // compute final layout
         let total_teen_capacity = teen_capacity * TEEN_COUNT;
         let total_capacity = infant_capacity + total_teen_capacity + adult_capacity;
 
-        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN)
-            .map_err(HeapError::InvalidLayout)?;
+        // Single contiguous allocation for the whole heap.
+        let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN).map_err(HeapError::InvalidLayout)?;
 
         let base = NonNull::new(unsafe { alloc(layout) })
             .ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
 
-        // calculate continuous base offsets
+        // Carve out sub-regions from the slab.
         let infant_base = base;
         let teen_base = unsafe { infant_base.byte_add(infant_capacity) };
         let adult_base = unsafe { teen_base.byte_add(total_teen_capacity) };
 
-        // provision allocators
         let infant = ArenaAllocator::from_existing_allocation(infant_base, infant_capacity);
 
         let teen = from_fn::<Option<GeneralAllocator<_>>, TEEN_COUNT, _>(|i| {
-            GeneralAllocator::from_existing_allocation(
-                unsafe { teen_base.byte_add(teen_capacity * i) },
-                teen_capacity,
-            ).ok()
+            GeneralAllocator::from_existing_allocation(unsafe { teen_base.byte_add(teen_capacity * i) }, teen_capacity)
+                .ok()
         })
         .into_iter()
         .collect::<Option<Vec<_>>>()
-        .and_then(|teens| teens.try_into().ok())
+        .and_then(|v| v.try_into().ok())
         .ok_or(HeapError::CannotProvision(AllocatorError::BadConstraints))?;
 
         let adult = GeneralAllocator::from_existing_allocation(adult_base, adult_capacity)
             .map_err(HeapError::CannotProvision)?;
+
+        // One card-table entry per CARD_SIZE bytes of adult space.
+        let card_table = vec![CLEAN; adult_capacity / CARD_SIZE];
 
         Ok(Self {
             base,
             layout,
             infant,
             teen,
-            adult,
             active_teen: 0,
+            adult,
+            adult_base,
+            card_table,
         })
     }
 
-    pub fn raw_alloc(&mut self, layout: Layout) -> Option<NonNull<u8>> {
-        // if the object takes up more than 50% allocate to adult
-        if layout.size() > (self.infant.capacity() / Self::MAX_INFANT_SINGLE_ALLOCATION_DIVISOR)
+    pub fn raw_alloc(&mut self, layout: Layout) -> Option<ObjRef>
+    {
+        // large objects skip the infant space entirely.
+        if layout.size() > self.infant.capacity() / Self::MAX_INFANT_ALLOC_DIVISOR
         {
             return self.adult.raw_alloc(layout);
         }
 
-        // first attempt
-        if let ptr @ Some(_) = self.infant.raw_alloc(layout) { return ptr }
+        // first try
+        if let ptr @ Some(_) = self.infant.raw_alloc(layout)
+        {
+            return ptr;
+        }
 
-        // infant is full, trigger minor gc
-        // self.collect_minor();
+        // Perform minor gc here. TODO: Figure how to get stack ref here
+        // self.collect_minor(stack);
 
-        // second attempt
-        if let ptr @ Some(_) = self.infant.raw_alloc(layout) { return ptr }
+        // second try
+        if let ptr @ Some(_) = self.infant.raw_alloc(layout)
+        {
+            return ptr;
+        }
 
-        // if still fails, perform major gc and pray
-        // self.collect_major();
-
-        // final attempt, try fallback on adult if required
-        self.infant.raw_alloc(layout)
-            .or_else(|| self.adult.raw_alloc(layout))
+        // try and allocate into adult if everything else fails
+        self.adult.raw_alloc(layout)
     }
 
     pub fn alloc<T>(&mut self, value: T) -> Option<NonNull<T>>
     {
-        self.raw_alloc(Layout::new::<T>()).map(|x| {
-            let new_ptr = x.cast();
-            unsafe { new_ptr.write(value) };
-
-            new_ptr
-        })
+        self.raw_alloc(Layout::new::<T>())
+            .map(|x| x.cast::<T>())
+            .inspect(|x| unsafe {
+                x.write(value);
+            })
     }
 
     pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
@@ -190,22 +269,247 @@ impl Heap {
         match self.get_pool(ptr.cast())
         {
             None | Some(PoolType::Infant) =>
-            { /* Do nothing */ }
-            Some(PoolType::Teen(index)) => self.teen[index].dealloc(ptr),
+            {}
+            Some(PoolType::Teen(i)) => self.teen[i].dealloc(ptr),
             Some(PoolType::Adult) => self.adult.dealloc(ptr),
         }
     }
 
-    fn get_pool(&self, ptr: NonNull<u8>) -> Option<PoolType>
+    /// Must be called on every reference-field write: `obj.field = new_value`.
+    ///
+    /// When an old-gen object acquires a pointer into the young gen the
+    /// containing card is marked dirty so the minor GC can find that root
+    /// without scanning the entire old gen.
+    pub fn write_barrier(&mut self, parent_ptr: ObjRef, field_addr: FieldPtr, new_value: ObjRef)
     {
-        // This isnt a great implementation but will do for now
+        // Perform the store.
+        unsafe {
+            *field_addr = new_value;
+        }
+
+        // Record the cross-generational pointer.
+        if !self.is_youth(parent_ptr) && self.is_youth(new_value)
+        {
+            if let Some(card_idx) = self.card_index_of(parent_ptr)
+            {
+                self.card_table[card_idx] = DIRTY;
+            }
+        }
+    }
+
+    /// Scavenges the infant space and the active teen ("from") space.
+    ///
+    /// Live objects are evacuated into the inactive teen ("to") space.
+    /// Objects that have survived `ADULT_THRESHOLD` collections, or for which
+    /// the teen "to" space is full, are promoted directly to the adult gen.
+    ///
+    /// After a successful minor GC:
+    /// - the infant space is empty (bump pointer reset),
+    /// - the "from" teen space is empty,
+    /// - `self.active_teen` flips to the newly populated "to" space.
+    pub fn collect_minor(&mut self, stack: &mut Stack)
+    {
+        let from_teen_idx = self.active_teen;
+        let to_teen_idx = 1 - self.active_teen;
+
+        let mut worklist: Vec<ObjRef> = Vec::new();
+
+        for entry in stack.iter_mut()
+        {
+            if let StackEntry::Reference(Some(obj_ptr)) = entry
+            {
+                if self.is_youth(*obj_ptr)
+                {
+                    *obj_ptr = unsafe { self.evacuate(*obj_ptr, to_teen_idx, &mut worklist) };
+                }
+            }
+        }
+
+        let dirty_cards: Vec<usize> = self
+            .card_table
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(i, status)| {
+                if *status == DIRTY
+                {
+                    *status = CLEAN;
+                    Some(i)
+                }
+                else
+                {
+                    None
+                }
+            })
+            .collect();
+
+        for card_idx in dirty_cards
+        {
+            let card_start = unsafe { self.adult_base.as_ptr().add(card_idx * CARD_SIZE) };
+            self.scan_card(card_start, to_teen_idx, &mut worklist);
+        }
+
+        while let Some(parent_ptr) = worklist.pop()
+        {
+            unsafe {
+                let header = &*(parent_ptr.as_ptr() as *const ObjectHeader);
+                let metadata = self.get_metadata(header.vtable_or_type);
+                let offsets: Vec<usize> = metadata.references().to_vec();
+
+                for offset in offsets
+                {
+                    let field_ptr: FieldPtr = parent_ptr.as_ptr().add(offset).cast();
+                    let child_ptr = *field_ptr;
+
+                    if self.is_youth(child_ptr)
+                    {
+                        *field_ptr = self.evacuate(child_ptr, to_teen_idx, &mut worklist);
+                    }
+                }
+            }
+        }
+
+        self.infant.release_all();
+        self.teen[from_teen_idx].release_all();
+        self.active_teen = to_teen_idx;
+    }
+
+    /// Evacuates a single live object out of young gen.
+    ///
+    /// Returns the new address of the object.  If the object was already
+    /// moved in this GC cycle (i.e. it is reachable via multiple paths) the
+    /// forwarding address stored in the old header is returned immediately.
+    ///
+    /// Destination policy:
+    /// - age ≥ `ADULT_THRESHOLD` -> adult gen (normal promotion).
+    /// - teen "to" space has room -> teen "to" space (age incremented).
+    /// - teen "to" space is full -> adult gen (emergency / overflow promotion).
+    ///
+    /// The new object is pushed onto `worklist` so its own reference fields
+    /// are traced in phase 3 of the minor GC.
+    ///
+    /// # Safety
+    /// `obj_ptr` must point to a valid, live `ObjectHeader` in young gen.
+    unsafe fn evacuate(&mut self, obj_ptr: ObjRef, to_teen_idx: usize, worklist: &mut Vec<ObjRef>) -> ObjRef
+    {
+        // safety: caller guarantees obj_ptr is a valid young-gen object.
+        let header: &mut ObjectHeader = unsafe { obj_ptr.cast().as_mut() };
+
+        // follow forward pointer as has already been evacuated
+        if header.is_forwarded()
+        {
+            return header.forwarding_address();
+        }
+
+        let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
+        let size = metadata.size();
+
+        // using objectheader alignment to not waste space
+        let layout = Layout::from_size_align(size, align_of::<ObjectHeader>())
+            .expect("Object metadata returned invalid size or alignment");
+
+        let should_promote = header.age() >= Self::ADULT_THRESHOLD;
+        let destination: ObjRef = if should_promote
+        {
+            // promote
+            self.adult
+                .raw_alloc(layout)
+                .expect("OOM in old gen during normal promotion")
+        }
+        else
+        {
+            // copy to survivor space
+            self.teen[to_teen_idx].raw_alloc(layout).unwrap_or_else(|| {
+                self.adult
+                    .raw_alloc(layout)
+                    .expect("OOM in old gen during overflow promotion")
+            })
+        };
+
+        unsafe {
+            destination.copy_from_nonoverlapping(obj_ptr, size);
+        }
+
+        // Increment the age in the new copy (only for teen destinations
+        // promoted objects' ages are irrelevant once in the old gen).
+        if !should_promote
+        {
+            let new_header: &mut ObjectHeader = unsafe { destination.cast().as_mut() };
+            new_header.increment_age();
+        }
+
+        // leave a forwarding pointer in the old copy so that any subsequent
+        // references to the same object are redirected to its new location.
+        // (The old header is now logically dead.)
+        let old_header: &mut ObjectHeader = unsafe { obj_ptr.cast().as_mut() };
+        old_header.set_forwarding_address(destination);
+
+        // Schedule the new copy for field-tracing in the transitive closure phase.
+        worklist.push(destination);
+
+        destination
+    }
+
+    /// Scans one card-sized region of the old gen, evacuating any young-gen
+    /// pointers found in reference fields of live objects within that region.
+    ///
+    /// Objects are walked sequentially using `ObjectHeader::size` as the stride.
+    /// A zero-size header (unallocated / padding) terminates the scan early.
+    ///
+    /// # Safety
+    /// `card_start` must be card-aligned and point into the adult allocator's
+    /// live memory range.
+    fn scan_card(&mut self, card_start: *mut u8, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
+    {
+        let card_end = unsafe { card_start.add(CARD_SIZE) };
+        let mut cursor = card_start;
+
+        while cursor < card_end
+        {
+            // SAFETY: cursor stays within [card_start, card_end) and we
+            // advance by header.size each iteration.
+            let obj_ptr = unsafe { NonNull::new_unchecked(cursor as *mut ObjectHeader) };
+            let header = unsafe { obj_ptr.as_ref() };
+
+            let size = header.size;
+            if size == 0
+            {
+                break;
+            }
+
+            // Trace reference fields of live (non-forwarded) objects only.
+            // Forwarded objects are dead; their fields have already been fixed.
+            if !header.is_forwarded()
+            {
+                let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
+                let offsets: Vec<usize> = metadata.references().to_vec();
+
+                for offset in offsets
+                {
+                    let field_ptr: FieldPtr = unsafe { cursor.add(offset).cast() };
+                    let child_ptr = unsafe { *field_ptr };
+
+                    if self.is_youth(child_ptr)
+                    {
+                        unsafe {
+                            *field_ptr = self.evacuate(child_ptr, to_teen_idx, worklist);
+                        }
+                    }
+                }
+            }
+
+            cursor = unsafe { cursor.add(size) };
+        }
+    }
+
+    fn get_pool(&self, ptr: ObjRef) -> Option<PoolType>
+    {
         if self.infant.contains(ptr)
         {
             Some(PoolType::Infant)
         }
-        else if let Some((index, _)) = self.teen.iter().enumerate().find(|&(_, x)| x.contains(ptr))
+        else if let Some((i, _)) = self.teen.iter().enumerate().find(|(_, t)| t.contains(ptr))
         {
-            Some(PoolType::Teen(index))
+            Some(PoolType::Teen(i))
         }
         else if self.adult.contains(ptr)
         {
@@ -217,116 +521,33 @@ impl Heap {
         }
     }
 
-    /// Minor GC: Scavenges Infant and Active Teen, promoting survivors.
-    pub fn collect_minor(&mut self, roots: &mut Vec<*mut NonNull<u8>>) {
-        let from_teen_idx = self.active_teen;
-        let to_teen_idx = 1 - self.active_teen;
-
-        // Tenuring threshold: Objects surviving 8 minor GCs move to Adult Gen
-        const TENURING_THRESHOLD: usize = 8;
-
-        // We use a queue-based copying mechanism (Cheney's Algorithm)
-        // For simplicity in Rust, we'll track objects we need to scan in a worklist
-        let mut worklist: Vec<NonNull<u8>> = Vec::new();
-
-        // Helper to check if a pointer resides within a specific memory region
-        let in_young_gen = |ptr: NonNull<u8>| {
-            // Check if ptr is within infant allocator bounds or active teen bounds
-            // (Assuming your allocators expose bounds checking methods)
-            true // Stub: replace with actual range checks
-        };
-
-        // --- Step 1: Evacuate Roots ---
-        for root in roots.iter_mut() {
-            unsafe {
-                let obj_ptr = **root;
-                if in_young_gen(obj_ptr) {
-                    **root = self.evacuate(obj_ptr, to_teen_idx, TENURING_THRESHOLD, &mut worklist);
-                }
-            }
-        }
-
-        // --- Step 2: Scan Evacuated Objects (Cheney Tracing) ---
-        while let Some(parent_ptr) = worklist.pop() {
-            unsafe {
-                let header = &*(parent_ptr.as_ptr() as *const ObjectHeader);
-                // Get layout/metadata map from the object type system
-                let metadata = self.get_metadata(header.vtable_or_type);
-
-                for &offset in metadata.references() {
-                    let field_ptr = parent_ptr.as_ptr().add(offset) as *mut NonNull<u8>;
-                    let child_ptr = *field_ptr;
-
-                    if in_young_gen(child_ptr) {
-                        *field_ptr = self.evacuate(child_ptr, to_teen_idx, TENURING_THRESHOLD, &mut worklist);
-                    }
-                }
-            }
-        }
-
-        // --- Step 3: Reset and Swap ---
-        // 1. Clear infant (Eden) completely since everything alive moved out.
-        self.infant.reset();
-
-        // 2. Clear the old "From" teen space.
-        self.teen[from_teen_idx].reset();
-
-        // 3. Swap active survivor spaces.
-        self.active_teen = to_teen_idx;
+    fn is_youth(&self, ptr: ObjRef) -> bool
+    {
+        matches!(self.get_pool(ptr), Some(PoolType::Infant) | Some(PoolType::Teen(_)))
     }
 
-    /// Moves a single object out of danger zone into either "To Space" or "Adult Gen".
-    unsafe fn evacuate(
-        &mut self,
-        obj_ptr: NonNull<u8>,
-        to_teen_idx: usize,
-        threshold: usize,
-        worklist: &mut Vec<NonNull<u8>>
-    ) -> NonNull<u8> {
-        let header: &mut ObjectHeader = unsafe { obj_ptr.cast().as_mut() };
-
-        // If already moved, return its new home immediately
-        if header.is_forwarded() {
-            return header.forwarding_address();
+    /// Returns the card-table index for an adult-gen pointer.
+    ///
+    /// Returns `None` if `ptr` does not lie inside the adult region (e.g. if
+    /// called on a young-gen pointer, which should never happen via the normal
+    /// write-barrier path but is safe to handle gracefully).
+    fn card_index_of(&self, ptr: ObjRef) -> Option<usize>
+    {
+        if !self.adult.contains(ptr)
+        {
+            return None;
         }
-
-        let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
-        let size = metadata.size();
-        let layout = Layout::from_size_align(size, HEAP_ALIGN).unwrap();
-
-        let destination_ptr: NonNull<u8>;
-
-        if header.age() >= threshold {
-            // Promote to Adult (Old Generation)
-            destination_ptr = self.adult.raw_alloc(layout)
-                .expect("Old Gen Out of Memory during promotion!");
-        } else {
-            // Attempt to copy to "To" Survivor Space
-            if let Some(ptr) = self.teen[to_teen_idx].raw_alloc(layout) {
-                destination_ptr = ptr;
-                // Increment Age inside the new copy's header
-                let new_header = &mut *(destination_ptr.as_ptr() as *mut ObjectHeader);
-                new_header.mark_word = ((header.age() + 1) << 1) | (header.mark_word & !0x1F);
-            } else {
-                // Survivor space overflow! Prematurely promote to Adult Gen
-                destination_ptr = self.adult.raw_alloc(layout)
-                    .expect("Old Gen Out of Memory during premature promotion!");
-            }
-        }
-
-        // Bitwise copy object data to new destination
-        std::ptr::copy_nonoverlapping(obj_ptr.as_ptr(), destination_ptr.as_ptr(), size);
-
-        // Leave behind a forwarding pointer in the old corpse object
-        header.set_forwarding_address(destination_ptr);
-
-        // Push to worklist so we can scan this object's children later
-        worklist.push(destination_ptr);
-
-        destination_ptr
+        let offset = (ptr.as_ptr() as usize).checked_sub(self.adult_base.as_ptr() as usize)?;
+        Some(offset / CARD_SIZE)
     }
 
-    unsafe fn get_metadata(&self, _vtable: NonNull<()>) -> &dyn Traceable {
-        todo!("Hook this up to your runtime's layout/class dictionary")
+    /// Looks up the `Traceable` metadata for an object via its vtable pointer.
+    ///
+    /// # Safety
+    /// `vtable` must be a valid pointer returned by the type system at object
+    /// allocation time.
+    unsafe fn get_metadata(&self, _vtable: NonNull<u8>) -> &dyn Traceable
+    {
+        todo!("Waiting for type system setup")
     }
 }
