@@ -177,29 +177,28 @@ impl Heap
 
     pub fn with_capacity(capacity: usize) -> Result<Self, HeapError>
     {
-        // Compute raw region sizes.
+        // raw region sizes
         let (young_raw, old_raw) = YOUNG_OLD_RATIO.split(capacity);
         let (infant_raw, teen_total_raw) = INFANT_TEEN_RATIO.split(young_raw);
         let teen_raw = teen_total_raw / TEEN_COUNT;
 
-        // Infant space uses ArenaAllocator, which safely functions on standard page boundaries.
+        // infant space uses ArenaAllocator, which safely functions on standard page boundaries.
         let infant_capacity = align_up(infant_raw, HEAP_ALIGN);
 
-        // GeneralAllocators strictly require their total managed space to be a power of two.
-        // We enforce strict power-of-two constraints matching or exceeding the depth limits.
+        // GeneralAllocator strictly require their total managed space to be a power of two.
         let teen_capacity = teen_raw.next_power_of_two().max(1 << TEEN_ALLOCATOR_DEPTH);
         let adult_capacity = old_raw.next_power_of_two().max(1 << ADULT_ALLOCATOR_DEPTH);
 
         let total_teen_capacity = teen_capacity * TEEN_COUNT;
         let total_capacity = infant_capacity + total_teen_capacity + adult_capacity;
 
-        // Single contiguous allocation for the whole heap.
+        // heap allocation
         let layout = Layout::from_size_align(total_capacity, HEAP_ALIGN).map_err(HeapError::InvalidLayout)?;
 
         let base = NonNull::new(unsafe { alloc(layout) })
             .ok_or(HeapError::CannotProvision(AllocatorError::FailedInitialAllocation))?;
 
-        // Carve out sub-regions from the slab.
+        // get each regions bases.
         let infant_base = base;
         let teen_base = unsafe { infant_base.byte_add(infant_capacity) };
         let adult_base = unsafe { teen_base.byte_add(total_teen_capacity) };
@@ -221,7 +220,7 @@ impl Heap
         let num_cards = adult_capacity / CARD_SIZE;
         let card_table = vec![CLEAN; num_cards];
 
-        // Initially, the entire adult gen is parseable from adult_base.
+        // init cards.
         let card_offsets = (0..num_cards).map(|i| i * CARD_SIZE).collect();
 
         Ok(Self {
@@ -310,19 +309,16 @@ impl Heap
     /// Must be called on every reference-field write: `obj.field = new_value`.
     pub fn write_barrier(&mut self, _parent_ptr: ObjRef, field_addr: FieldPtr, new_value: ObjRef)
     {
+        // do the actual write
         unsafe {
             *field_addr = new_value;
         }
 
         if self.is_youth(new_value)
+            && let Some(field_ref) = NonNull::new(field_addr.cast::<u8>())
+            && let Some(card_idx) = self.card_index_of(field_ref)
         {
-            if let Some(field_ref) = NonNull::new(field_addr.cast::<u8>())
-            {
-                if let Some(card_idx) = self.card_index_of(field_ref)
-                {
-                    self.card_table[card_idx] = DIRTY;
-                }
-            }
+            self.card_table[card_idx] = DIRTY;
         }
     }
 
@@ -337,11 +333,9 @@ impl Heap
         for entry in stack.iter_mut()
         {
             if let StackEntry::Reference(Some(obj_ptr)) = entry
+                && self.is_youth(*obj_ptr)
             {
-                if self.is_youth(*obj_ptr)
-                {
-                    *obj_ptr = unsafe { self.evacuate(*obj_ptr, to_teen_idx, &mut worklist) };
-                }
+                *obj_ptr = unsafe { self.evacuate(*obj_ptr, to_teen_idx, &mut worklist) };
             }
         }
 
@@ -408,6 +402,8 @@ impl Heap
 
         let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
         let size = metadata.size();
+
+        // TODO: work out how errors here will work
 
         let layout = Layout::from_size_align(size, align_of::<ObjectHeader>())
             .expect("Object metadata returned invalid size or alignment");
