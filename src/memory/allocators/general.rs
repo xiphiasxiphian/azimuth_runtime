@@ -230,15 +230,24 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
 
     unsafe fn split_block(&mut self, block: NonNull<u8>, order: usize, target: usize)
     {
-        let block_size = self.get_required_block_size(order);
+        // let block_size = self.get_required_block_size(order);
 
-        let mut index = 0;
-        while (order >> index) > target
+        // let mut index = 0;
+        // while (order >> index) > target
+        // {
+        //     index += 1;
+
+        //     let split = unsafe { block.byte_add(block_size >> index) };
+        //     self.block_insert(order - index, split);
+        // }
+
+        let mut current_order = order;
+        while current_order > target
         {
-            index += 1;
-
-            let split = unsafe { block.byte_add(block_size >> index) };
-            self.block_insert(order - index, split);
+            current_order -= 1;
+            let split_size = self.get_required_block_size(current_order);
+            let buddy = unsafe { NonNull::new_unchecked(block.as_ptr().byte_add(split_size)) };
+            self.block_insert(current_order, buddy);
         }
     }
 

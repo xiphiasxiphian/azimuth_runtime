@@ -52,7 +52,7 @@ impl Ratio
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PoolType
 {
     Infant,
@@ -140,10 +140,6 @@ pub trait Traceable
     fn size(&self) -> usize;
 }
 
-// ---------------------------------------------------------------------------
-// Heap
-// ---------------------------------------------------------------------------
-
 pub struct Heap
 {
     /// Base of the entire contiguous allocation.
@@ -164,6 +160,10 @@ pub struct Heap
     /// Set to `DIRTY` by the write barrier when an old-gen object gains a
     /// pointer into young gen.  Cleared and scanned during minor GC.
     card_table: Vec<u8>,
+
+    /// Maps each card index to the byte offset from the start of the card
+    /// back to the closest valid `ObjectHeader` starting at or before it.
+    card_offsets: Vec<usize>,
 }
 
 impl Heap
@@ -182,10 +182,13 @@ impl Heap
         let (infant_raw, teen_total_raw) = INFANT_TEEN_RATIO.split(young_raw);
         let teen_raw = teen_total_raw / TEEN_COUNT;
 
-        // Align every region to a page boundary.
+        // Infant space uses ArenaAllocator, which safely functions on standard page boundaries.
         let infant_capacity = align_up(infant_raw, HEAP_ALIGN);
-        let teen_capacity = align_up(teen_raw, HEAP_ALIGN); // per teen space
-        let adult_capacity = align_up(old_raw, HEAP_ALIGN);
+
+        // GeneralAllocators strictly require their total managed space to be a power of two.
+        // We enforce strict power-of-two constraints matching or exceeding the depth limits.
+        let teen_capacity = teen_raw.next_power_of_two().max(1 << TEEN_ALLOCATOR_DEPTH);
+        let adult_capacity = old_raw.next_power_of_two().max(1 << ADULT_ALLOCATOR_DEPTH);
 
         let total_teen_capacity = teen_capacity * TEEN_COUNT;
         let total_capacity = infant_capacity + total_teen_capacity + adult_capacity;
@@ -215,8 +218,11 @@ impl Heap
         let adult = GeneralAllocator::from_existing_allocation(adult_base, adult_capacity)
             .map_err(HeapError::CannotProvision)?;
 
-        // One card-table entry per CARD_SIZE bytes of adult space.
-        let card_table = vec![CLEAN; adult_capacity / CARD_SIZE];
+        let num_cards = adult_capacity / CARD_SIZE;
+        let card_table = vec![CLEAN; num_cards];
+
+        // Initially, the entire adult gen is parseable from adult_base.
+        let card_offsets = (0..num_cards).map(|i| i * CARD_SIZE).collect();
 
         Ok(Self {
             base,
@@ -227,7 +233,30 @@ impl Heap
             adult,
             adult_base,
             card_table,
+            card_offsets,
         })
+    }
+
+    /// Allocates an object in the adult generation and records its boundary mapping.
+    fn alloc_adult(&mut self, layout: Layout) -> Option<ObjRef>
+    {
+        let ptr = self.adult.raw_alloc(layout)?;
+        let size = layout.size();
+        let start_ptr = ptr.as_ptr() as usize;
+        let base = self.adult_base.as_ptr() as usize;
+
+        let start_card = (start_ptr - base) / CARD_SIZE;
+        let end_card = (start_ptr + size - 1 - base) / CARD_SIZE;
+
+        for card_idx in start_card..=end_card
+        {
+            let card_start = base + card_idx * CARD_SIZE;
+            if card_start >= start_ptr
+            {
+                self.card_offsets[card_idx] = card_start - start_ptr;
+            }
+        }
+        Some(ptr)
     }
 
     fn raw_alloc(&mut self, layout: Layout, stack: &mut Stack) -> Option<ObjRef>
@@ -235,7 +264,7 @@ impl Heap
         // large objects skip the infant space entirely.
         if layout.size() > self.infant.capacity() / Self::MAX_INFANT_ALLOC_DIVISOR
         {
-            return self.adult.raw_alloc(layout);
+            return self.alloc_adult(layout);
         }
 
         // first try
@@ -253,63 +282,51 @@ impl Heap
             return ptr;
         }
 
-        // TODO: When to perform major GC
-
         // try and allocate into adult if everything else fails
-        self.adult.raw_alloc(layout)
+        self.alloc_adult(layout)
     }
 
     fn alloc<T>(&mut self, value: T, stack: &mut Stack) -> Option<NonNull<T>>
     {
-        self.raw_alloc(Layout::new::<T>(), stack)
-            .map(|x| x.cast::<T>())
+        self.raw_alloc(Layout::for_value(&value), stack)
+            .map(NonNull::cast)
             .inspect(|x| unsafe {
                 x.write(value);
             })
     }
 
+    /// Deallocates specific previously allocated block
     pub fn dealloc<T>(&mut self, ptr: NonNull<T>)
     {
         match self.get_pool(ptr.cast())
         {
             None | Some(PoolType::Infant) =>
-            {} // All infant space just gets deallocated at once anyway
+            {}
             Some(PoolType::Teen(i)) => self.teen[i].dealloc(ptr),
             Some(PoolType::Adult) => self.adult.dealloc(ptr),
         }
     }
 
     /// Must be called on every reference-field write: `obj.field = new_value`.
-    ///
-    /// When an old-gen object acquires a pointer into the young gen the
-    /// containing card is marked dirty so the minor GC can find that root
-    /// without scanning the entire old gen.
-    pub fn write_barrier(&mut self, parent_ptr: ObjRef, field_addr: FieldPtr, new_value: ObjRef)
+    pub fn write_barrier(&mut self, _parent_ptr: ObjRef, field_addr: FieldPtr, new_value: ObjRef)
     {
-        // perform the actual write
         unsafe {
             *field_addr = new_value;
         }
 
-        // Record the cross-generational pointer.
-        if !self.is_youth(parent_ptr)
-            && self.is_youth(new_value)
-            && let Some(card_idx) = self.card_index_of(parent_ptr)
+        if self.is_youth(new_value)
         {
-            self.card_table[card_idx] = DIRTY;
+            if let Some(field_ref) = NonNull::new(field_addr.cast::<u8>())
+            {
+                if let Some(card_idx) = self.card_index_of(field_ref)
+                {
+                    self.card_table[card_idx] = DIRTY;
+                }
+            }
         }
     }
 
     /// Scavenges the infant space and the active teen ("from") space.
-    ///
-    /// Live objects are evacuated into the inactive teen ("to") space.
-    /// Objects that have survived `ADULT_THRESHOLD` collections, or for which
-    /// the teen "to" space is full, are promoted directly to the adult gen.
-    ///
-    /// After a successful minor GC:
-    /// - the infant space is empty (bump pointer reset),
-    /// - the "from" teen space is empty,
-    /// - `self.active_teen` flips to the newly populated "to" space.
     pub fn collect_minor(&mut self, stack: &mut Stack)
     {
         let from_teen_idx = self.active_teen;
@@ -347,8 +364,7 @@ impl Heap
 
         for card_idx in dirty_cards
         {
-            let card_start = unsafe { self.adult_base.as_ptr().add(card_idx * CARD_SIZE) };
-            self.scan_card(card_start, to_teen_idx, &mut worklist);
+            self.scan_card(card_idx, to_teen_idx, &mut worklist);
         }
 
         while let Some(parent_ptr) = worklist.pop()
@@ -381,27 +397,10 @@ impl Heap
     }
 
     /// Evacuates a single live object out of young gen.
-    ///
-    /// Returns the new address of the object.  If the object was already
-    /// moved in this GC cycle (i.e. it is reachable via multiple paths) the
-    /// forwarding address stored in the old header is returned immediately.
-    ///
-    /// Destination policy:
-    /// - age >= `ADULT_THRESHOLD` -> adult gen (normal promotion).
-    /// - teen "to" space has room -> teen "to" space (age incremented).
-    /// - teen "to" space is full -> adult gen (emergency / overflow promotion).
-    ///
-    /// The new object is pushed onto `worklist` so its own reference fields
-    /// are traced in phase 3 of the minor GC.
-    ///
-    /// # Safety
-    /// `obj_ptr` must point to a valid, live `ObjectHeader` in young gen.
     unsafe fn evacuate(&mut self, obj_ptr: ObjRef, to_teen_idx: usize, worklist: &mut Vec<ObjRef>) -> ObjRef
     {
-        // safety: caller guarantees obj_ptr is a valid young-gen object.
         let header: &mut ObjectHeader = unsafe { obj_ptr.cast().as_mut() };
 
-        // follow forward pointer as has already been evacuated
         if header.is_forwarded()
         {
             return header.forwarding_address();
@@ -410,26 +409,19 @@ impl Heap
         let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
         let size = metadata.size();
 
-        // TODO: Figure how the error for these allocation fails will work
-
-        // using objectheader alignment to not waste space
         let layout = Layout::from_size_align(size, align_of::<ObjectHeader>())
             .expect("Object metadata returned invalid size or alignment");
 
         let should_promote = header.age() >= Self::ADULT_THRESHOLD;
         let destination: ObjRef = if should_promote
         {
-            // promote
-            self.adult
-                .raw_alloc(layout)
+            self.alloc_adult(layout)
                 .expect("OOM in old gen during normal promotion")
         }
         else
         {
-            // copy to survivor space
             self.teen[to_teen_idx].raw_alloc(layout).unwrap_or_else(|| {
-                self.adult
-                    .raw_alloc(layout)
+                self.alloc_adult(layout)
                     .expect("OOM in old gen during overflow promotion")
             })
         };
@@ -438,21 +430,15 @@ impl Heap
             destination.copy_from_nonoverlapping(obj_ptr, size);
         }
 
-        // Increment the age in the new copy (only for teen destinations
-        // promoted objects' ages are irrelevant once in the old gen).
         if !should_promote
         {
             let new_header: &mut ObjectHeader = unsafe { destination.cast().as_mut() };
             new_header.increment_age();
         }
 
-        // leave a forwarding pointer in the old copy so that any subsequent
-        // references to the same object are redirected to its new location.
-        // (The old header is now logically dead.)
         let old_header: &mut ObjectHeader = unsafe { obj_ptr.cast().as_mut() };
         old_header.set_forwarding_address(destination);
 
-        // Schedule the new copy for field-tracing in the transitive closure phase.
         worklist.push(destination);
 
         destination
@@ -460,22 +446,16 @@ impl Heap
 
     /// Scans one card-sized region of the old gen, evacuating any young-gen
     /// pointers found in reference fields of live objects within that region.
-    ///
-    /// Objects are walked sequentially using `ObjectHeader::size` as the stride.
-    /// A zero-size header (unallocated / padding) terminates the scan early.
-    ///
-    /// # Safety
-    /// `card_start` must be card-aligned and point into the adult allocator's
-    /// live memory range.
-    fn scan_card(&mut self, card_start: *mut u8, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
+    fn scan_card(&mut self, card_idx: usize, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
     {
+        let card_start = unsafe { self.adult_base.as_ptr().add(card_idx * CARD_SIZE) };
         let card_end = unsafe { card_start.add(CARD_SIZE) };
-        let mut cursor = card_start;
+
+        let offset = self.card_offsets[card_idx];
+        let mut cursor = unsafe { card_start.sub(offset) };
 
         while cursor < card_end
         {
-            // SAFETY: cursor stays within [card_start, card_end) and we
-            // advance by header.size each iteration.
             let obj_ptr = unsafe { NonNull::new_unchecked(cursor as *mut ObjectHeader) };
             let header = unsafe { obj_ptr.as_ref() };
 
@@ -485,8 +465,6 @@ impl Heap
                 break;
             }
 
-            // Trace reference fields of live (non-forwarded) objects only.
-            // Forwarded objects are dead; their fields have already been fixed.
             if !header.is_forwarded()
             {
                 let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
@@ -536,10 +514,6 @@ impl Heap
     }
 
     /// Returns the card-table index for an adult-gen pointer.
-    ///
-    /// Returns `None` if `ptr` does not lie inside the adult region (e.g. if
-    /// called on a young-gen pointer, which should never happen via the normal
-    /// write-barrier path but is safe to handle gracefully).
     fn card_index_of(&self, ptr: ObjRef) -> Option<usize>
     {
         if !self.adult.contains(ptr)
@@ -551,10 +525,6 @@ impl Heap
     }
 
     /// Looks up the `Traceable` metadata for an object via its vtable pointer.
-    ///
-    /// # Safety
-    /// `vtable` must be a valid pointer returned by the type system at object
-    /// allocation time.
     unsafe fn get_metadata(&self, _vtable: NonNull<u8>) -> &dyn Traceable
     {
         todo!("Waiting for type system setup")
@@ -562,21 +532,30 @@ impl Heap
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests
+{
     use std::ptr::NonNull;
 
+    use super::*;
+
+    // Plentiful, clean heap size to satisfy power-of-two suballocations easily
+    const TEST_HEAP_SIZE: usize = 64 * 1024 * 1024;
+
     #[test]
-    fn test_align_up() {
+    fn test_align_up()
+    {
         assert_eq!(align_up(0, 4096), 0);
         assert_eq!(align_up(1, 4096), 4096);
         assert_eq!(align_up(4095, 4096), 4096);
         assert_eq!(align_up(4096, 4096), 4096);
         assert_eq!(align_up(4097, 4096), 8192);
+        assert_eq!(align_up(8192, 4096), 8192);
+        assert_eq!(align_up(123456, 512), 123904);
     }
 
     #[test]
-    fn test_ratio_split_exact() {
+    fn test_ratio_split_exact()
+    {
         let ratio = Ratio(1, 2);
         assert_eq!(ratio.split(300), (100, 200));
 
@@ -585,17 +564,20 @@ mod tests {
     }
 
     #[test]
-    fn test_ratio_split_imperfect() {
+    fn test_ratio_split_imperfect()
+    {
         let ratio = Ratio(4, 1);
-        // 10 * 4 / 5 = 8. 10 - 8 = 2.
         assert_eq!(ratio.split(10), (8, 2));
-        // 11 * 4 / 5 = 8. 11 - 8 = 3. Ensures no dropped bytes.
         assert_eq!(ratio.split(11), (8, 3));
+        assert_eq!(ratio.split(0), (0, 0));
+
+        let ratio_large = Ratio(99, 1);
+        assert_eq!(ratio_large.split(1000), (990, 10));
     }
 
-
     #[test]
-    fn test_object_header_initial_state() {
+    fn test_object_header_initial_state()
+    {
         let header = ObjectHeader {
             mark_word: 0,
             vtable_or_type: NonNull::dangling(),
@@ -606,7 +588,8 @@ mod tests {
     }
 
     #[test]
-    fn test_object_header_age_increment_and_saturation() {
+    fn test_object_header_age_increment_and_saturation()
+    {
         let mut header = ObjectHeader {
             mark_word: 0,
             vtable_or_type: NonNull::dangling(),
@@ -617,24 +600,40 @@ mod tests {
         assert_eq!(header.age(), 1);
         assert!(!header.is_forwarded(), "Age increment should not trigger forwarded bit");
 
-        // Force saturation
-        for _ in 0..20 {
+        for _ in 0..20
+        {
             header.increment_age();
         }
 
-        // Age should cap at 15 (0x0F) according to AGE_MASK
         assert_eq!(header.age(), 15);
     }
 
     #[test]
-    fn test_object_header_forwarding() {
+    fn test_object_header_preserved_bits()
+    {
+        let mut header = ObjectHeader {
+            mark_word: 0b11111111_11111111_11111111_11100000,
+            vtable_or_type: NonNull::dangling(),
+            size: 64,
+        };
+
+        assert_eq!(header.age(), 0);
+        header.increment_age();
+        assert_eq!(header.age(), 1);
+
+        let high_bits = header.mark_word & !0x1F;
+        assert_eq!(high_bits, 0b11111111_11111111_11111111_11100000);
+    }
+
+    #[test]
+    fn test_object_header_forwarding()
+    {
         let mut header = ObjectHeader {
             mark_word: 0,
             vtable_or_type: NonNull::dangling(),
             size: 32,
         };
 
-        // Create a dummy forwarding address
         let target_addr = NonNull::new(0xABCD_1200 as *mut u8).unwrap();
         header.set_forwarding_address(target_addr);
 
@@ -644,14 +643,62 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "called forwarding_address on a live object")]
-    fn test_forwarding_address_on_live_object_panics() {
+    fn test_forwarding_address_on_live_object_panics()
+    {
         let header = ObjectHeader {
-            mark_word: 0, // Not forwarded
+            mark_word: 0,
             vtable_or_type: NonNull::dangling(),
             size: 32,
         };
 
-        // This should panic
         let _ = header.forwarding_address();
+    }
+
+    #[test]
+    fn test_heap_initialization_metrics()
+    {
+        let heap = Heap::with_capacity(TEST_HEAP_SIZE).unwrap();
+
+        assert_eq!(heap.active_teen, 0);
+        assert!(!heap.card_table.is_empty());
+        assert_eq!(heap.card_table.len(), heap.card_offsets.len());
+        assert!(heap.card_table.iter().all(|&status| status == CLEAN));
+    }
+
+    #[test]
+    fn test_card_index_out_of_bounds()
+    {
+        let heap = Heap::with_capacity(TEST_HEAP_SIZE).unwrap();
+        let external_ptr = NonNull::new(0x1000 as *mut u8).unwrap();
+
+        assert_eq!(heap.card_index_of(external_ptr), None);
+    }
+
+    #[test]
+    fn test_generation_classification_isolation()
+    {
+        let heap = Heap::with_capacity(TEST_HEAP_SIZE).unwrap();
+        let external_ptr = NonNull::new(0x5000 as *mut u8).unwrap();
+
+        assert_eq!(heap.get_pool(external_ptr), None);
+        assert!(!heap.is_youth(external_ptr));
+    }
+
+    #[test]
+    fn test_card_offset_math()
+    {
+        let base_addr = 0x10000;
+        let obj_addr = 0x10100;
+        let size = 600;
+
+        let start_card = (obj_addr - base_addr) / CARD_SIZE;
+        let end_card = (obj_addr + size - 1 - base_addr) / CARD_SIZE;
+
+        assert_eq!(start_card, 0);
+        assert_eq!(end_card, 1);
+
+        let card_1_start = base_addr + 1 * CARD_SIZE;
+        let offset_for_card_1 = card_1_start - obj_addr;
+        assert_eq!(offset_for_card_1, 256);
     }
 }
