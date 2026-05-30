@@ -126,6 +126,92 @@ pub enum TypeTag
     String,
 }
 
+/// Represents the type of a specific field or variable.
+#[binread]
+#[derive(Clone, Copy, Debug)]
+#[br(little)]
+pub enum TypeSignature {
+    #[br(magic = 0x00_u8)]
+    Primitive(TypeTag),
+
+    /// An inline struct/enum (data lives directly inside the parent object/stack)
+    #[br(magic = 0x01_u8)]
+    ValueType(SymbolId),
+
+    /// A heap-allocated object (GC needs to trace this ObjRef)
+    #[br(magic = 0x02_u8)]
+    Reference(SymbolId),
+}
+
+#[binread]
+#[derive(Clone, Debug)]
+#[br(little)]
+pub struct FieldDef {
+    pub name_id: SymbolId,
+    pub signature: TypeSignature,
+}
+
+#[binread]
+#[derive(Clone, Debug)]
+#[br(little)]
+pub struct StructDef {
+    pub symbol_id: SymbolId,
+
+    #[br(temp)]
+    field_count: u16,
+
+    #[br(count = field_count)]
+    pub fields: Vec<FieldDef>,
+}
+
+#[binread]
+#[derive(Clone, Debug)]
+#[br(little)]
+pub struct EnumVariant {
+    pub name_id: SymbolId,
+
+    #[br(temp)]
+    field_count: u16,
+
+    #[br(count = field_count)]
+    pub fields: Vec<FieldDef>,
+}
+
+#[binread]
+#[derive(Clone, Debug)]
+#[br(little)]
+pub struct EnumDef {
+    pub symbol_id: SymbolId,
+
+    #[br(temp)]
+    variant_count: u16,
+
+    #[br(count = variant_count)]
+    pub variants: Vec<EnumVariant>,
+}
+
+#[binread]
+#[derive(Clone, Debug)]
+#[br(little)]
+pub enum UserDefinedType {
+    #[br(magic = 0x00_u8)]
+    Struct(StructDef),
+
+    #[br(magic = 0x01_u8)]
+    Enum(EnumDef),
+}
+
+#[binread]
+#[derive(Clone, Debug)]
+#[br(little)]
+pub struct TypeDirectory {
+    #[br(temp)]
+    count: u32,
+
+    #[br(count = count)]
+    pub types: Vec<UserDefinedType>,
+}
+
 // Code blocks
 
 bitflags! {
@@ -253,6 +339,9 @@ pub struct FileLayout
 
     // Code segment
     pub code_directory: CodeDirectory,
+
+    // Type segment
+    pub type_directory: TypeDirectory,
 
     // Data segment
     pub data_directory: DataDirectory,
