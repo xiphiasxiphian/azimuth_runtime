@@ -108,11 +108,16 @@ pub struct SymbolTable
 
 // Types
 
+// Pure value types: stored inline, pointer-free, never GC-traced.
+//
+// `String` is intentionally absent. A string is a heap object (ObjRef) and is
+// represented as `TypeSignature::String` so the layout engine always traces it
+// without any special-case logic in the Scalar branch.
+
 #[binread]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[br(little)]
-#[repr(u8)]
-pub enum TypeTag
+pub enum ScalarTag
 {
     #[br(magic = 0x0_u8)]
     Integer32,
@@ -122,39 +127,77 @@ pub enum TypeTag
     Float32,
     #[br(magic = 0x3_u8)]
     Float64,
-    #[br(magic = 0x4_u8)]
-    String,
 }
 
-/// Represents the type of a specific field or variable.
+// Describes what a field, local variable, or parameter holds and how the GC
+// must treat it. The four variants map directly to GC policy:
+//
+//   Scalar      -> never a GC root (stored by value, no heap pointer)
+//   String      -> always a GC root (ObjRef to heap-allocated UTF-8 string)
+//   ValueType   -> never a GC root (inline layout; loader validates no nested
+//                 String/Reference fields anywhere in the transitive closure)
+//   Reference   -> always a GC root (ObjRef to a heap-allocated UserDefinedType)
+//
+// Both ValueType and Reference carry a `type_index` (0-based into
+// `TypeDirectory::types`) rather than a SymbolId. This keeps the binary
+// compact (4 bytes vs 16) and makes runtime lookup O(1). The loader resolves
+// cross-module SymbolIds from the link table and rewrites them to local indices
+// before handing the module to the runtime.
+
 #[binread]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[br(little)]
-pub enum TypeSignature {
+pub enum TypeSignature
+{
+    /// Stored inline. Never a GC root.
     #[br(magic = 0x00_u8)]
-    Primitive(TypeTag),
+    Scalar(ScalarTag),
 
-    /// An inline struct/enum (data lives directly inside the parent object/stack)
+    /// Heap-allocated UTF-8 string (ObjRef). Always a GC root. String
+    /// constants available to bytecode are stored in the data directory as
+    /// `ConstantKind::StringUtf8` entries and pushed via `PUSH_CONST`.
     #[br(magic = 0x01_u8)]
-    ValueType(SymbolId),
+    String,
 
-    /// A heap-allocated object (GC needs to trace this ObjRef)
+    /// Inline (value-type) struct or enum embedded directly in the parent
+    /// allocation. Never a GC root.
+    ///
+    /// **Loader invariant**: every field in the transitive closure of this
+    /// type MUST be `Scalar`. A value type that transitively contains a
+    /// `String` or `Reference` field is malformed and must be rejected.
     #[br(magic = 0x02_u8)]
-    Reference(SymbolId),
+    ValueType { type_index: u32 },
+
+    /// Heap-allocated object (ObjRef). Always a GC root. The runtime layout
+    /// engine adds this field's byte offset to `Traceable::references()`.
+    #[br(magic = 0x03_u8)]
+    Reference { type_index: u32 },
 }
 
+// type directory
+
+/// A single field in a struct or enum variant.
+///
+/// `name` is a data directory index. The entry it points to MUST have
+/// `ConstantKind::StringUtf8`. This means field names share the same constant
+/// pool as runtime string literals: the linker or compiler writes each unique
+/// name once and both metadata and bytecode reference it by index.
 #[binread]
 #[derive(Clone, Debug)]
 #[br(little)]
-pub struct FieldDef {
-    pub name_id: SymbolId,
+pub struct FieldDef
+{
+    pub name: u32,
     pub signature: TypeSignature,
 }
 
+/// A product type: an ordered, named collection of fields laid out sequentially
+/// in the heap allocation (after the `ObjectHeader`).
 #[binread]
 #[derive(Clone, Debug)]
 #[br(little)]
-pub struct StructDef {
+pub struct StructDef
+{
     pub symbol_id: SymbolId,
 
     #[br(temp)]
@@ -164,11 +207,23 @@ pub struct StructDef {
     pub fields: Vec<FieldDef>,
 }
 
+/// One arm of an algebraic enum.
+///
+/// `tag` is the discriminant value written into every live allocation of this
+/// variant. It is NOT implied by the variant's position in the `variants` vec:
+/// using an explicit tag means variants can be added, removed, or reordered
+/// without changing the wire value of any existing variant, and non-contiguous
+/// discriminant ranges are supported.
+///
+/// `name` follows the same convention as `FieldDef::name` (data directory
+/// index of a `ConstantKind::StringUtf8` entry).
 #[binread]
 #[derive(Clone, Debug)]
 #[br(little)]
-pub struct EnumVariant {
-    pub name_id: SymbolId,
+pub struct EnumVariant
+{
+    pub name: u32,
+    pub tag: u32,
 
     #[br(temp)]
     field_count: u16,
@@ -177,10 +232,21 @@ pub struct EnumVariant {
     pub fields: Vec<FieldDef>,
 }
 
+/// A sum type: exactly one variant is live at runtime.
+///
+/// A heap allocation of an enum looks like:
+///
+///   [ObjectHeader][discriminant: u32][padding][variant payload]
+///
+/// The discriminant is matched against `EnumVariant::tag` (not position) to
+/// find the active variant. `Traceable::references()` reads the discriminant
+/// and returns only the active variant's GC roots, so no dead pointer slots
+/// are ever traced.
 #[binread]
 #[derive(Clone, Debug)]
 #[br(little)]
-pub struct EnumDef {
+pub struct EnumDef
+{
     pub symbol_id: SymbolId,
 
     #[br(temp)]
@@ -193,7 +259,8 @@ pub struct EnumDef {
 #[binread]
 #[derive(Clone, Debug)]
 #[br(little)]
-pub enum UserDefinedType {
+pub enum UserDefinedType
+{
     #[br(magic = 0x00_u8)]
     Struct(StructDef),
 
@@ -201,16 +268,35 @@ pub enum UserDefinedType {
     Enum(EnumDef),
 }
 
+/// All user-defined types in the module, in declaration order.
+///
+/// A `UserDefinedType` at index `i` is reachable via:
+///   - `TypeSignature::ValueType { type_index: i }` / `Reference { type_index: i }`
+///   - `SymbolKind::Type { type_index: i }` in the symbol table
+///   - `ObjectHeader::type_index = i` in every live heap object at runtime
+///
+/// All three use the same 0-based index, so the GC can dispatch to the correct
+/// layout with a single bounds-checked array access.
 #[binread]
 #[derive(Clone, Debug)]
 #[br(little)]
-pub struct TypeDirectory {
+pub struct TypeDirectory
+{
     #[br(temp)]
     count: u32,
 
     #[br(count = count)]
     pub types: Vec<UserDefinedType>,
 }
+
+impl TypeDirectory
+{
+    pub fn type_count(&self) -> usize
+    {
+        self.types.len()
+    }
+}
+
 
 // Code blocks
 
@@ -282,6 +368,24 @@ impl CodeDirectory
 
 // Data
 
+// Describes the layout of a constant in the data directory.
+// This deliberately omits `Reference`, guaranteeing that constants
+// can never require heap allocation for user-defined types.
+#[binread]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[br(little)]
+pub enum ConstantSignature
+{
+    #[br(magic = 0x00_u8)]
+    Scalar(ScalarTag),
+
+    #[br(magic = 0x01_u8)]
+    String,
+
+    #[br(magic = 0x02_u8)]
+    ValueType { type_index: u32 },
+}
+
 #[binread]
 #[derive(Clone, Copy, Debug)]
 #[br(little)]
@@ -289,7 +393,7 @@ pub struct DataHeader
 {
     pub length: u32,
     pub index: Offset,
-    pub type_tag: TypeTag,
+    pub signature: ConstantSignature,
     // any flags?
 }
 
@@ -435,19 +539,35 @@ mod tests
             self
         }
 
-        /// entries: (length, index, type_tag_byte)
+        /// entries: (length, index, signature)
         ///
-        /// NOTE: `type_tag` is the third field of `DataHeader`; omitting it
-        /// would cause every subsequent parse to be misaligned.
-        fn data_directory(mut self, entries: &[(u32, u32, u8)], data: &[u8]) -> Self
+        /// NOTE: `signature` is the third field of `DataHeader`. Because it is an enum,
+        /// we manually serialize it into bytes exactly as `binrw` expects to parse it.
+        fn data_directory(mut self, entries: &[(u32, u32, ConstantSignature)], data: &[u8]) -> Self
         {
             self.data.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-            for (length, index, type_tag) in entries
+
+            for (length, index, signature) in entries
             {
                 self.data.extend_from_slice(&length.to_le_bytes());
                 self.data.extend_from_slice(&index.to_le_bytes());
-                self.data.push(*type_tag);
+
+                // Serialize the ConstantSignature enum
+                match signature {
+                    ConstantSignature::Scalar(scalar_tag) => {
+                        self.data.push(0x00); // ConstantSignature::Scalar magic byte
+                        self.data.push(*scalar_tag as u8); // ScalarTag magic byte
+                    }
+                    ConstantSignature::String => {
+                        self.data.push(0x01); // ConstantSignature::String magic byte
+                    }
+                    ConstantSignature::ValueType { type_index } => {
+                        self.data.push(0x02); // ConstantSignature::ValueType magic byte
+                        self.data.extend_from_slice(&type_index.to_le_bytes());
+                    }
+                }
             }
+
             self.data.extend_from_slice(&(data.len() as u32).to_le_bytes());
             self.data.extend_from_slice(data);
             self
@@ -536,39 +656,39 @@ mod tests
         assert!(!f.contains(FunctionFlags::ENTRYPOINT));
     }
 
-    // ── TypeTag ───────────────────────────────────────────────────────────────
+    // ScalarTag
 
     #[test]
-    fn type_tag_all_valid_discriminants_parse()
+    fn scalar_tag_all_valid_discriminants_parse()
     {
-        let cases: &[(u8, TypeTag)] = &[
-            (0x0, TypeTag::Integer32),
-            (0x1, TypeTag::Integer64),
-            (0x2, TypeTag::Float32),
-            (0x3, TypeTag::Float64),
-            (0x4, TypeTag::String),
+        let cases: &[(u8, ScalarTag)] = &[
+            (0x0, ScalarTag::Integer32),
+            (0x1, ScalarTag::Integer64),
+            (0x2, ScalarTag::Float32),
+            (0x3, ScalarTag::Float64),
         ];
+
         for (byte, expected) in cases
         {
             let mut c = Cursor::new(vec![*byte]);
-            let tag = TypeTag::read_le(&mut c).unwrap();
+            let tag = ScalarTag::read_le(&mut c).unwrap();
             assert_eq!(tag, *expected, "byte 0x{byte:02X} should parse as {expected:?}");
         }
     }
 
     #[test]
-    fn type_tag_invalid_discriminant_returns_error()
+    fn scalar_tag_invalid_discriminant_returns_error()
     {
-        // 0x05 is not a defined TypeTag variant.
-        let mut c = Cursor::new(vec![0x05]);
-        assert!(TypeTag::read_le(&mut c).is_err());
+        // 0x04 is not a defined ScalarTag variant.
+        let mut c = Cursor::new(vec![0x04]);
+        assert!(ScalarTag::read_le(&mut c).is_err());
     }
 
     #[test]
-    fn type_tag_max_byte_returns_error()
+    fn scalar_tag_max_byte_returns_error()
     {
         let mut c = Cursor::new(vec![0xFF]);
-        assert!(TypeTag::read_le(&mut c).is_err());
+        assert!(ScalarTag::read_le(&mut c).is_err());
     }
 
     // ── FileHeader ────────────────────────────────────────────────────────────
@@ -1003,9 +1123,10 @@ mod tests
     #[test]
     fn data_directory_single_entry()
     {
-        // (length, index, type_tag)  — Integer32 = 0x0
-        let entry = (16u32, 0u32, 0x0u8);
+        // (length, index, signature)
+        let entry = (16u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32));
         let payload = vec![0xBE; 16];
+
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
@@ -1013,11 +1134,16 @@ mod tests
             .code_directory(&[], &[])
             .data_directory(&[entry], &payload)
             .build();
+
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+
         assert_eq!(layout.data_directory.entries.len(), 1);
         assert_eq!(layout.data_directory.entries[0].length, 16);
         assert_eq!(layout.data_directory.entries[0].index, 0);
-        assert!(matches!(layout.data_directory.entries[0].type_tag, TypeTag::Integer32));
+        assert!(matches!(
+            layout.data_directory.entries[0].signature,
+            ConstantSignature::Scalar(ScalarTag::Integer32)
+        ));
         assert_eq!(layout.data_directory.data, payload);
         assert_eq!(layout.data_directory.data_byte_size(), 16);
     }
@@ -1025,13 +1151,13 @@ mod tests
     #[test]
     fn data_directory_multiple_entries()
     {
-        // Use distinct type tags so we can verify them individually.
         let entries = [
-            (8u32, 0u32, 0x0u8),   // Integer32
-            (4u32, 8u32, 0x2u8),   // Float32
-            (16u32, 12u32, 0x4u8), // String
+            (8u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
+            (4u32, 8u32, ConstantSignature::Scalar(ScalarTag::Float32)),
+            (16u32, 12u32, ConstantSignature::String),
         ];
         let payload: Vec<u8> = (0..28).collect();
+
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
@@ -1039,30 +1165,33 @@ mod tests
             .code_directory(&[], &[])
             .data_directory(&entries, &payload)
             .build();
+
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+
         assert_eq!(layout.data_directory.entries.len(), 3);
         assert_eq!(layout.data_directory.entries[0].length, 8);
         assert_eq!(layout.data_directory.entries[1].index, 8);
         assert_eq!(layout.data_directory.entries[2].length, 16);
         assert_eq!(layout.data_directory.data_byte_size(), 28);
-        assert!(matches!(layout.data_directory.entries[0].type_tag, TypeTag::Integer32));
-        assert!(matches!(layout.data_directory.entries[1].type_tag, TypeTag::Float32));
-        assert!(matches!(layout.data_directory.entries[2].type_tag, TypeTag::String));
+
+        assert!(matches!(layout.data_directory.entries[0].signature, ConstantSignature::Scalar(ScalarTag::Integer32)));
+        assert!(matches!(layout.data_directory.entries[1].signature, ConstantSignature::Scalar(ScalarTag::Float32)));
+        assert!(matches!(layout.data_directory.entries[2].signature, ConstantSignature::String));
     }
 
     #[test]
     fn data_directory_all_type_tags_roundtrip()
     {
-        // One entry per TypeTag variant to confirm each survives a full
-        // FileLayout parse, not just an isolated TypeTag::read_le.
         let entries = [
-            (1u32, 0u32, 0x0u8), // Integer32
-            (1u32, 1u32, 0x1u8), // Integer64
-            (1u32, 2u32, 0x2u8), // Float32
-            (1u32, 3u32, 0x3u8), // Float64
-            (1u32, 4u32, 0x4u8), // String
+            (1u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
+            (1u32, 1u32, ConstantSignature::Scalar(ScalarTag::Integer64)),
+            (1u32, 2u32, ConstantSignature::Scalar(ScalarTag::Float32)),
+            (1u32, 3u32, ConstantSignature::Scalar(ScalarTag::Float64)),
+            (1u32, 4u32, ConstantSignature::String),
+            (1u32, 5u32, ConstantSignature::ValueType { type_index: 42 }),
         ];
-        let payload = vec![0u8; 5];
+        let payload = vec![0u8; 6];
+
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
@@ -1070,28 +1199,46 @@ mod tests
             .code_directory(&[], &[])
             .data_directory(&entries, &payload)
             .build();
+
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
-        let tags: Vec<TypeTag> = layout.data_directory.entries.iter().map(|e| e.type_tag).collect();
-        assert!(matches!(tags[0], TypeTag::Integer32));
-        assert!(matches!(tags[1], TypeTag::Integer64));
-        assert!(matches!(tags[2], TypeTag::Float32));
-        assert!(matches!(tags[3], TypeTag::Float64));
-        assert!(matches!(tags[4], TypeTag::String));
+
+        let sigs: Vec<ConstantSignature> = layout.data_directory.entries.iter().map(|e| e.signature).collect();
+
+        assert!(matches!(sigs[0], ConstantSignature::Scalar(ScalarTag::Integer32)));
+        assert!(matches!(sigs[1], ConstantSignature::Scalar(ScalarTag::Integer64)));
+        assert!(matches!(sigs[2], ConstantSignature::Scalar(ScalarTag::Float32)));
+        assert!(matches!(sigs[3], ConstantSignature::Scalar(ScalarTag::Float64)));
+        assert!(matches!(sigs[4], ConstantSignature::String));
+        assert!(matches!(sigs[5], ConstantSignature::ValueType { type_index: 42 }));
     }
 
     #[test]
     fn data_directory_invalid_type_tag_returns_error()
     {
-        // 0x05 is not a defined TypeTag; the parse must fail rather than
-        // silently produce a garbage value.
-        let entry = (4u32, 0u32, 0x05u8);
-        let bytes = FileBuilder::new()
+        // Generate a perfectly valid layout first.
+        // We use `ConstantSignature::String` because we know it compiles to exactly
+        // one byte (`0x01`), making it easy to swap out.
+        let entry = (4u32, 0u32, ConstantSignature::String);
+        let mut bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
             .data_directory(&[entry], &[0u8; 4])
             .build();
+
+        // The data directory payload is appended at the very end of the file.
+        // Layout at the end: [..signature byte, 4 bytes (data_length), 4 bytes (data)]
+        // This means our magic byte `0x01` is exactly 9 bytes from the end.
+        let magic_byte_index = bytes.len() - 9;
+
+        // Sanity check to guarantee we are targeting the right byte
+        assert_eq!(bytes[magic_byte_index], 0x01);
+
+        // 0x05 is not a defined ConstantSignature variant. Corrupt the byte!
+        bytes[magic_byte_index] = 0x05;
+
+        // The parse must fail rather than silently produce a garbage value.
         assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
     }
 
@@ -1099,9 +1246,10 @@ mod tests
     fn data_directory_entries_byte_size()
     {
         // entries_byte_size = count * size_of::<DataHeader>()
-        // DataHeader = length(u32) + index(u32) + type_tag(u8) = at least 9 bytes;
-        // the exact value is whatever Rust's layout algorithm produces.
-        let entries = [(1u32, 0u32, 0x0u8), (1u32, 1u32, 0x0u8)];
+        let entries = [
+            (1u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
+            (1u32, 1u32, ConstantSignature::Scalar(ScalarTag::Integer32))
+        ];
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
@@ -1109,7 +1257,9 @@ mod tests
             .code_directory(&[], &[])
             .data_directory(&entries, &[0u8; 2])
             .build();
+
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+
         assert_eq!(layout.data_directory.entries_byte_size(), 2 * size_of::<DataHeader>());
     }
 
@@ -1122,9 +1272,11 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
-            .data_directory(&[(8u32, 0u32, 0x0u8)], &payload)
+            .data_directory(&[(8u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32))], &payload)
             .build();
+
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+
         assert_eq!(layout.data_directory.data, payload);
     }
 
@@ -1138,11 +1290,11 @@ mod tests
             (dummy_symbol_id(0x11), 0u8, Some(0u32)),
             (dummy_symbol_id(0x22), 1u8, None),
         ];
-        // (symbol_id, index, length, maxlocals, maxstack, param_count, flags)
+
         let funcs = [(dummy_symbol_id(0x11), 0u32, 4u32, 3u32, 6u32, 2u8, 0b0000_0001u8)];
         let bytecode = vec![0x01, 0x02, 0x03, 0x04];
-        // (length, index, type_tag)
-        let data_entries = [(4u32, 0u32, 0x3u8)]; // Float64
+
+        let data_entries = [(4u32, 0u32, ConstantSignature::Scalar(ScalarTag::Float64))];
         let raw_data = vec![0xDE, 0xAD, 0xBE, 0xEF];
 
         let bytes = FileBuilder::new()
@@ -1155,15 +1307,12 @@ mod tests
 
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
 
-        // Header
         assert_eq!(layout.header.file_version, 2);
         assert!(layout.header.flags.contains(FileFlags::HAS_DEBUG));
 
-        // Links
         assert_eq!(layout.link_table.entries.len(), 1);
         assert_eq!(layout.link_table.entries[0].module_path, 50);
 
-        // Symbols
         assert_eq!(layout.symbol_table.symbols.len(), 2);
         assert!(matches!(
             layout.symbol_table.symbols[0].kind,
@@ -1171,7 +1320,6 @@ mod tests
         ));
         assert!(matches!(layout.symbol_table.symbols[1].kind, SymbolKind::Type {}));
 
-        // Code
         assert_eq!(layout.code_directory.function_count(), 1);
         assert!(
             layout.code_directory.functions[0]
@@ -1181,9 +1329,11 @@ mod tests
         assert_eq!(layout.code_directory.functions[0].param_count, 2);
         assert_eq!(layout.code_directory.bytecode, bytecode);
 
-        // Data
         assert_eq!(layout.data_directory.entries.len(), 1);
-        assert!(matches!(layout.data_directory.entries[0].type_tag, TypeTag::Float64));
+        assert!(matches!(
+            layout.data_directory.entries[0].signature,
+            ConstantSignature::Scalar(ScalarTag::Float64)
+        ));
         assert_eq!(layout.data_directory.data, raw_data);
     }
 
