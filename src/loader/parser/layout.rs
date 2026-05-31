@@ -166,12 +166,18 @@ pub enum TypeSignature
     /// type MUST be `Scalar`. A value type that transitively contains a
     /// `String` or `Reference` field is malformed and must be rejected.
     #[br(magic = 0x02_u8)]
-    ValueType { type_index: u32 },
+    ValueType
+    {
+        type_index: u32
+    },
 
     /// Heap-allocated object (ObjRef). Always a GC root. The runtime layout
     /// engine adds this field's byte offset to `Traceable::references()`.
     #[br(magic = 0x03_u8)]
-    Reference { type_index: u32 },
+    Reference
+    {
+        type_index: u32
+    },
 }
 
 // type directory
@@ -297,7 +303,6 @@ impl TypeDirectory
     }
 }
 
-
 // Code blocks
 
 bitflags! {
@@ -383,7 +388,10 @@ pub enum ConstantSignature
     String,
 
     #[br(magic = 0x02_u8)]
-    ValueType { type_index: u32 },
+    ValueType
+    {
+        type_index: u32
+    },
 }
 
 #[binread]
@@ -553,15 +561,19 @@ mod tests
                 self.data.extend_from_slice(&index.to_le_bytes());
 
                 // Serialize the ConstantSignature enum
-                match signature {
-                    ConstantSignature::Scalar(scalar_tag) => {
+                match signature
+                {
+                    ConstantSignature::Scalar(scalar_tag) =>
+                    {
                         self.data.push(0x00); // ConstantSignature::Scalar magic byte
                         self.data.push(*scalar_tag as u8); // ScalarTag magic byte
                     }
-                    ConstantSignature::String => {
+                    ConstantSignature::String =>
+                    {
                         self.data.push(0x01); // ConstantSignature::String magic byte
                     }
-                    ConstantSignature::ValueType { type_index } => {
+                    ConstantSignature::ValueType { type_index } =>
+                    {
                         self.data.push(0x02); // ConstantSignature::ValueType magic byte
                         self.data.extend_from_slice(&type_index.to_le_bytes());
                     }
@@ -1174,9 +1186,18 @@ mod tests
         assert_eq!(layout.data_directory.entries[2].length, 16);
         assert_eq!(layout.data_directory.data_byte_size(), 28);
 
-        assert!(matches!(layout.data_directory.entries[0].signature, ConstantSignature::Scalar(ScalarTag::Integer32)));
-        assert!(matches!(layout.data_directory.entries[1].signature, ConstantSignature::Scalar(ScalarTag::Float32)));
-        assert!(matches!(layout.data_directory.entries[2].signature, ConstantSignature::String));
+        assert!(matches!(
+            layout.data_directory.entries[0].signature,
+            ConstantSignature::Scalar(ScalarTag::Integer32)
+        ));
+        assert!(matches!(
+            layout.data_directory.entries[1].signature,
+            ConstantSignature::Scalar(ScalarTag::Float32)
+        ));
+        assert!(matches!(
+            layout.data_directory.entries[2].signature,
+            ConstantSignature::String
+        ));
     }
 
     #[test]
@@ -1248,7 +1269,7 @@ mod tests
         // entries_byte_size = count * size_of::<DataHeader>()
         let entries = [
             (1u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
-            (1u32, 1u32, ConstantSignature::Scalar(ScalarTag::Integer32))
+            (1u32, 1u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
         ];
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -1272,7 +1293,10 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
-            .data_directory(&[(8u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32))], &payload)
+            .data_directory(
+                &[(8u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32))],
+                &payload,
+            )
             .build();
 
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();

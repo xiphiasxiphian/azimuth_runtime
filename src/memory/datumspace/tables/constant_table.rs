@@ -86,12 +86,24 @@ impl Constant
 
         let constant = match tag
         {
-            ConstantSignature::Scalar(ScalarTag::Integer32) => Constant::Unsigned32(<u32>::from_le_bytes(*(bytes.first_chunk()?))),
-            ConstantSignature::Scalar(ScalarTag::Integer64) => Constant::Unsigned64(<u64>::from_le_bytes(*(bytes.first_chunk()?))),
-            ConstantSignature::Scalar(ScalarTag::Float32) => Constant::Float32(<f32>::from_bits(<u32>::from_le_bytes(*(bytes.first_chunk()?)))),
-            ConstantSignature::Scalar(ScalarTag::Float64) => Constant::Float64(<f64>::from_bits(<u64>::from_le_bytes(*(bytes.first_chunk()?)))),
+            ConstantSignature::Scalar(ScalarTag::Integer32) =>
+            {
+                Constant::Unsigned32(<u32>::from_le_bytes(*(bytes.first_chunk()?)))
+            }
+            ConstantSignature::Scalar(ScalarTag::Integer64) =>
+            {
+                Constant::Unsigned64(<u64>::from_le_bytes(*(bytes.first_chunk()?)))
+            }
+            ConstantSignature::Scalar(ScalarTag::Float32) =>
+            {
+                Constant::Float32(<f32>::from_bits(<u32>::from_le_bytes(*(bytes.first_chunk()?))))
+            }
+            ConstantSignature::Scalar(ScalarTag::Float64) =>
+            {
+                Constant::Float64(<f64>::from_bits(<u64>::from_le_bytes(*(bytes.first_chunk()?))))
+            }
             ConstantSignature::String => Constant::String(InlinedString::new(*loc)),
-            ConstantSignature::ValueType { type_index } => todo!("Value type constants not implemented")
+            ConstantSignature::ValueType { type_index } => todo!("Value type constants not implemented"),
         };
 
         Some(constant)

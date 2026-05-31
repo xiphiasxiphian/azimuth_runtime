@@ -318,7 +318,8 @@ mod tests
 {
     use super::*;
     use crate::loader::parser::layout::{
-        CodeDirectory, ConstantSignature, DataDirectory, DataHeader, FileFlags, FileHeader, Function, FunctionFlags, LinkTable, ScalarTag, SymbolEntry, SymbolKind, SymbolTable, TypeDirectory
+        CodeDirectory, ConstantSignature, DataDirectory, DataHeader, FileFlags, FileHeader, Function, FunctionFlags,
+        LinkTable, ScalarTag, SymbolEntry, SymbolKind, SymbolTable, TypeDirectory,
     };
 
     /// Helper to create a dummy FileLayout for testing based on the new structure.
@@ -351,7 +352,7 @@ mod tests
                 bytecode: code,
             },
             type_directory: TypeDirectory {
-                types: vec![] // TODO: Type tests in datumspace
+                types: vec![], // TODO: Type tests in datumspace
             },
             data_directory: DataDirectory {
                 entries: vec![DataHeader {
