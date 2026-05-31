@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 // This is a more formalised wrapper around the idea of the constant table.
 //
 use crate::{
-    loader::parser::layout::TypeTag,
+    loader::parser::layout::{ConstantSignature, ScalarTag},
     memory::{
         datumspace::datum::{BlockLocation, InlinedString},
         stack::entry::StackEntry,
@@ -16,7 +16,7 @@ pub type ConstantTableIndex = u32;
 pub struct DataEntry
 {
     pub loc: BlockLocation,
-    pub tag: TypeTag,
+    pub tag: ConstantSignature,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -86,11 +86,12 @@ impl Constant
 
         let constant = match tag
         {
-            TypeTag::Integer32 => Constant::Unsigned32(<u32>::from_le_bytes(*(bytes.first_chunk()?))),
-            TypeTag::Integer64 => Constant::Unsigned64(<u64>::from_le_bytes(*(bytes.first_chunk()?))),
-            TypeTag::Float32 => Constant::Float32(<f32>::from_bits(<u32>::from_le_bytes(*(bytes.first_chunk()?)))),
-            TypeTag::Float64 => Constant::Float64(<f64>::from_bits(<u64>::from_le_bytes(*(bytes.first_chunk()?)))),
-            TypeTag::String => Constant::String(InlinedString::new(*loc)),
+            ConstantSignature::Scalar(ScalarTag::Integer32) => Constant::Unsigned32(<u32>::from_le_bytes(*(bytes.first_chunk()?))),
+            ConstantSignature::Scalar(ScalarTag::Integer64) => Constant::Unsigned64(<u64>::from_le_bytes(*(bytes.first_chunk()?))),
+            ConstantSignature::Scalar(ScalarTag::Float32) => Constant::Float32(<f32>::from_bits(<u32>::from_le_bytes(*(bytes.first_chunk()?)))),
+            ConstantSignature::Scalar(ScalarTag::Float64) => Constant::Float64(<f64>::from_bits(<u64>::from_le_bytes(*(bytes.first_chunk()?)))),
+            ConstantSignature::String => Constant::String(InlinedString::new(*loc)),
+            ConstantSignature::ValueType { type_index } => todo!("Value type constants not implemented")
         };
 
         Some(constant)

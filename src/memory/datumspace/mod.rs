@@ -84,7 +84,7 @@ impl<'d> Datumspace<'d>
                     .write_constants(layout.data_directory.entries.iter().map(|x| {
                         ConstantTableEntry::Unresolved(DataEntry {
                             loc: (header.data_blob.0 + Offset(x.index), x.length),
-                            tag: x.type_tag,
+                            tag: x.signature,
                         })
                     }))?
                     .write_functions(layout.code_directory.functions.iter().map(|x| {
@@ -112,7 +112,7 @@ impl<'d> Datumspace<'d>
                             let DataHeader {
                                 length,
                                 index,
-                                type_tag: _,
+                                signature: _,
                             } = layout
                                 .data_directory
                                 .entries
@@ -318,8 +318,7 @@ mod tests
 {
     use super::*;
     use crate::loader::parser::layout::{
-        CodeDirectory, DataDirectory, DataHeader, FileFlags, FileHeader, Function, FunctionFlags, LinkTable,
-        SymbolEntry, SymbolKind, SymbolTable, TypeTag,
+        CodeDirectory, ConstantSignature, DataDirectory, DataHeader, FileFlags, FileHeader, Function, FunctionFlags, LinkTable, ScalarTag, SymbolEntry, SymbolKind, SymbolTable, TypeDirectory
     };
 
     /// Helper to create a dummy FileLayout for testing based on the new structure.
@@ -351,11 +350,14 @@ mod tests
                 }],
                 bytecode: code,
             },
+            type_directory: TypeDirectory {
+                types: vec![] // TODO: Type tests in datumspace
+            },
             data_directory: DataDirectory {
                 entries: vec![DataHeader {
                     index: 0,
                     length: data.len() as u32,
-                    type_tag: TypeTag::Integer32,
+                    signature: ConstantSignature::Scalar(ScalarTag::Integer32),
                 }],
                 data,
             },
@@ -475,7 +477,7 @@ mod tests
         let string_data = string_text.as_bytes().to_vec();
 
         let mut layout = mock_layout(id, vec![0], string_data);
-        layout.data_directory.entries[0].type_tag = TypeTag::String;
+        layout.data_directory.entries[0].signature = ConstantSignature::String;
 
         ds.load_datum(&layout).unwrap();
 
