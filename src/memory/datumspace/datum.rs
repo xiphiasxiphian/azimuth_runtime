@@ -8,7 +8,7 @@ use crate::{
     memory::datumspace::{
         link_table::Link,
         runnable::Runnable,
-        tables::{constant_table::ConstantTableEntry, symbol_table::Symbol},
+        tables::{constant_table::ConstantTableEntry, symbol_table::Symbol, types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind}},
     },
 };
 
@@ -36,6 +36,12 @@ use crate::{
    │  (each Runnable stores  │  (these will be lazily evaluated)
    │   an offset into the    │
    │   code blob below)      │
+   ├─────────────────────────┤
+   │ RuntimeType[]           │ indexed by TypeSignature::type_index
+   ├─────────────────────────┤
+   │ RuntimeEnumVariant[]    │ flat array of all variants
+   ├─────────────────────────┤
+   │ usize[]                 │ flat array of all GC reference offsets
    ├─────────────────────────┤
    │  data blob              │  raw bytes for all constants
    ├─────────────────────────┤
@@ -100,6 +106,9 @@ pub struct DatumPageHeader
     pub symbol_table: BlockLocation,
     pub constants: BlockLocation,
     pub functions: BlockLocation,
+    pub types: BlockLocation,
+    pub enum_variants: BlockLocation,
+    pub gc_offsets: BlockLocation,
     pub bytecode_blob: BlockLocation,
     pub data_blob: BlockLocation,
 }
@@ -125,6 +134,9 @@ pub struct DatumPage<'a>
     pub symbols: &'a [Symbol],
     pub functions: &'a [Runnable],
     pub constants: &'a [ConstantTableEntry],
+    pub types: &'a [RuntimeType],
+    pub enum_variants: &'a [RuntimeEnumVariant],
+    pub gc_offsets: &'a [usize],
     pub bytecode_blob: &'a [u8],
     pub data_blob: &'a [u8],
 }
@@ -152,6 +164,12 @@ impl<'a> DatumPage<'a>
         // constant table
         let constants: &'a [ConstantTableEntry] = unsafe { Self::get_slice(ptr, header.constants) };
 
+        let types: &'a [RuntimeType] = unsafe { Self::get_slice(ptr, header.types) };
+
+        let enum_variants: &'a [RuntimeEnumVariant] = unsafe { Self::get_slice(ptr, header.enum_variants) };
+
+        let gc_offsets: &'a [usize] = unsafe { Self::get_slice(ptr, header.gc_offsets) };
+
         // bytecode and function headers
         let bytecode_blob: &'a [u8] = unsafe { Self::get_slice(ptr, header.bytecode_blob) };
 
@@ -164,6 +182,9 @@ impl<'a> DatumPage<'a>
             symbols,
             functions,
             constants,
+            types,
+            enum_variants,
+            gc_offsets,
             bytecode_blob,
             data_blob,
         }
@@ -179,6 +200,42 @@ impl<'a> DatumPage<'a>
                 location.1 as usize / size_of::<T>(),
             )
         }
+    }
+
+    /// Get the pre-calculated GC offsets for a struct by its index
+    pub fn get_struct_layout(&self, type_index: u32) -> Option<(usize, &'a [usize])>
+    {
+        let ty = self.types.get(type_index as usize)?;
+        if let RuntimeTypeKind::Struct { instance_size, gc_offsets_index, gc_offsets_count } = ty.kind {
+            let start = gc_offsets_index as usize;
+            let end = start + gc_offsets_count as usize;
+            Some((instance_size, self.gc_offsets.get(start..end)?))
+        } else {
+            None
+        }
+    }
+
+    /// Retrieve the specific enum variant information based on the tag found at runtime
+    pub fn get_enum_variant_layout(&self, type_index: u32, tag: u32) -> Option<&'a RuntimeEnumVariant>
+    {
+        let ty = self.types.get(type_index as usize)?;
+        if let RuntimeTypeKind::Enum { variants_index, variants_count } = ty.kind {
+            let start = variants_index as usize;
+            let end = start + variants_count as usize;
+            let variants = self.enum_variants.get(start..end)?;
+
+            variants.iter().find(|v| v.tag == tag)
+        } else {
+            None
+        }
+    }
+
+    /// Fetch the GC offsets for a resolved enum variant
+    pub fn get_variant_gc_offsets(&self, variant: &RuntimeEnumVariant) -> Option<&'a [usize]>
+    {
+        let start = variant.gc_offsets_index as usize;
+        let end = start + variant.gc_offsets_count as usize;
+        self.gc_offsets.get(start..end)
     }
 }
 
@@ -234,6 +291,27 @@ impl PageBuilder
         I: Iterator<Item = ConstantTableEntry>,
     {
         unsafe { self.write_iter(&self.base.as_ref().constants, src) }
+    }
+
+    pub unsafe fn write_types<'a, I>(self, src: I) -> Option<Self>
+    where
+        I: Iterator<Item = RuntimeType>,
+    {
+        unsafe { self.write_iter(&self.base.as_ref().types, src) }
+    }
+
+    pub unsafe fn write_enum_variants<'a, I>(self, src: I) -> Option<Self>
+    where
+        I: Iterator<Item = RuntimeEnumVariant>,
+    {
+        unsafe { self.write_iter(&self.base.as_ref().enum_variants, src) }
+    }
+
+    pub unsafe fn write_gc_offsets<'a, I>(self, src: I) -> Option<Self>
+    where
+        I: Iterator<Item = usize>,
+    {
+        unsafe { self.write_iter(&self.base.as_ref().gc_offsets, src) }
     }
 
     pub unsafe fn write_code_blob(self, src: &[u8]) -> Option<Self>

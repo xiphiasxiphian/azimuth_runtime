@@ -13,6 +13,7 @@ use crate::{
 pub type ConstantTableIndex = u32;
 
 #[derive(Clone, Copy, Debug)]
+#[repr(C)]
 pub struct DataEntry
 {
     pub loc: BlockLocation,
