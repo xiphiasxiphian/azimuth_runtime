@@ -8,7 +8,11 @@ use crate::{
     memory::datumspace::{
         link_table::Link,
         runnable::Runnable,
-        tables::{constant_table::ConstantTableEntry, symbol_table::Symbol, types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind}},
+        tables::{
+            constant_table::ConstantTableEntry,
+            symbol_table::Symbol,
+            types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind},
+        },
     },
 };
 
@@ -206,11 +210,18 @@ impl<'a> DatumPage<'a>
     pub fn get_struct_layout(&self, type_index: u32) -> Option<(usize, &'a [usize])>
     {
         let ty = self.types.get(type_index as usize)?;
-        if let RuntimeTypeKind::Struct { instance_size, gc_offsets_index, gc_offsets_count } = ty.kind {
+        if let RuntimeTypeKind::Struct {
+            instance_size,
+            gc_offsets_index,
+            gc_offsets_count,
+        } = ty.kind
+        {
             let start = gc_offsets_index as usize;
             let end = start + gc_offsets_count as usize;
             Some((instance_size, self.gc_offsets.get(start..end)?))
-        } else {
+        }
+        else
+        {
             None
         }
     }
@@ -219,13 +230,19 @@ impl<'a> DatumPage<'a>
     pub fn get_enum_variant_layout(&self, type_index: u32, tag: u32) -> Option<&'a RuntimeEnumVariant>
     {
         let ty = self.types.get(type_index as usize)?;
-        if let RuntimeTypeKind::Enum { variants_index, variants_count } = ty.kind {
+        if let RuntimeTypeKind::Enum {
+            variants_index,
+            variants_count,
+        } = ty.kind
+        {
             let start = variants_index as usize;
             let end = start + variants_count as usize;
             let variants = self.enum_variants.get(start..end)?;
 
             variants.iter().find(|v| v.tag == tag)
-        } else {
+        }
+        else
+        {
             None
         }
     }
