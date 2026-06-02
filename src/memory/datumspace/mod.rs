@@ -1,7 +1,6 @@
 pub mod datum;
 pub mod runnable;
 pub mod tables;
-pub mod types;
 
 use std::{
     alloc::Layout,
@@ -15,7 +14,7 @@ use itertools::{Itertools as _, process_results};
 use crate::{
     loader::{
         SymbolId,
-        parser::layout::{DataHeader, FileLayout, SymbolKind as ParsedSymbolKind},
+        parser::layout::{DataHeader, FileLayout, SymbolKind as ParsedSymbolKind, UserDefinedType},
     },
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
@@ -25,7 +24,7 @@ use crate::{
             tables::{
                 constant_table::{Constant, ConstantTableEntry, DataEntry},
                 link_table::{self, Link},
-                symbol_table::{Symbol, SymbolKind},
+                symbol_table::{Symbol, SymbolKind}, types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind},
             },
         },
     },
@@ -70,7 +69,16 @@ impl<'d> Datumspace<'d>
     where
         'd: 'file,
     {
-        let (header, required_layout) = Self::calculate_page_size(layout)?;
+        let (runtime_types, runtime_variants, runtime_gc_offsets) =
+                    Self::compute_runtime_layouts(layout)?;
+
+        let (header, required_layout) = Self::calculate_page_size(
+            layout,
+            runtime_types.len(),
+            runtime_variants.len(),
+            runtime_gc_offsets.len()
+        )?;
+
         let base = self
             .allocator
             .raw_alloc(required_layout)
@@ -81,6 +89,9 @@ impl<'d> Datumspace<'d>
                 let page_builder = PageBuilder::new(base, header)
                     .write_code_blob(&layout.code_directory.bytecode)?
                     .write_data_blob(&layout.data_directory.data)?
+                    .write_types(runtime_types.into_iter())?
+                    .write_enum_variants(runtime_variants.into_iter())?
+                    .write_gc_offsets(runtime_gc_offsets.into_iter())?
                     .write_constants(layout.data_directory.entries.iter().map(|x| {
                         ConstantTableEntry::Unresolved(DataEntry {
                             loc: (header.data_blob.0 + Offset(x.index), x.length),
@@ -236,7 +247,12 @@ impl<'d> Datumspace<'d>
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    fn calculate_page_size<'file>(layout: &FileLayout) -> Result<(DatumPageHeader, Layout), DatumspaceError>
+    fn calculate_page_size<'file>(
+        layout: &FileLayout,
+        types_len: usize,
+        variants_len: usize,
+        gc_offsets_len: usize,
+    ) -> Result<(DatumPageHeader, Layout), DatumspaceError>
     {
         // link table
         // Each link gets slightly flattened, removing now unrequired metadata
@@ -251,29 +267,47 @@ impl<'d> Datumspace<'d>
         // constant table
         let constant_table_size = layout.data_directory.entries.len() * size_of::<Constant>();
 
+        // Type metadata tables (NEW)
+        let types_size = types_len * size_of::<RuntimeType>();
+        let enum_variants_size = variants_len * size_of::<RuntimeEnumVariant>();
+        let gc_offsets_size = gc_offsets_len * size_of::<usize>();
+
         // Code size
         let code_size = layout.code_directory.bytecode_size();
 
         // Data size
         let data_size = layout.data_directory.data_byte_size();
 
-        let (link_table_loc, symbol_table_loc, function_table_loc, constant_table_loc, code_loc, data_loc) = [
-            link_table_size,
-            symbol_table_size,
-            function_table_size,
-            constant_table_size,
-            code_size,
-            data_size,
-        ]
-        .iter()
-        .scan(size_of::<DatumPageHeader>(), |cursor, size| {
-            let start = *cursor;
-            *cursor += size;
+        let (
+                link_table_loc,
+                symbol_table_loc,
+                function_table_loc,
+                constant_table_loc,
+                types_loc,
+                enum_variants_loc,
+                gc_offsets_loc,
+                code_loc,
+                data_loc,
+            ) = [
+                link_table_size,
+                symbol_table_size,
+                function_table_size,
+                constant_table_size,
+                types_size,
+                enum_variants_size,
+                gc_offsets_size,
+                code_size,
+                data_size,
+            ]
+            .iter()
+            .scan(size_of::<DatumPageHeader>(), |cursor, size| {
+                let start = *cursor;
+                *cursor += size;
 
-            Some((Offset(start.try_into().ok()?), (*size).try_into().ok()?))
-        })
-        .collect_tuple()
-        .ok_or(DatumspaceError::InvalidStructure)?;
+                Some((Offset(start.try_into().ok()?), (*size).try_into().ok()?))
+            })
+            .collect_tuple()
+            .ok_or(DatumspaceError::InvalidStructure)?;
 
         let header = DatumPageHeader {
             id: layout.header.module_id,
@@ -281,6 +315,9 @@ impl<'d> Datumspace<'d>
             symbol_table: symbol_table_loc,
             functions: function_table_loc,
             constants: constant_table_loc,
+            types: types_loc,
+            enum_variants: enum_variants_loc,
+            gc_offsets: gc_offsets_loc,
             bytecode_blob: code_loc,
             data_blob: data_loc,
         };
@@ -297,6 +334,70 @@ impl<'d> Datumspace<'d>
 
         Ok((header, layout))
     }
+
+    /// Computes the runtime sizes and flattens the GC offsets for all types.
+        fn compute_runtime_layouts(
+            layout: &FileLayout
+        ) -> DatumResult<(Vec<RuntimeType>, Vec<RuntimeEnumVariant>, Vec<usize>)> {
+            let mut runtime_types = Vec::with_capacity(layout.type_directory.type_count());
+            let mut runtime_variants = Vec::new();
+            let mut gc_offsets = Vec::new();
+
+            // Types are in declaration order, so we can resolve `ValueType`
+            // sizes safely by referencing backwards in `runtime_types`.
+            for udt in &layout.type_directory.types {
+                match udt {
+                    UserDefinedType::Struct(s) => {
+                        let gc_offsets_index = gc_offsets.len() as u32;
+
+                        // TODO: Your LayoutEngine logic goes here.
+                        // 1. Iterate over `s.fields`.
+                        // 2. Compute `instance_size` based on alignment and scalar sizes.
+                        // 3. Push byte offsets of Strings and References to `gc_offsets`.
+                        // 4. Flatten and shift `gc_offsets` from nested ValueTypes.
+                        let instance_size = 0; // Replace with calculated size
+
+                        runtime_types.push(RuntimeType {
+                            symbol_id: s.symbol_id,
+                            kind: RuntimeTypeKind::Struct {
+                                instance_size,
+                                gc_offsets_index,
+                                gc_offsets_count: (gc_offsets.len() as u32) - gc_offsets_index,
+                            },
+                        });
+                    }
+                    UserDefinedType::Enum(e) => {
+                        let variants_index = runtime_variants.len() as u32;
+
+                        for variant in &e.variants {
+                            let gc_offsets_index = gc_offsets.len() as u32;
+
+                            // TODO: Enum LayoutEngine logic here.
+                            // Remember to account for the discriminant tag size
+                            // when calculating the field offsets!
+                            let instance_size = 0; // Replace with calculated size
+
+                            runtime_variants.push(RuntimeEnumVariant {
+                                tag: variant.tag,
+                                instance_size,
+                                gc_offsets_index,
+                                gc_offsets_count: (gc_offsets.len() as u32) - gc_offsets_index,
+                            });
+                        }
+
+                        runtime_types.push(RuntimeType {
+                            symbol_id: e.symbol_id,
+                            kind: RuntimeTypeKind::Enum {
+                                variants_index,
+                                variants_count: e.variants.len() as u32,
+                            },
+                        });
+                    }
+                }
+            }
+
+            Ok((runtime_types, runtime_variants, gc_offsets))
+        }
 
     fn insert_mapping(&mut self, key: SymbolId, page: NonNull<u8>) -> Result<(), DatumspaceError>
     {
