@@ -1,6 +1,7 @@
 pub mod datum;
 pub mod runnable;
 pub mod tables;
+pub mod layout_engine;
 
 use std::{
     alloc::Layout,
