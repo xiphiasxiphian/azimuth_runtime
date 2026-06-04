@@ -1,5 +1,5 @@
 use crate::{
-    loader::parser::layout::{ScalarTag, TypeSignature},
+    loader::parser::layout::{FieldDef, ScalarTag, TypeSignature},
     memory::datumspace::DatumspaceError,
 };
 
@@ -10,6 +10,13 @@ pub struct TypeLayout
     pub size: u32,
     pub align: u32,
     pub has_gc_roots: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct VariantLayout
+{
+    pub inline: TypeLayout,
+    pub heap: TypeLayout,
 }
 
 pub struct LayoutEngine
@@ -29,7 +36,6 @@ impl LayoutEngine
     }
 
     /// Fast bitwise alignment intrinsic
-    #[inline(always)]
     pub fn align_to(offset: u32, align: u32) -> u32
     {
         (offset + align - 1) & !(align - 1)
@@ -38,7 +44,7 @@ impl LayoutEngine
     /// Resolves fields linearly, writing GC offsets directly to the global buffer.
     pub fn resolve_fields(
         &self,
-        fields: &[TypeSignature], // Assuming TypeSignature is in scope
+        fields: &[FieldDef],
         global_gc_offsets: &mut Vec<usize>,
         base_offset: u32,
     ) -> Result<TypeLayout, DatumspaceError>
@@ -47,7 +53,7 @@ impl LayoutEngine
         let mut max_align = 1;
         let mut has_gc_roots = false;
 
-        for sig in fields
+        for FieldDef { name: _, signature: sig } in fields
         {
             let (field_size, field_align, is_gc_root) = match sig
             {
@@ -59,13 +65,11 @@ impl LayoutEngine
                 TypeSignature::String | TypeSignature::Reference { .. } => (self.pointer_size, self.pointer_size, true),
                 TypeSignature::ValueType { type_index } =>
                 {
-                    // O(1) lookup. Bounds check inherently handles invalid indices.
                     let cached = self
                         .resolved
                         .get(*type_index as usize)
                         .ok_or(DatumspaceError::InvalidStructure)?;
 
-                    // Enforce your Loader Invariant at lightning speed
                     if cached.has_gc_roots
                     {
                         return Err(DatumspaceError::InvalidStructure);
@@ -93,5 +97,75 @@ impl LayoutEngine
             align: max_align,
             has_gc_roots,
         })
+    }
+
+    /// Resolves a struct's inline and heap layout, writing to the gc buffer and caching the footprint.
+    pub fn resolve_struct(
+        &mut self,
+        type_index: usize,
+        fields: &[FieldDef],
+        global_gc_offsets: &mut Vec<usize>,
+        header_size: u32,
+    ) -> Result<TypeLayout, DatumspaceError>
+    {
+        // computes zero-offset inline layout for value type metadata cache
+        let mut dummy_offsets = Vec::new();
+        let inline_layout = self.resolve_fields(fields, &mut dummy_offsets, 0)?;
+        self.resolved[type_index] = inline_layout;
+
+        // computes heap-offset layout for physical allocation and gc tracking
+        let heap_layout = self.resolve_fields(fields, global_gc_offsets, header_size)?;
+        Ok(heap_layout)
+    }
+
+    /// Resolves an individual variant's layout without committing to the type cache.
+    pub fn resolve_variant<'a>(
+        &self,
+        fields: &[FieldDef],
+        global_gc_offsets: &mut Vec<usize>,
+        header_size: u32,
+    ) -> Result<VariantLayout, DatumspaceError>
+    {
+        // variant fields inside inline contexts start immediately after the 4-byte discriminant
+        let mut dummy_offsets = Vec::new();
+        let inline = self.resolve_fields(fields.clone(), &mut dummy_offsets, 4)?;
+
+        // variant fields on the heap start after both the object header and the 4-byte discriminant
+        let heap = self.resolve_fields(fields, global_gc_offsets, header_size + 4)?;
+
+        Ok(VariantLayout { inline, heap })
+    }
+
+    /// Consolidates all variant layouts to determine the overall enum bounds and commits it to the cache.
+    pub fn finalize_enum(&mut self, type_index: usize, variants: &[VariantLayout]) -> TypeLayout
+    {
+        let mut max_inline_size = 4;
+        let mut max_heap_size = 4;
+        let mut max_align = 4;
+        let mut has_gc_roots = false;
+
+        for v in variants
+        {
+            max_inline_size = max_inline_size.max(v.inline.size);
+            max_heap_size = max_heap_size.max(v.heap.size);
+            max_align = max_align.max(v.inline.align);
+            has_gc_roots |= v.inline.has_gc_roots;
+        }
+
+        // pads the overall enum sizes up to the strictest alignment constraint found
+        let final_inline_size = Self::align_to(max_inline_size, max_align);
+        let final_heap_size = Self::align_to(max_heap_size, max_align);
+
+        self.resolved[type_index] = TypeLayout {
+            size: final_inline_size,
+            align: max_align,
+            has_gc_roots,
+        };
+
+        TypeLayout {
+            size: final_heap_size,
+            align: max_align,
+            has_gc_roots,
+        }
     }
 }

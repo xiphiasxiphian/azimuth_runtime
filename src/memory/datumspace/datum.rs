@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-/*  ┌─────────────────────────┐  <- base_ptr
+/* ┌─────────────────────────┐  <- base_ptr
    │  DatumPageHeader        │  fixed size, contains section lengths
    │  id_loc                 │
    │  constants_loc          │
@@ -41,17 +41,16 @@ use crate::{
    │   an offset into the    │
    │   code blob below)      │
    ├─────────────────────────┤
-   │ RuntimeType[]           │ indexed by TypeSignature::type_index
+   │  RuntimeType[]          │ indexed by TypeSignature::type_index
    ├─────────────────────────┤
-   │ RuntimeEnumVariant[]    │ flat array of all variants
+   │  RuntimeEnumVariant[]   │ flat array of all variants
    ├─────────────────────────┤
-   │ usize[]                 │ flat array of all GC reference offsets
+   │  usize[]                │ flat array of all GC reference offsets
    ├─────────────────────────┤
    │  data blob              │  raw bytes for all constants
    ├─────────────────────────┤
    │  code blob              │  raw bytecode for all functions
    └─────────────────────────┘
-
 */
 
 #[derive(Clone, Copy, Debug, Add, Sub)]
@@ -212,6 +211,7 @@ impl<'a> DatumPage<'a>
         let ty = self.types.get(type_index as usize)?;
         if let RuntimeTypeKind::Struct {
             instance_size,
+            alignment,
             gc_offsets_index,
             gc_offsets_count,
         } = ty.kind
@@ -231,6 +231,8 @@ impl<'a> DatumPage<'a>
     {
         let ty = self.types.get(type_index as usize)?;
         if let RuntimeTypeKind::Enum {
+            instance_size,
+            alignment,
             variants_index,
             variants_count,
         } = ty.kind

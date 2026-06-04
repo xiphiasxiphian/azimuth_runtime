@@ -21,6 +21,7 @@ use crate::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
             datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
+            layout_engine::{LayoutEngine, TypeLayout},
             runnable::{Function, FunctionFlags, Runnable},
             tables::{
                 constant_table::{Constant, ConstantTableEntry, DataEntry},
@@ -28,7 +29,7 @@ use crate::{
                 symbol_table::{Symbol, SymbolKind},
                 types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind},
             },
-        },
+        }, heap::heap::ObjectHeader,
     },
 };
 
@@ -71,7 +72,7 @@ impl<'d> Datumspace<'d>
     where
         'd: 'file,
     {
-        let (runtime_types, runtime_variants, runtime_gc_offsets) = Self::compute_runtime_layouts(layout)?;
+        let (runtime_types, runtime_variants, runtime_gc_offsets) = self.compute_runtime_layouts(layout)?;
 
         let (header, required_layout) = Self::calculate_page_size(
             layout,
@@ -195,6 +196,57 @@ impl<'d> Datumspace<'d>
                         .ok_or(DatumspaceError::InvalidConstantType)?,
                 )
             },
+        }
+    }
+
+    /// Queries a loaded DatumPage for the exact pre-calculated physical layout
+    /// of an exported type, allowing an external module's LayoutEngine to embed it.
+    pub fn get_external_layout(&self, page_id: &SymbolId, symbol_id: SymbolId) -> DatumResult<TypeLayout>
+    {
+        let page = self.get_page(page_id)?;
+
+        let runtime_type = page
+            .types
+            .iter()
+            .find(|t| t.symbol_id == symbol_id)
+            .ok_or(DatumspaceError::ResourceDoesntExist)?;
+
+        match runtime_type.kind
+        {
+            RuntimeTypeKind::Struct {
+                instance_size,
+                alignment,
+                gc_offsets_count,
+                ..
+            } => Ok(TypeLayout {
+                size: instance_size as u32,
+                align: alignment,
+                has_gc_roots: gc_offsets_count > 0,
+            }),
+            RuntimeTypeKind::Enum {
+                variants_index,
+                variants_count,
+                instance_size,
+                alignment,
+            } =>
+            {
+                // Enums cache their overall size/alignment, but we still check
+                // if any individual variant introduces a GC root pointer.
+                let start = variants_index as usize;
+                let end = start + variants_count as usize;
+                let variants = page
+                    .enum_variants
+                    .get(start..end)
+                    .ok_or(DatumspaceError::InvalidStructure)?;
+
+                let has_gc_roots = variants.iter().any(|v| v.gc_offsets_count > 0);
+
+                Ok(TypeLayout {
+                    size: instance_size as u32,
+                    align: alignment,
+                    has_gc_roots,
+                })
+            }
         }
     }
 
@@ -338,16 +390,19 @@ impl<'d> Datumspace<'d>
 
     /// Computes the runtime sizes and flattens the GC offsets for all types.
     fn compute_runtime_layouts(
+        &self,
         layout: &FileLayout,
     ) -> DatumResult<(Vec<RuntimeType>, Vec<RuntimeEnumVariant>, Vec<usize>)>
     {
-        let mut runtime_types = Vec::with_capacity(layout.type_directory.type_count());
+        let type_count = layout.type_directory.types.len();
+        let mut runtime_types = Vec::with_capacity(type_count);
         let mut runtime_variants = Vec::new();
         let mut gc_offsets = Vec::new();
 
-        // Types are in declaration order, so we can resolve `ValueType`
-        // sizes safely by referencing backwards in `runtime_types`.
-        for udt in &layout.type_directory.types
+        // initializes zero-allocation buffer for layout resolution
+        let mut engine = LayoutEngine::new(type_count);
+
+        for (index, udt) in layout.type_directory.types.iter().enumerate()
         {
             match udt
             {
@@ -355,17 +410,19 @@ impl<'d> Datumspace<'d>
                 {
                     let gc_offsets_index = gc_offsets.len() as u32;
 
-                    // TODO: Your LayoutEngine logic goes here.
-                    // 1. Iterate over `s.fields`.
-                    // 2. Compute `instance_size` based on alignment and scalar sizes.
-                    // 3. Push byte offsets of Strings and References to `gc_offsets`.
-                    // 4. Flatten and shift `gc_offsets` from nested ValueTypes.
-                    let instance_size = 0; // Replace with calculated size
+                    // delegates layout resolution and internal caching to the engine
+                    let heap_layout = engine.resolve_struct(
+                        index,
+                        &s.fields,
+                        &mut gc_offsets,
+                        size_of::<ObjectHeader>() as u32
+                    )?;
 
                     runtime_types.push(RuntimeType {
                         symbol_id: s.symbol_id,
                         kind: RuntimeTypeKind::Struct {
-                            instance_size,
+                            instance_size: heap_layout.size as usize,
+                            alignment: heap_layout.align,
                             gc_offsets_index,
                             gc_offsets_count: (gc_offsets.len() as u32) - gc_offsets_index,
                         },
@@ -374,31 +431,55 @@ impl<'d> Datumspace<'d>
                 UserDefinedType::Enum(e) =>
                 {
                     let variants_index = runtime_variants.len() as u32;
+                    let mut variant_layouts = Vec::with_capacity(e.variants.len());
 
                     for variant in &e.variants
                     {
                         let gc_offsets_index = gc_offsets.len() as u32;
 
-                        // TODO: Enum LayoutEngine logic here.
-                        // Remember to account for the discriminant tag size
-                        // when calculating the field offsets!
-                        let instance_size = 0; // Replace with calculated size
+                        // resolves the physical structure of the variant fields
+                        let layout = engine.resolve_variant(
+                            &variant.fields,
+                            &mut gc_offsets,
+                            size_of::<ObjectHeader>() as u32,
+                        )?;
 
                         runtime_variants.push(RuntimeEnumVariant {
                             tag: variant.tag,
-                            instance_size,
+                            instance_size: layout.heap.size as usize,
+                            alignment: layout.heap.align,
                             gc_offsets_index,
                             gc_offsets_count: (gc_offsets.len() as u32) - gc_offsets_index,
                         });
+
+                        variant_layouts.push(layout);
                     }
+
+                    // finishes the enum by determining maximum bounds and updating the cache
+                    let heap_enum_layout = engine.finalize_enum(index, &variant_layouts);
 
                     runtime_types.push(RuntimeType {
                         symbol_id: e.symbol_id,
                         kind: RuntimeTypeKind::Enum {
                             variants_index,
                             variants_count: e.variants.len() as u32,
+                            instance_size: heap_enum_layout.size as usize,
+                            alignment: heap_enum_layout.align,
                         },
                     });
+                }
+                UserDefinedType::Imported { link_index } =>
+                {
+                    // extracts target module from the parsed link table
+                    let link = layout
+                        .link_table
+                        .entries
+                        .get(*link_index as usize)
+                        .ok_or(DatumspaceError::InvalidStructure)?;
+
+                    // retrieves physical layout directly from memory and injects into engine cache
+                    let external_layout = self.get_external_layout(&link.module_id, link.symbol_id)?;
+                    engine.resolved[index] = external_layout;
                 }
             }
         }

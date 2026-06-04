@@ -272,6 +272,15 @@ pub enum UserDefinedType
 
     #[br(magic = 0x01_u8)]
     Enum(EnumDef),
+
+    /// A stub representing an imported ValueType.
+    /// `link_index` points into the local LinkTable to identify
+    /// the target module and the exported SymbolId.
+    #[br(magic = 0x02_u8)]
+    Imported
+    {
+        link_index: u32
+    },
 }
 
 /// All user-defined types in the module, in declaration order.

@@ -1,4 +1,4 @@
-use crate::{loader::SymbolId, memory::datumspace::datum::Offset};
+use crate::{loader::SymbolId};
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -8,6 +8,7 @@ pub enum RuntimeTypeKind
     {
         /// Total byte size to allocate on the heap (including ObjectHeader)
         instance_size: usize,
+        alignment: u32,
         /// Start index into the page's `gc_offsets` array
         gc_offsets_index: u32,
         gc_offsets_count: u32,
@@ -17,6 +18,9 @@ pub enum RuntimeTypeKind
         /// Start index into the page's `enum_variants` array
         variants_index: u32,
         variants_count: u32,
+        /// Allocation size needed specifically for this variant payload + header
+        instance_size: usize,
+        alignment: u32, // Needed for cross module shit
     },
 }
 
@@ -33,8 +37,6 @@ pub struct RuntimeType
 pub struct RuntimeEnumVariant
 {
     pub tag: u32,
-    /// Allocation size needed specifically for this variant payload + header
-    pub instance_size: usize,
     /// Start index into the page's `gc_offsets` array
     pub gc_offsets_index: u32,
     pub gc_offsets_count: u32,
