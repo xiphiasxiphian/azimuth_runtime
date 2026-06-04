@@ -14,8 +14,7 @@ use itertools::{Itertools as _, process_results};
 
 use crate::{
     loader::{
-        SymbolId,
-        parser::layout::{DataHeader, FileLayout, SymbolKind as ParsedSymbolKind, UserDefinedType},
+        SymbolId, parser::layout::{DataHeader, FileLayout, SymbolKind::{self as ParsedSymbolKind, Type}, UserDefinedType}
     },
     memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
@@ -113,7 +112,7 @@ impl<'d> Datumspace<'d>
                         kind: match x.kind
                         {
                             ParsedSymbolKind::Function { body } => SymbolKind::Function { index: body },
-                            ParsedSymbolKind::Type {} => todo!(),
+                            ParsedSymbolKind::Type { type_index } => todo!(),
                         },
                         id: x.id,
                     }))?;
@@ -201,14 +200,13 @@ impl<'d> Datumspace<'d>
 
     /// Queries a loaded DatumPage for the exact pre-calculated physical layout
     /// of an exported type, allowing an external module's LayoutEngine to embed it.
-    pub fn get_external_layout(&self, page_id: &SymbolId, symbol_id: SymbolId) -> DatumResult<TypeLayout>
+    pub fn get_external_layout(&self, page_id: &SymbolId, type_index: u32) -> DatumResult<TypeLayout>
     {
         let page = self.get_page(page_id)?;
 
         let runtime_type = page
             .types
-            .iter()
-            .find(|t| t.symbol_id == symbol_id)
+            .get(type_index as usize)
             .ok_or(DatumspaceError::ResourceDoesntExist)?;
 
         match runtime_type.kind
@@ -246,6 +244,9 @@ impl<'d> Datumspace<'d>
                     align: alignment,
                     has_gc_roots,
                 })
+            },
+            RuntimeTypeKind::Imported { module_id, type_index } => {
+                todo!() // go play fetch another time
             }
         }
     }
@@ -446,8 +447,6 @@ impl<'d> Datumspace<'d>
 
                         runtime_variants.push(RuntimeEnumVariant {
                             tag: variant.tag,
-                            instance_size: layout.heap.size as usize,
-                            alignment: layout.heap.align,
                             gc_offsets_index,
                             gc_offsets_count: (gc_offsets.len() as u32) - gc_offsets_index,
                         });
@@ -468,18 +467,40 @@ impl<'d> Datumspace<'d>
                         },
                     });
                 }
-                UserDefinedType::Imported { link_index } =>
+                UserDefinedType::Imported { local_id, link_index, target_id } =>
                 {
-                    // extracts target module from the parsed link table
                     let link = layout
                         .link_table
                         .entries
                         .get(*link_index as usize)
-                        .ok_or(DatumspaceError::InvalidStructure)?;
+                        .ok_or(DatumspaceError::ResourceDoesntExist)?;
 
-                    // retrieves physical layout directly from memory and injects into engine cache
-                    let external_layout = self.get_external_layout(&link.module_id, link.symbol_id)?;
-                    engine.resolved[index] = external_layout;
+                    let type_index = match layout
+                        .symbol_table
+                        .symbols
+                        .iter()
+                        .find(|x| &x.id == target_id)
+                        .ok_or(DatumspaceError::ResourceDoesntExist)?
+                        .kind
+                    {
+                        Type { type_index } => Ok(type_index),
+                        _ => Err(DatumspaceError::InvalidStructure)
+                    }?;
+
+                    let external_layout = self.get_external_layout(&link.module_id, type_index)?;
+                    engine.cache_result(external_layout, index);
+
+                    // Push a proxy/reference to maintain 1:1 index alignment
+                    // in your runtime_types array.
+                    runtime_types.push(RuntimeType {
+                        symbol_id: *local_id, // the ID it uses in THIS module
+                        kind: RuntimeTypeKind::Imported {
+                            // Store enough metadata to forward allocations/method calls
+                            // to the external module when encountered at runtime.
+                            module_id: link.module_id.clone(),
+                            type_index: type_index,
+                        },
+                    });
                 }
             }
         }

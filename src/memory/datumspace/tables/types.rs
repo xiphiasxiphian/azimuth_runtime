@@ -22,6 +22,11 @@ pub enum RuntimeTypeKind
         instance_size: usize,
         alignment: u32, // Needed for cross module shit
     },
+    Imported
+    {
+        module_id: SymbolId,
+        type_index: u32,
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

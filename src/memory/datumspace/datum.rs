@@ -206,7 +206,7 @@ impl<'a> DatumPage<'a>
     }
 
     /// Get the pre-calculated GC offsets for a struct by its index
-    pub fn get_struct_layout(&self, type_index: u32) -> Option<(usize, &'a [usize])>
+    pub fn get_struct_layout(&self, type_index: u32) -> Option<(usize, usize, &'a [usize])>
     {
         let ty = self.types.get(type_index as usize)?;
         if let RuntimeTypeKind::Struct {
@@ -218,7 +218,7 @@ impl<'a> DatumPage<'a>
         {
             let start = gc_offsets_index as usize;
             let end = start + gc_offsets_count as usize;
-            Some((instance_size, self.gc_offsets.get(start..end)?))
+            Some((instance_size, alignment as usize, self.gc_offsets.get(start..end)?))
         }
         else
         {
@@ -231,8 +231,8 @@ impl<'a> DatumPage<'a>
     {
         let ty = self.types.get(type_index as usize)?;
         if let RuntimeTypeKind::Enum {
-            instance_size,
-            alignment,
+            instance_size: _,
+            alignment: _,
             variants_index,
             variants_count,
         } = ty.kind

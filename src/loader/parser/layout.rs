@@ -80,7 +80,7 @@ pub enum SymbolKind
 
     #[br(magic = 1_u8)]
     Type {
-        // typeref
+        type_index: u32,
     },
 }
 
@@ -279,7 +279,9 @@ pub enum UserDefinedType
     #[br(magic = 0x02_u8)]
     Imported
     {
-        link_index: u32
+        local_id: SymbolId,
+        link_index: u32,
+        target_id: SymbolId,
     },
 }
 

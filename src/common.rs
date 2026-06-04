@@ -50,6 +50,22 @@ impl<T> ScopeMethods for T
     }
 }
 
+pub trait VecSet<T>
+{
+    fn set(&mut self, elem: T, index: usize) -> Option<T>;
+}
+
+impl<T> VecSet<T> for Vec<T>
+{
+    fn set(&mut self, elem: T, index: usize) -> Option<T>
+    {
+        (index < self.len())
+            .then(|| {
+                std::mem::replace(&mut self[index], elem)
+            })
+    }
+}
+
 #[macro_export]
 macro_rules! guard {
     ($check:expr) => {

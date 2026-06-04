@@ -1,6 +1,5 @@
 use crate::{
-    loader::parser::layout::{FieldDef, ScalarTag, TypeSignature},
-    memory::datumspace::DatumspaceError,
+    common::VecSet, loader::parser::layout::{FieldDef, ScalarTag, TypeSignature}, memory::datumspace::DatumspaceError
 };
 
 /// An 8-byte layout cache. No vectors, no heap allocations.
@@ -39,6 +38,11 @@ impl LayoutEngine
     pub fn align_to(offset: u32, align: u32) -> u32
     {
         (offset + align - 1) & !(align - 1)
+    }
+
+    pub fn cache_result(&mut self, layout: TypeLayout, index: usize) -> bool
+    {
+        self.resolved.set(layout, index).is_some()
     }
 
     /// Resolves fields linearly, writing GC offsets directly to the global buffer.
