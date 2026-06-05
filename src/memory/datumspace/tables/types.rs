@@ -1,4 +1,6 @@
-use crate::{loader::SymbolId};
+use std::ptr::NonNull;
+
+use crate::{loader::SymbolId, memory::datumspace::datum::DatumPageHeader};
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -33,6 +35,7 @@ pub enum RuntimeTypeKind
 #[repr(C)]
 pub struct RuntimeType
 {
+    pub back_pointer: NonNull<DatumPageHeader>,
     pub symbol_id: SymbolId,
     pub kind: RuntimeTypeKind,
 }

@@ -503,8 +503,6 @@ impl Heap
                 let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
                 let offsets: Vec<usize> = metadata.references().to_vec();
 
-                let parent_is_adult = matches!(self.get_pool(parent_ptr), Some(PoolType::Adult));
-
                 for offset in offsets
                 {
                     let field_ptr: FieldPtr = unsafe { cursor.add(offset).cast() };
@@ -514,12 +512,11 @@ impl Heap
                     {
                         unsafe
                         {
-                            let new_child = self.evacuate(child_ptr, to_teen_idx, &mut worklist);
+                            let new_child = self.evacuate(child_ptr, to_teen_idx, worklist);
                             *field_ptr = new_child;
 
                             // Keep card table consistent for future GCs.
-                            if parent_is_adult
-                                && self.is_youth(new_child)
+                            if self.is_youth(new_child)
                                 && let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
                                 && let Some(card_idx) = self.card_index_of(field_ref)
                             {

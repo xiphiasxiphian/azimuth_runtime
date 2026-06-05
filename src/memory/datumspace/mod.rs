@@ -13,10 +13,9 @@ use std::{
 use itertools::{Itertools as _, process_results};
 
 use crate::{
-    loader::{
+    common::ScopeMethods, loader::{
         SymbolId, parser::layout::{DataHeader, FileLayout, SymbolKind::{self as ParsedSymbolKind, Type}, UserDefinedType}
-    },
-    memory::{
+    }, memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
             datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
@@ -29,7 +28,7 @@ use crate::{
                 types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind},
             },
         }, heap::heap::ObjectHeader,
-    },
+    }
 };
 
 const ALLOCATOR_DEPTH: usize = 8;
@@ -71,7 +70,7 @@ impl<'d> Datumspace<'d>
     where
         'd: 'file,
     {
-        let (runtime_types, runtime_variants, runtime_gc_offsets) = self.compute_runtime_layouts(layout)?;
+        let (mut runtime_types, runtime_variants, runtime_gc_offsets) = self.compute_runtime_layouts(layout)?;
 
         let (header, required_layout) = Self::calculate_page_size(
             layout,
@@ -90,7 +89,7 @@ impl<'d> Datumspace<'d>
                 let page_builder = PageBuilder::new(base, header)
                     .write_code_blob(&layout.code_directory.bytecode)?
                     .write_data_blob(&layout.data_directory.data)?
-                    .write_types(runtime_types.into_iter())?
+                    .write_types(runtime_types.iter_mut().map(|x| { x.back_pointer = base.cast(); *x} ))? // fix all the back pointers
                     .write_enum_variants(runtime_variants.into_iter())?
                     .write_gc_offsets(runtime_gc_offsets.into_iter())?
                     .write_constants(layout.data_directory.entries.iter().map(|x| {
@@ -420,6 +419,7 @@ impl<'d> Datumspace<'d>
                     )?;
 
                     runtime_types.push(RuntimeType {
+                        back_pointer: NonNull::dangling(), // This will be later inited
                         symbol_id: s.symbol_id,
                         kind: RuntimeTypeKind::Struct {
                             instance_size: heap_layout.size as usize,
@@ -458,6 +458,7 @@ impl<'d> Datumspace<'d>
                     let heap_enum_layout = engine.finalize_enum(index, &variant_layouts);
 
                     runtime_types.push(RuntimeType {
+                        back_pointer: NonNull::dangling(),
                         symbol_id: e.symbol_id,
                         kind: RuntimeTypeKind::Enum {
                             variants_index,
@@ -493,6 +494,7 @@ impl<'d> Datumspace<'d>
                     // Push a proxy/reference to maintain 1:1 index alignment
                     // in your runtime_types array.
                     runtime_types.push(RuntimeType {
+                        back_pointer: NonNull::dangling(),
                         symbol_id: *local_id, // the ID it uses in THIS module
                         kind: RuntimeTypeKind::Imported {
                             // Store enough metadata to forward allocations/method calls
