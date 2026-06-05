@@ -79,6 +79,7 @@ pub enum HeapError
 /// holds the new address OR-ed with `FORWARDED_BIT`.  The age bits are
 /// meaningless at that point — the object is considered dead.
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct ObjectHeader
 {
     pub mark_word: usize,
@@ -92,6 +93,7 @@ impl ObjectHeader
     const AGE_SHIFT: usize = 1;
     const AGE_BITS: usize = 4;
     const AGE_MASK: usize = (1 << Self::AGE_BITS) - 1; // 0x0F
+    const DEAD_BIT: usize = 1 << 5;
 
     pub fn is_forwarded(&self) -> bool
     {
@@ -127,6 +129,11 @@ impl ObjectHeader
         let new_age = (self.age() + 1).min(Self::AGE_MASK);
         // Clear the old age bits, then write the new value.
         self.mark_word = (self.mark_word & !(Self::AGE_MASK << Self::AGE_SHIFT)) | (new_age << Self::AGE_SHIFT);
+    }
+
+    pub fn is_dead(&self) -> bool
+    {
+        (self.mark_word & Self::DEAD_BIT) != 0
     }
 }
 
@@ -310,7 +317,7 @@ impl Heap
             Some(PoolType::Teen(i)) => self.teen[i].dealloc(ptr),
             Some(PoolType::Adult) =>
             {
-                unsafe { ptr.cast::<ObjectHeader>().as_mut().size = 0; } // tombstone card
+                unsafe { ptr.cast::<ObjectHeader>().as_mut().mark_word |= ObjectHeader::DEAD_BIT; } // tombstone card
                 self.adult.dealloc(ptr)
             }
         }
@@ -482,6 +489,13 @@ impl Heap
             if size == 0
             {
                 break;
+            }
+
+            if header.is_dead()
+            {
+                // skip dead objects
+                cursor = unsafe { cursor.add(size) };
+                continue;
             }
 
             if !header.is_forwarded()
