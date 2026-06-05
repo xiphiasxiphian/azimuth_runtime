@@ -112,7 +112,7 @@ impl<'d> Datumspace<'d>
                         kind: match x.kind
                         {
                             ParsedSymbolKind::Function { body } => SymbolKind::Function { index: body },
-                            ParsedSymbolKind::Type { type_index } => todo!(),
+                            ParsedSymbolKind::Type { type_index } => SymbolKind::Type { index: type_index },
                         },
                         id: x.id,
                     }))?;

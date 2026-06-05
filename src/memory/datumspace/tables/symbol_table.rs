@@ -7,6 +7,10 @@ pub enum SymbolKind
     {
         index: u32
     },
+    Type
+    {
+        index: u32,
+    }
 }
 
 #[derive(Clone, Copy)]
