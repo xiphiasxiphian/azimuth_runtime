@@ -288,7 +288,7 @@ impl PageBuilder
     where
         I: Iterator<Item = Link>,
     {
-        unsafe { self.write_iter(&self.base.as_ref().constants, src) }
+        unsafe { self.write_iter(&self.base.as_ref().link_table, src) }
     }
 
     pub unsafe fn write_symbols<'a, I>(self, src: I) -> Option<Self>

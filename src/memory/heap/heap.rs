@@ -221,7 +221,7 @@ impl Heap
         let card_table = vec![CLEAN; num_cards];
 
         // init cards.
-        let card_offsets = (0..num_cards).map(|i| i * CARD_SIZE).collect();
+        let card_offsets = vec![usize::MAX; num_cards];
 
         Ok(Self {
             base,
@@ -243,18 +243,24 @@ impl Heap
         let size = layout.size();
         let start_ptr = ptr.as_ptr() as usize;
         let base = self.adult_base.as_ptr() as usize;
+        let obj_offset = start_ptr - base; // offset from adult_base
 
         let start_card = (start_ptr - base) / CARD_SIZE;
         let end_card = (start_ptr + size - 1 - base) / CARD_SIZE;
 
-        for card_idx in start_card..=end_card
+        // start_card: only record this object if no earlier object
+        // already covers this card (keep the earliest/lowest offset).
+        if self.card_offsets[start_card] == usize::MAX // check sentinel value
         {
-            let card_start = base + card_idx * CARD_SIZE;
-            if card_start >= start_ptr
-            {
-                self.card_offsets[card_idx] = card_start - start_ptr;
-            }
+            self.card_offsets[start_card] = obj_offset;
         }
+
+        // For cards this object spans into, it is the closest preceding object.
+        for card_idx in (start_card + 1)..=end_card
+        {
+            self.card_offsets[card_idx] = obj_offset;
+        }
+
         Some(ptr)
     }
 
@@ -302,12 +308,16 @@ impl Heap
             None | Some(PoolType::Infant) =>
             {}
             Some(PoolType::Teen(i)) => self.teen[i].dealloc(ptr),
-            Some(PoolType::Adult) => self.adult.dealloc(ptr),
+            Some(PoolType::Adult) =>
+            {
+                unsafe { ptr.cast::<ObjectHeader>().as_mut().size = 0; } // tombstone card
+                self.adult.dealloc(ptr)
+            }
         }
     }
 
     /// Must be called on every reference-field write: `obj.field = new_value`.
-    pub fn write_barrier(&mut self, _parent_ptr: ObjRef, field_addr: FieldPtr, new_value: ObjRef)
+    pub fn write_barrier(&mut self, field_addr: FieldPtr, new_value: ObjRef)
     {
         // do the actual write
         unsafe {
@@ -368,6 +378,8 @@ impl Heap
                 let metadata = self.get_metadata(header.vtable_or_type);
                 let offsets: Vec<usize> = metadata.references().to_vec();
 
+                let parent_is_adult = matches!(self.get_pool(parent_ptr), Some(PoolType::Adult));
+
                 for offset in offsets
                 {
                     let field_ptr: FieldPtr = parent_ptr.as_ptr().add(offset).cast();
@@ -375,7 +387,17 @@ impl Heap
 
                     if self.is_youth(child_ptr)
                     {
-                        *field_ptr = self.evacuate(child_ptr, to_teen_idx, &mut worklist);
+                        let new_child = self.evacuate(child_ptr, to_teen_idx, &mut worklist);
+                        *field_ptr = new_child;
+
+                        // Keep card table consistent for future GCs.
+                        if parent_is_adult && self.is_youth(new_child) {
+                            if let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
+                                && let Some(card_idx) = self.card_index_of(field_ref)
+                            {
+                                self.card_table[card_idx] = DIRTY;
+                            }
+                        }
                     }
                 }
             }
@@ -444,11 +466,12 @@ impl Heap
     /// pointers found in reference fields of live objects within that region.
     fn scan_card(&mut self, card_idx: usize, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
     {
-        let card_start = unsafe { self.adult_base.as_ptr().add(card_idx * CARD_SIZE) };
-        let card_end = unsafe { card_start.add(CARD_SIZE) };
+        let obj_offset = self.card_offsets[card_idx];
+        if obj_offset == usize::MAX { return; } // guard against sentinel: this means the page is untouched
 
-        let offset = self.card_offsets[card_idx];
-        let mut cursor = unsafe { card_start.sub(offset) };
+        let card_end = unsafe { self.adult_base.as_ptr().add((card_idx + 1) * CARD_SIZE) };
+        // Start at the recorded object, not the card boundary
+        let mut cursor = unsafe { self.adult_base.as_ptr().add(obj_offset) };
 
         while cursor < card_end
         {
@@ -466,6 +489,8 @@ impl Heap
                 let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
                 let offsets: Vec<usize> = metadata.references().to_vec();
 
+                let parent_is_adult = matches!(self.get_pool(parent_ptr), Some(PoolType::Adult));
+
                 for offset in offsets
                 {
                     let field_ptr: FieldPtr = unsafe { cursor.add(offset).cast() };
@@ -473,8 +498,19 @@ impl Heap
 
                     if self.is_youth(child_ptr)
                     {
-                        unsafe {
-                            *field_ptr = self.evacuate(child_ptr, to_teen_idx, worklist);
+                        unsafe
+                        {
+                            let new_child = self.evacuate(child_ptr, to_teen_idx, &mut worklist);
+                            *field_ptr = new_child;
+
+                            // Keep card table consistent for future GCs.
+                            if parent_is_adult
+                                && self.is_youth(new_child)
+                                && let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
+                                && let Some(card_idx) = self.card_index_of(field_ref)
+                            {
+                                    self.card_table[card_idx] = DIRTY;
+                            }
                         }
                     }
                 }
