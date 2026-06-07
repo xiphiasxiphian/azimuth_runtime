@@ -99,9 +99,18 @@ impl ObjectHeader
     const DEAD_BIT: usize = 1 << 5;
     const MARK_BIT: usize = 1 << 6;
 
-    pub fn is_marked(&self) -> bool { (self.mark_word & Self::MARK_BIT) != 0 }
-    pub fn set_mark(&mut self)      { self.mark_word |= Self::MARK_BIT; }
-    pub fn clear_mark(&mut self)    { self.mark_word &= !Self::MARK_BIT; }
+    pub fn is_marked(&self) -> bool
+    {
+        (self.mark_word & Self::MARK_BIT) != 0
+    }
+    pub fn set_mark(&mut self)
+    {
+        self.mark_word |= Self::MARK_BIT;
+    }
+    pub fn clear_mark(&mut self)
+    {
+        self.mark_word &= !Self::MARK_BIT;
+    }
 
     pub fn is_forwarded(&self) -> bool
     {
@@ -478,12 +487,11 @@ impl Heap
 
     fn sweep_phase(&mut self)
     {
-        let dead_offsets: Vec<usize> = self.adult_live
+        let dead_offsets: Vec<usize> = self
+            .adult_live
             .iter()
             .filter_map(|(&offset, _)| {
-                let obj_ptr = unsafe {
-                    NonNull::new_unchecked(self.adult_base.as_ptr().add(offset))
-                };
+                let obj_ptr = unsafe { NonNull::new_unchecked(self.adult_base.as_ptr().add(offset)) };
                 let header = unsafe { &mut *(obj_ptr.as_ptr() as *mut ObjectHeader) };
 
                 if header.is_marked()
@@ -500,9 +508,7 @@ impl Heap
 
         for offset in dead_offsets
         {
-            let obj_ptr = unsafe {
-                NonNull::new_unchecked(self.adult_base.as_ptr().add(offset))
-            };
+            let obj_ptr = unsafe { NonNull::new_unchecked(self.adult_base.as_ptr().add(offset)) };
             self.adult_live.remove(&offset);
             self.adult.dealloc(obj_ptr.cast::<u8>());
             // card_offsets entries for this object become stale but are harmless:
