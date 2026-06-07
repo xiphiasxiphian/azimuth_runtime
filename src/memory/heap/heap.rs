@@ -1,5 +1,5 @@
 use std::{
-    alloc::{Layout, LayoutError, alloc}, array::from_fn, mem::transmute, ptr::NonNull
+    alloc::{Layout, LayoutError, alloc}, array::from_fn, collections::BTreeMap, mem::transmute, ptr::NonNull
 };
 
 use crate::memory::{
@@ -158,6 +158,8 @@ pub struct Heap
     /// Maps each card index to the byte offset from the start of the card
     /// back to the closest valid `ObjectHeader` starting at or before it.
     card_offsets: Vec<usize>,
+
+    adult_live: BTreeMap<usize, usize>,
 }
 
 impl Heap
@@ -227,6 +229,7 @@ impl Heap
             adult_base,
             card_table,
             card_offsets,
+            adult_live: BTreeMap::new(),
         })
     }
 
@@ -234,25 +237,21 @@ impl Heap
     fn alloc_adult(&mut self, layout: Layout) -> Option<ObjRef>
     {
         let ptr = self.adult.raw_alloc(layout)?;
-        let size = layout.size();
-        let start_ptr = ptr.as_ptr() as usize;
         let base = self.adult_base.as_ptr() as usize;
-        let obj_offset = start_ptr - base; // offset from adult_base
+        let offset = ptr.as_ptr() as usize - base;
+        self.adult_live.insert(offset, layout.size());
 
-        let start_card = (start_ptr - base) / CARD_SIZE;
-        let end_card = (start_ptr + size - 1 - base) / CARD_SIZE;
-
-        // start_card: only record this object if no earlier object
-        // already covers this card (keep the earliest/lowest offset).
-        if self.card_offsets[start_card] == usize::MAX // check sentinel value
+        // card_offsets update
+        let start_card = offset / CARD_SIZE;
+        let end_card = (offset + layout.size() - 1) / CARD_SIZE;
+        if self.card_offsets[start_card] == usize::MAX
         {
-            self.card_offsets[start_card] = obj_offset;
+            self.card_offsets[start_card] = offset;
         }
 
-        // For cards this object spans into, it is the closest preceding object.
         for card_idx in (start_card + 1)..=end_card
         {
-            self.card_offsets[card_idx] = obj_offset;
+            self.card_offsets[card_idx] = offset;
         }
 
         Some(ptr)
@@ -304,8 +303,9 @@ impl Heap
             Some(PoolType::Teen(i)) => self.teen[i].dealloc(ptr),
             Some(PoolType::Adult) =>
             {
-                unsafe { ptr.cast::<ObjectHeader>().as_mut().mark_word |= ObjectHeader::DEAD_BIT; } // tombstone card
-                self.adult.dealloc(ptr)
+                let offset = ptr.as_ptr() as usize - self.adult_base.as_ptr() as usize;
+                self.adult_live.remove(&offset);
+                self.adult.dealloc(ptr);
             }
         }
     }
@@ -458,60 +458,49 @@ impl Heap
     /// pointers found in reference fields of live objects within that region.
     fn scan_card(&mut self, card_idx: usize, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
     {
-        let obj_offset = self.card_offsets[card_idx];
-        if obj_offset == usize::MAX { return; } // guard against sentinel: this means the page is untouched
+        let start_offset = self.card_offsets[card_idx];
+        if start_offset == usize::MAX { return; }
 
-        let card_end = unsafe { self.adult_base.as_ptr().add((card_idx + 1) * CARD_SIZE) };
-        // Start at the recorded object, not the card boundary
-        let mut cursor = unsafe { self.adult_base.as_ptr().add(obj_offset) };
+        let card_end_offset = (card_idx + 1) * CARD_SIZE;
 
-        while cursor < card_end
+        // Collect live objects that start at or before this card and could overlap it.
+        // The BTreeMap range gives us objects in ascending order, which is correct for
+        // the worklist — we just need all objects overlapping [card_start, card_end).
+        let candidates: Vec<usize> = self.adult_live
+            .range(start_offset..card_end_offset)
+            .map(|(&off, _)| off)
+            .collect();
+
+        for obj_offset in candidates
         {
-            let obj_ptr = unsafe { NonNull::new_unchecked(cursor as *mut ObjectHeader) };
-            let header = unsafe { obj_ptr.as_ref() };
+            let obj_ptr: ObjRef = unsafe {
+                NonNull::new_unchecked(self.adult_base.as_ptr().add(obj_offset))
+            };
+            let header = unsafe { &*(obj_ptr.as_ptr() as *const ObjectHeader) };
 
-            let size = header.size;
-            if size == 0
+            if header.is_forwarded() { continue; }
+
+            let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
+            let offsets: Vec<usize> = offsets.to_vec();
+
+            for offset in offsets
             {
-                break;
-            }
+                let field_ptr: FieldPtr = unsafe { obj_ptr.as_ptr().add(offset).cast() };
+                let child_ptr = unsafe { *field_ptr };
 
-            if header.is_dead()
-            {
-                // skip dead objects
-                cursor = unsafe { cursor.add(size) };
-                continue;
-            }
-
-            if !header.is_forwarded()
-            {
-                let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr.cast()) };
-
-                for offset in offsets
+                if self.is_youth(child_ptr)
                 {
-                    let field_ptr: FieldPtr = unsafe { cursor.add(*offset).cast() };
-                    let child_ptr = unsafe { *field_ptr };
+                    let new_child = unsafe { self.evacuate(child_ptr, to_teen_idx, worklist) };
+                    unsafe { *field_ptr = new_child; }
 
-                    if self.is_youth(child_ptr)
+                    if self.is_youth(new_child)
+                        && let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
+                        && let Some(ci) = self.card_index_of(field_ref)
                     {
-                        unsafe
-                        {
-                            let new_child = self.evacuate(child_ptr, to_teen_idx, worklist);
-                            *field_ptr = new_child;
-
-                            // Keep card table consistent for future GCs.
-                            if self.is_youth(new_child)
-                                && let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
-                                && let Some(card_idx) = self.card_index_of(field_ref)
-                            {
-                                    self.card_table[card_idx] = DIRTY;
-                            }
-                        }
+                        self.card_table[ci] = DIRTY;
                     }
                 }
             }
-
-            cursor = unsafe { cursor.add(size) };
         }
     }
 
