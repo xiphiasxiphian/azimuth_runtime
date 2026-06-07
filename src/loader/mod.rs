@@ -243,7 +243,7 @@ impl<'a> FunctionInfo<'a>
     /// safe to use and won't get randomly dropped.
     pub fn code(&self) -> &'static [u8]
     {
-        // Very dodgy looking but trust me broz
+        // Very dodgy looking but trust me bro
         // If something starts going wrong, THIS is the first place to look
         unsafe { transmute(self.bytecode) }
     }

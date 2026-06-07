@@ -1,12 +1,9 @@
 use std::{
-    alloc::{Layout, LayoutError, alloc},
-    array::from_fn,
-    ptr::NonNull,
+    alloc::{Layout, LayoutError, alloc}, array::from_fn, mem::transmute, ptr::NonNull
 };
 
 use crate::memory::{
-    allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator},
-    stack::{Stack, entry::StackEntry},
+    allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator}, datumspace::tables::types::{RuntimeType, RuntimeTypeKind}, stack::{Stack, entry::StackEntry}
 };
 
 const HEAP_ALIGN: usize = 4096;
@@ -135,16 +132,6 @@ impl ObjectHeader
     {
         (self.mark_word & Self::DEAD_BIT) != 0
     }
-}
-
-pub trait Traceable
-{
-    /// Returns byte offsets (from the object base pointer) of every field
-    /// that holds an `ObjRef`.
-    fn references(&self) -> &[usize];
-
-    /// Total byte size of this allocation, including `ObjectHeader`.
-    fn size(&self) -> usize;
 }
 
 pub struct Heap
@@ -382,14 +369,13 @@ impl Heap
         {
             unsafe {
                 let header = &*(parent_ptr.as_ptr() as *const ObjectHeader);
-                let metadata = self.get_metadata(header.vtable_or_type);
-                let offsets: Vec<usize> = metadata.references().to_vec();
+                let (offsets, _) = Self::gc_layout(header.vtable_or_type, parent_ptr);
 
                 let parent_is_adult = matches!(self.get_pool(parent_ptr), Some(PoolType::Adult));
 
                 for offset in offsets
                 {
-                    let field_ptr: FieldPtr = parent_ptr.as_ptr().add(offset).cast();
+                    let field_ptr: FieldPtr = parent_ptr.as_ptr().add(*offset).cast();
                     let child_ptr = *field_ptr;
 
                     if self.is_youth(child_ptr)
@@ -429,8 +415,7 @@ impl Heap
             return header.forwarding_address();
         }
 
-        let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
-        let size = metadata.size();
+        let (offsets, size) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
 
         // TODO: work out how errors here will work
 
@@ -500,12 +485,11 @@ impl Heap
 
             if !header.is_forwarded()
             {
-                let metadata = unsafe { self.get_metadata(header.vtable_or_type) };
-                let offsets: Vec<usize> = metadata.references().to_vec();
+                let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr.cast()) };
 
                 for offset in offsets
                 {
-                    let field_ptr: FieldPtr = unsafe { cursor.add(offset).cast() };
+                    let field_ptr: FieldPtr = unsafe { cursor.add(*offset).cast() };
                     let child_ptr = unsafe { *field_ptr };
 
                     if self.is_youth(child_ptr)
@@ -567,10 +551,34 @@ impl Heap
         Some(offset / CARD_SIZE)
     }
 
-    /// Looks up the `Traceable` metadata for an object via its vtable pointer.
-    unsafe fn get_metadata(&self, _vtable: NonNull<u8>) -> &dyn Traceable
+    unsafe fn gc_layout(
+        vtable: NonNull<u8>,
+        obj_base: ObjRef
+    ) -> (&'static [usize], usize)
     {
-        todo!("Waiting for type system setup")
+        let ty = unsafe { vtable.cast::<RuntimeType>().as_ref() };
+        let page = unsafe { ty.back_pointer.as_ref().get_page() };
+
+        match ty.kind {
+            RuntimeTypeKind::Struct { instance_size, gc_offsets_index, gc_offsets_count, .. } => {
+                let start = gc_offsets_index as usize;
+                let offsets = &page.gc_offsets[start..start + gc_offsets_count as usize];
+                (unsafe { transmute(offsets) }, instance_size)
+            }
+            RuntimeTypeKind::Enum { instance_size, variants_index, variants_count, .. } => {
+                let tag = unsafe { obj_base.byte_add(size_of::<ObjectHeader>()).cast::<u32>().read() };
+                let start = variants_index as usize;
+                let variants = &page.enum_variants[start..start + variants_count as usize];
+                let variant = variants.iter().find(|v| v.tag == tag)
+                    .expect("GC: unknown enum tag — heap corrupted");
+                let offsets = page.get_variant_gc_offsets(variant)
+                    .expect("GC: invalid gc_offsets range in variant");
+                (unsafe { transmute(offsets) }, instance_size)
+            }
+            RuntimeTypeKind::Imported { .. } => {
+                todo!("Whats the plan here")
+            }
+        }
     }
 }
 

@@ -24,7 +24,7 @@ use crate::{
 ///
 /// ### Note
 /// The lifetime parameters of this struct reflect the expected lifetimes of the references:
-/// the `params` slice will have the same lifetime as the contents of the constant table (`'a`),
+/// the `params` slice will have the same lifetime as the contents of the constant table (`'b`),
 /// as they will both be stored within the loader's metaspace. The reference to the stack frame
 /// and the reference to the constant table will both be the same as they are both
 /// constructed in the loader
