@@ -97,6 +97,11 @@ impl ObjectHeader
     const AGE_BITS: usize = 4;
     const AGE_MASK: usize = (1 << Self::AGE_BITS) - 1; // 0x0F
     const DEAD_BIT: usize = 1 << 5;
+    const MARK_BIT: usize = 1 << 6;
+
+    pub fn is_marked(&self) -> bool { (self.mark_word & Self::MARK_BIT) != 0 }
+    pub fn set_mark(&mut self)      { self.mark_word |= Self::MARK_BIT; }
+    pub fn clear_mark(&mut self)    { self.mark_word &= !Self::MARK_BIT; }
 
     pub fn is_forwarded(&self) -> bool
     {
@@ -286,6 +291,8 @@ impl Heap
             return ptr;
         }
 
+        // self.collect_major(stack)
+
         // try and allocate into adult if everything else fails
         self.alloc_adult(layout)
     }
@@ -410,6 +417,97 @@ impl Heap
         self.teen[from_teen_idx].release_all();
 
         self.active_teen = to_teen_idx;
+    }
+
+    pub fn collect_major(&mut self, stack: &mut Stack)
+    {
+        // Ensure no young-gen objects remain; this simplifies root enumeration
+        // since we only need to find adult-gen roots, not trace through young gen.
+        self.collect_minor(stack);
+
+        self.mark_phase(stack);
+        self.sweep_phase();
+    }
+
+    fn mark_phase(&mut self, stack: &mut Stack)
+    {
+        let mut worklist: Vec<ObjRef> = Vec::new();
+
+        // Stack roots that point into adult gen
+        for entry in stack.iter_mut()
+        {
+            if let StackEntry::Reference(Some(obj_ptr)) = entry
+                && matches!(self.get_pool(*obj_ptr), Some(PoolType::Adult))
+            {
+                self.mark_object(*obj_ptr, &mut worklist);
+            }
+        }
+
+        // After collect_minor, any remaining young-gen objects (in to-teen) that
+        // point into adult gen are also roots. Scan to-teen for outbound pointers.
+        let to_teen_idx = self.active_teen;
+        // (enumerate to-teen objects similarly — depends on GeneralAllocator API)
+
+        while let Some(obj_ptr) = worklist.pop()
+        {
+            let header = unsafe { &*(obj_ptr.as_ptr() as *const ObjectHeader) };
+            let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
+
+            for &offset in offsets
+            {
+                let field_ptr: FieldPtr = unsafe { obj_ptr.as_ptr().add(offset).cast() };
+                let child_ptr = unsafe { *field_ptr };
+
+                if matches!(self.get_pool(child_ptr), Some(PoolType::Adult))
+                {
+                    self.mark_object(child_ptr, &mut worklist);
+                }
+            }
+        }
+    }
+
+    fn mark_object(&mut self, ptr: ObjRef, worklist: &mut Vec<ObjRef>)
+    {
+        let header = unsafe { &mut *(ptr.as_ptr() as *mut ObjectHeader) };
+        if !header.is_marked()
+        {
+            header.set_mark();
+            worklist.push(ptr);
+        }
+    }
+
+    fn sweep_phase(&mut self)
+    {
+        let dead_offsets: Vec<usize> = self.adult_live
+            .iter()
+            .filter_map(|(&offset, _)| {
+                let obj_ptr = unsafe {
+                    NonNull::new_unchecked(self.adult_base.as_ptr().add(offset))
+                };
+                let header = unsafe { &mut *(obj_ptr.as_ptr() as *mut ObjectHeader) };
+
+                if header.is_marked()
+                {
+                    header.clear_mark(); // reset for next major GC
+                    None
+                }
+                else
+                {
+                    Some(offset)
+                }
+            })
+            .collect();
+
+        for offset in dead_offsets
+        {
+            let obj_ptr = unsafe {
+                NonNull::new_unchecked(self.adult_base.as_ptr().add(offset))
+            };
+            self.adult_live.remove(&offset);
+            self.adult.dealloc(obj_ptr.cast::<u8>());
+            // card_offsets entries for this object become stale but are harmless:
+            // the BTreeMap range in scan_card won't find a live object there.
+        }
     }
 
     /// Evacuates a single live object out of young gen.
