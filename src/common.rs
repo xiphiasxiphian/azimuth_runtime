@@ -59,10 +59,7 @@ impl<T> VecSet<T> for Vec<T>
 {
     fn set(&mut self, elem: T, index: usize) -> Option<T>
     {
-        (index < self.len())
-            .then(|| {
-                std::mem::replace(&mut self[index], elem)
-            })
+        (index < self.len()).then(|| std::mem::replace(&mut self[index], elem))
     }
 }
 

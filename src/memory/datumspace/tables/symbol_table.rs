@@ -9,8 +9,8 @@ pub enum SymbolKind
     },
     Type
     {
-        index: u32,
-    }
+        index: u32
+    },
 }
 
 #[derive(Clone, Copy)]

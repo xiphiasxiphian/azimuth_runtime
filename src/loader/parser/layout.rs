@@ -79,8 +79,9 @@ pub enum SymbolKind
     },
 
     #[br(magic = 1_u8)]
-    Type {
-        type_index: u32,
+    Type
+    {
+        type_index: u32
     },
 }
 
@@ -901,7 +902,10 @@ mod tests
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(layout.symbol_table.symbols.len(), 1);
-        assert!(matches!(layout.symbol_table.symbols[0].kind, SymbolKind::Type { type_index: 0 }));
+        assert!(matches!(
+            layout.symbol_table.symbols[0].kind,
+            SymbolKind::Type { type_index: 0 }
+        ));
     }
 
     #[test]
@@ -925,7 +929,10 @@ mod tests
             layout.symbol_table.symbols[0].kind,
             SymbolKind::Function { body: 10 }
         ));
-        assert!(matches!(layout.symbol_table.symbols[1].kind, SymbolKind::Type { type_index: 0 }));
+        assert!(matches!(
+            layout.symbol_table.symbols[1].kind,
+            SymbolKind::Type { type_index: 0 }
+        ));
         assert!(matches!(
             layout.symbol_table.symbols[2].kind,
             SymbolKind::Function { body: 20 }
@@ -1353,7 +1360,10 @@ mod tests
             layout.symbol_table.symbols[0].kind,
             SymbolKind::Function { body: 0 }
         ));
-        assert!(matches!(layout.symbol_table.symbols[1].kind, SymbolKind::Type { type_index: 0 }));
+        assert!(matches!(
+            layout.symbol_table.symbols[1].kind,
+            SymbolKind::Type { type_index: 0 }
+        ));
 
         assert_eq!(layout.code_directory.function_count(), 1);
         assert!(

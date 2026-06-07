@@ -13,9 +13,16 @@ use std::{
 use itertools::{Itertools as _, process_results};
 
 use crate::{
-    common::ScopeMethods, loader::{
-        SymbolId, parser::layout::{DataHeader, FileLayout, SymbolKind::{self as ParsedSymbolKind, Type}, UserDefinedType}
-    }, memory::{
+    common::ScopeMethods,
+    loader::{
+        SymbolId,
+        parser::layout::{
+            DataHeader, FileLayout,
+            SymbolKind::{self as ParsedSymbolKind, Type},
+            UserDefinedType,
+        },
+    },
+    memory::{
         allocators::{AllocatorError, general::GeneralAllocator},
         datumspace::{
             datum::{BlockLocation, DatumPage, DatumPageHeader, InlinedString, Offset, PageBuilder},
@@ -27,8 +34,9 @@ use crate::{
                 symbol_table::{Symbol, SymbolKind},
                 types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind},
             },
-        }, heap::heap::ObjectHeader,
-    }
+        },
+        heap::heap::ObjectHeader,
+    },
 };
 
 const ALLOCATOR_DEPTH: usize = 8;
@@ -89,7 +97,10 @@ impl<'d> Datumspace<'d>
                 let page_builder = PageBuilder::new(base, header)
                     .write_code_blob(&layout.code_directory.bytecode)?
                     .write_data_blob(&layout.data_directory.data)?
-                    .write_types(runtime_types.iter_mut().map(|x| { x.back_pointer = base.cast(); *x} ))? // fix all the back pointers
+                    .write_types(runtime_types.iter_mut().map(|x| {
+                        x.back_pointer = base.cast();
+                        *x
+                    }))? // fix all the back pointers
                     .write_enum_variants(runtime_variants.into_iter())?
                     .write_gc_offsets(runtime_gc_offsets.into_iter())?
                     .write_constants(layout.data_directory.entries.iter().map(|x| {
@@ -243,8 +254,9 @@ impl<'d> Datumspace<'d>
                     align: alignment,
                     has_gc_roots,
                 })
-            },
-            RuntimeTypeKind::Imported { module_id, type_index } => {
+            }
+            RuntimeTypeKind::Imported { module_id, type_index } =>
+            {
                 todo!() // go play fetch another time
             }
         }
@@ -411,12 +423,8 @@ impl<'d> Datumspace<'d>
                     let gc_offsets_index = gc_offsets.len() as u32;
 
                     // delegates layout resolution and internal caching to the engine
-                    let heap_layout = engine.resolve_struct(
-                        index,
-                        &s.fields,
-                        &mut gc_offsets,
-                        size_of::<ObjectHeader>() as u32
-                    )?;
+                    let heap_layout =
+                        engine.resolve_struct(index, &s.fields, &mut gc_offsets, size_of::<ObjectHeader>() as u32)?;
 
                     runtime_types.push(RuntimeType {
                         back_pointer: NonNull::dangling(), // This will be later inited
@@ -468,7 +476,11 @@ impl<'d> Datumspace<'d>
                         },
                     });
                 }
-                UserDefinedType::Imported { local_id, link_index, target_id } =>
+                UserDefinedType::Imported {
+                    local_id,
+                    link_index,
+                    target_id,
+                } =>
                 {
                     let link = layout
                         .link_table
@@ -485,7 +497,7 @@ impl<'d> Datumspace<'d>
                         .kind
                     {
                         Type { type_index } => Ok(type_index),
-                        _ => Err(DatumspaceError::InvalidStructure)
+                        _ => Err(DatumspaceError::InvalidStructure),
                     }?;
 
                     let external_layout = self.get_external_layout(&link.module_id, type_index)?;

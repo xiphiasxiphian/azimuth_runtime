@@ -1,9 +1,15 @@
 use std::{
-    alloc::{Layout, LayoutError, alloc}, array::from_fn, collections::BTreeMap, mem::transmute, ptr::NonNull
+    alloc::{Layout, LayoutError, alloc},
+    array::from_fn,
+    collections::BTreeMap,
+    mem::transmute,
+    ptr::NonNull,
 };
 
 use crate::memory::{
-    allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator}, datumspace::tables::types::{RuntimeType, RuntimeTypeKind}, stack::{Stack, entry::StackEntry}
+    allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator},
+    datumspace::tables::types::{RuntimeType, RuntimeTypeKind},
+    stack::{Stack, entry::StackEntry},
 };
 
 const HEAP_ALIGN: usize = 4096;
@@ -384,7 +390,8 @@ impl Heap
                         *field_ptr = new_child;
 
                         // Keep card table consistent for future GCs.
-                        if parent_is_adult && self.is_youth(new_child) {
+                        if parent_is_adult && self.is_youth(new_child)
+                        {
                             if let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
                                 && let Some(card_idx) = self.card_index_of(field_ref)
                             {
@@ -459,26 +466,31 @@ impl Heap
     fn scan_card(&mut self, card_idx: usize, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
     {
         let start_offset = self.card_offsets[card_idx];
-        if start_offset == usize::MAX { return; }
+        if start_offset == usize::MAX
+        {
+            return;
+        }
 
         let card_end_offset = (card_idx + 1) * CARD_SIZE;
 
         // Collect live objects that start at or before this card and could overlap it.
         // The BTreeMap range gives us objects in ascending order, which is correct for
         // the worklist — we just need all objects overlapping [card_start, card_end).
-        let candidates: Vec<usize> = self.adult_live
+        let candidates: Vec<usize> = self
+            .adult_live
             .range(start_offset..card_end_offset)
             .map(|(&off, _)| off)
             .collect();
 
         for obj_offset in candidates
         {
-            let obj_ptr: ObjRef = unsafe {
-                NonNull::new_unchecked(self.adult_base.as_ptr().add(obj_offset))
-            };
+            let obj_ptr: ObjRef = unsafe { NonNull::new_unchecked(self.adult_base.as_ptr().add(obj_offset)) };
             let header = unsafe { &*(obj_ptr.as_ptr() as *const ObjectHeader) };
 
-            if header.is_forwarded() { continue; }
+            if header.is_forwarded()
+            {
+                continue;
+            }
 
             let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
             let offsets: Vec<usize> = offsets.to_vec();
@@ -491,7 +503,9 @@ impl Heap
                 if self.is_youth(child_ptr)
                 {
                     let new_child = unsafe { self.evacuate(child_ptr, to_teen_idx, worklist) };
-                    unsafe { *field_ptr = new_child; }
+                    unsafe {
+                        *field_ptr = new_child;
+                    }
 
                     if self.is_youth(new_child)
                         && let Some(field_ref) = NonNull::new(field_ptr.cast::<u8>())
@@ -540,31 +554,45 @@ impl Heap
         Some(offset / CARD_SIZE)
     }
 
-    unsafe fn gc_layout(
-        vtable: NonNull<u8>,
-        obj_base: ObjRef
-    ) -> (&'static [usize], usize)
+    unsafe fn gc_layout(vtable: NonNull<u8>, obj_base: ObjRef) -> (&'static [usize], usize)
     {
         let ty = unsafe { vtable.cast::<RuntimeType>().as_ref() };
         let page = unsafe { ty.back_pointer.as_ref().get_page() };
 
-        match ty.kind {
-            RuntimeTypeKind::Struct { instance_size, gc_offsets_index, gc_offsets_count, .. } => {
+        match ty.kind
+        {
+            RuntimeTypeKind::Struct {
+                instance_size,
+                gc_offsets_index,
+                gc_offsets_count,
+                ..
+            } =>
+            {
                 let start = gc_offsets_index as usize;
                 let offsets = &page.gc_offsets[start..start + gc_offsets_count as usize];
                 (unsafe { transmute(offsets) }, instance_size)
             }
-            RuntimeTypeKind::Enum { instance_size, variants_index, variants_count, .. } => {
+            RuntimeTypeKind::Enum {
+                instance_size,
+                variants_index,
+                variants_count,
+                ..
+            } =>
+            {
                 let tag = unsafe { obj_base.byte_add(size_of::<ObjectHeader>()).cast::<u32>().read() };
                 let start = variants_index as usize;
                 let variants = &page.enum_variants[start..start + variants_count as usize];
-                let variant = variants.iter().find(|v| v.tag == tag)
+                let variant = variants
+                    .iter()
+                    .find(|v| v.tag == tag)
                     .expect("GC: unknown enum tag — heap corrupted");
-                let offsets = page.get_variant_gc_offsets(variant)
+                let offsets = page
+                    .get_variant_gc_offsets(variant)
                     .expect("GC: invalid gc_offsets range in variant");
                 (unsafe { transmute(offsets) }, instance_size)
             }
-            RuntimeTypeKind::Imported { .. } => {
+            RuntimeTypeKind::Imported { .. } =>
+            {
                 todo!("Whats the plan here")
             }
         }

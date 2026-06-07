@@ -26,9 +26,8 @@ pub enum RuntimeTypeKind
     },
     Imported
     {
-        module_id: SymbolId,
-        type_index: u32,
-    }
+        module_id: SymbolId, type_index: u32
+    },
 }
 
 #[derive(Clone, Copy, Debug)]

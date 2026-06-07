@@ -1,5 +1,7 @@
 use crate::{
-    common::VecSet, loader::parser::layout::{FieldDef, ScalarTag, TypeSignature}, memory::datumspace::DatumspaceError
+    common::VecSet,
+    loader::parser::layout::{FieldDef, ScalarTag, TypeSignature},
+    memory::datumspace::DatumspaceError,
 };
 
 /// An 8-byte layout cache. No vectors, no heap allocations.
@@ -57,7 +59,10 @@ impl LayoutEngine
         let mut max_align = 1;
         let mut has_gc_roots = false;
 
-        for FieldDef { name: _, signature: sig } in fields
+        for FieldDef {
+            name: _,
+            signature: sig,
+        } in fields
         {
             let (field_size, field_align, is_gc_root) = match sig
             {
