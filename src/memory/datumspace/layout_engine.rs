@@ -137,7 +137,7 @@ impl LayoutEngine
     {
         // variant fields inside inline contexts start immediately after the 4-byte discriminant
         let mut dummy_offsets = Vec::new();
-        let inline = self.resolve_fields(fields.clone(), &mut dummy_offsets, 4)?;
+        let inline = self.resolve_fields(fields, &mut dummy_offsets, 4)?;
 
         // variant fields on the heap start after both the object header and the 4-byte discriminant
         let heap = self.resolve_fields(fields, global_gc_offsets, header_size + 4)?;

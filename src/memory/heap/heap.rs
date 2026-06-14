@@ -96,17 +96,18 @@ impl ObjectHeader
     const AGE_SHIFT: usize = 1;
     const AGE_BITS: usize = 4;
     const AGE_MASK: usize = (1 << Self::AGE_BITS) - 1; // 0x0F
-    const DEAD_BIT: usize = 1 << 5;
     const MARK_BIT: usize = 1 << 6;
 
     pub fn is_marked(&self) -> bool
     {
         (self.mark_word & Self::MARK_BIT) != 0
     }
+
     pub fn set_mark(&mut self)
     {
         self.mark_word |= Self::MARK_BIT;
     }
+
     pub fn clear_mark(&mut self)
     {
         self.mark_word &= !Self::MARK_BIT;
@@ -147,11 +148,6 @@ impl ObjectHeader
         // Clear the old age bits, then write the new value.
         self.mark_word = (self.mark_word & !(Self::AGE_MASK << Self::AGE_SHIFT)) | (new_age << Self::AGE_SHIFT);
     }
-
-    pub fn is_dead(&self) -> bool
-    {
-        (self.mark_word & Self::DEAD_BIT) != 0
-    }
 }
 
 pub struct Heap
@@ -175,10 +171,8 @@ pub struct Heap
     /// pointer into young gen.  Cleared and scanned during minor GC.
     card_table: Vec<u8>,
 
-    /// Maps each card index to the byte offset from the start of the card
-    /// back to the closest valid `ObjectHeader` starting at or before it.
-    card_offsets: Vec<usize>,
-
+    /// Mappings of allocated objects. Handy for optimising a couple processes
+    teen_live: [BTreeMap<usize, usize>; TEEN_COUNT],
     adult_live: BTreeMap<usize, usize>,
 }
 
@@ -236,9 +230,6 @@ impl Heap
         let num_cards = adult_capacity / CARD_SIZE;
         let card_table = vec![CLEAN; num_cards];
 
-        // init cards.
-        let card_offsets = vec![usize::MAX; num_cards];
-
         Ok(Self {
             base,
             layout,
@@ -248,7 +239,7 @@ impl Heap
             adult,
             adult_base,
             card_table,
-            card_offsets,
+            teen_live: from_fn(|_| BTreeMap::new()),
             adult_live: BTreeMap::new(),
         })
     }
@@ -261,18 +252,18 @@ impl Heap
         let offset = ptr.as_ptr() as usize - base;
         self.adult_live.insert(offset, layout.size());
 
-        // card_offsets update
-        let start_card = offset / CARD_SIZE;
-        let end_card = (offset + layout.size() - 1) / CARD_SIZE;
-        if self.card_offsets[start_card] == usize::MAX
-        {
-            self.card_offsets[start_card] = offset;
-        }
+        // // card_offsets update
+        // let start_card = offset / CARD_SIZE;
+        // let end_card = (offset + layout.size() - 1) / CARD_SIZE;
+        // if self.card_offsets[start_card] == usize::MAX
+        // {
+        //     self.card_offsets[start_card] = offset;
+        // }
 
-        for card_idx in (start_card + 1)..=end_card
-        {
-            self.card_offsets[card_idx] = offset;
-        }
+        // for card_idx in (start_card + 1)..=end_card
+        // {
+        //     self.card_offsets[card_idx] = offset;
+        // }
 
         Some(ptr)
     }
@@ -424,6 +415,7 @@ impl Heap
 
         // purge half teen space
         self.teen[from_teen_idx].release_all();
+        self.teen_live[from_teen_idx].clear();
 
         self.active_teen = to_teen_idx;
     }
@@ -526,7 +518,7 @@ impl Heap
             return header.forwarding_address();
         }
 
-        let (offsets, size) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
+        let (_, size) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
 
         // TODO: work out how errors here will work
 
@@ -541,10 +533,14 @@ impl Heap
         }
         else
         {
-            self.teen[to_teen_idx].raw_alloc(layout).unwrap_or_else(|| {
+            self.teen[to_teen_idx].raw_alloc(layout).inspect(|x| {
+                let offset = <usize>::try_from(unsafe { x.byte_offset_from(self.teen[to_teen_idx].base()) }).expect("ERROR TODO");
+                self.teen_live[to_teen_idx].insert(offset, layout.size());
+            }).unwrap_or_else(|| {
                 self.alloc_adult(layout)
                     .expect("OOM in old gen during overflow promotion")
             })
+
         };
 
         unsafe {
@@ -569,26 +565,21 @@ impl Heap
     /// pointers found in reference fields of live objects within that region.
     fn scan_card(&mut self, card_idx: usize, to_teen_idx: usize, worklist: &mut Vec<ObjRef>)
     {
-        let start_offset = self.card_offsets[card_idx];
-        if start_offset == usize::MAX
-        {
-            return;
-        }
-
+        let card_start_offset = card_idx * CARD_SIZE;
         let card_end_offset = (card_idx + 1) * CARD_SIZE;
 
-        // Collect live objects that start at or before this card and could overlap it.
-        // The BTreeMap range gives us objects in ascending order, which is correct for
-        // the worklist — we just need all objects overlapping [card_start, card_end).
-        let candidates: Vec<usize> = self
+        // Range ..card_end_offset gets all objects starting before this card ends.
+        // The filter then drops any that finish before this card starts,
+        // correctly catching objects that began in a prior card but overlap this one.
+        let candidates: Vec<ObjRef> = self
             .adult_live
-            .range(start_offset..card_end_offset)
-            .map(|(&off, _)| off)
+            .range(..card_end_offset)
+            .filter(|(off, sz)| *off + *sz > card_start_offset)
+            .map(|(&off, _)| unsafe { NonNull::new_unchecked(self.adult_base.as_ptr().add(off)) })
             .collect();
 
-        for obj_offset in candidates
+        for obj_ptr in candidates
         {
-            let obj_ptr: ObjRef = unsafe { NonNull::new_unchecked(self.adult_base.as_ptr().add(obj_offset)) };
             let header = unsafe { &*(obj_ptr.as_ptr() as *const ObjectHeader) };
 
             if header.is_forwarded()
@@ -833,7 +824,6 @@ mod tests
 
         assert_eq!(heap.active_teen, 0);
         assert!(!heap.card_table.is_empty());
-        assert_eq!(heap.card_table.len(), heap.card_offsets.len());
         assert!(heap.card_table.iter().all(|&status| status == CLEAN));
     }
 

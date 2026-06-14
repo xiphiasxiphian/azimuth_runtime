@@ -152,6 +152,11 @@ impl<const DEPTH: usize> GeneralAllocator<DEPTH>
         (self.base..(unsafe { self.base.byte_add(self.capacity) })).contains(&ptr)
     }
 
+    pub fn base(&self) -> NonNull<u8>
+    {
+        self.base
+    }
+
     fn get_allocation_size(&self, in_size: usize, alignment: usize) -> Result<usize, AllocatorError>
     {
         guard!(alignment.is_power_of_two(), AllocatorError::BadRequest);

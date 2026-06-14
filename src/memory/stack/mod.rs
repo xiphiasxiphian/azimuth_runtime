@@ -149,6 +149,7 @@ impl<'a> StackFrame<'a>
     ) -> Result<Option<StackEntry>, RunnerError>
     where
         F: FnOnce(StackFrame<'b>) -> Result<Option<StackEntry>, RunnerError>,
+        'a: 'b
     {
         guard!(
             param_count <= self.stack_pointer,
