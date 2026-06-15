@@ -6,11 +6,11 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::memory::{
+use crate::{guard, memory::{
     allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator},
     datumspace::tables::types::{RuntimeType, RuntimeTypeKind},
     stack::{Stack, entry::StackEntry},
-};
+}};
 
 const HEAP_ALIGN: usize = 4096;
 const TEEN_COUNT: usize = 2;
@@ -185,7 +185,7 @@ impl Heap
     /// Objects that survive this many minor GCs are promoted to the adult gen.
     const ADULT_THRESHOLD: usize = 8;
 
-    pub fn with_capacity(capacity: usize) -> Result<Self, HeapError>
+    pub fn with_capacity(capacity: usize) -> HeapResult<Self>
     {
         // raw region sizes
         let (young_raw, old_raw) = YOUNG_OLD_RATIO.split(capacity);
@@ -244,12 +244,41 @@ impl Heap
         })
     }
 
+    pub fn alloc_object(&mut self, ty: NonNull<RuntimeType>, stack: &mut Stack) -> Option<ObjRef>
+    {
+        let runtime_type = unsafe { ty.as_ref() };
+
+        let (instance_size, alignment) = match runtime_type.kind
+        {
+            RuntimeTypeKind::Struct { instance_size, alignment, .. } => (instance_size, alignment as usize),
+            RuntimeTypeKind::Enum { instance_size, alignment, .. } => (instance_size, alignment as usize),
+            RuntimeTypeKind::Imported { .. } => todo!("Imported type allocation"),
+        };
+
+        // ObjectHeader sits at the very start, so alignment must satisfy it regardless
+        // of what the type itself requires.
+        let alignment = alignment.max(align_of::<ObjectHeader>());
+
+        let layout = Layout::from_size_align(instance_size, alignment).ok()?;
+
+        let ptr = self.raw_alloc(layout, stack)?;
+
+        unsafe {
+            ptr.cast::<ObjectHeader>().write(ObjectHeader {
+                mark_word: 0,
+                vtable_or_type: ty.cast(),
+                size: instance_size,
+            });
+        }
+
+        Some(ptr)
+    }
+
     /// Allocates an object in the adult generation and records its boundary mapping.
     fn alloc_adult(&mut self, layout: Layout) -> Option<ObjRef>
     {
         let ptr = self.adult.raw_alloc(layout)?;
-        let base = self.adult_base.as_ptr() as usize;
-        let offset = ptr.as_ptr() as usize - base;
+        let offset = unsafe { ptr.byte_offset_from_unsigned(self.adult_base) };
         self.adult_live.insert(offset, layout.size());
 
         // // card_offsets update
@@ -446,8 +475,29 @@ impl Heap
 
         // After collect_minor, any remaining young-gen objects (in to-teen) that
         // point into adult gen are also roots. Scan to-teen for outbound pointers.
-        let to_teen_idx = self.active_teen;
-        // (enumerate to-teen objects similarly — depends on GeneralAllocator API)
+        let teen_objects: Vec<ObjRef> = self.teen_live[self.active_teen]
+            .iter()
+            .map(|(&offset, _)| {
+                 unsafe { self.teen[self.active_teen].base().byte_add(offset) }
+            })
+            .collect();
+        for obj_ptr in teen_objects
+            {
+                let header = unsafe { &*(obj_ptr.as_ptr() as *const ObjectHeader) };
+                let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
+                let offsets: Vec<usize> = offsets.to_vec();
+
+                for offset in offsets
+                {
+                    let field_ptr: FieldPtr = unsafe { obj_ptr.as_ptr().add(offset).cast() };
+                    let child_ptr = unsafe { *field_ptr };
+
+                    if matches!(self.get_pool(child_ptr), Some(PoolType::Adult))
+                    {
+                        self.mark_object(child_ptr, &mut worklist);
+                    }
+                }
+            }
 
         while let Some(obj_ptr) = worklist.pop()
         {
@@ -459,7 +509,7 @@ impl Heap
                 let field_ptr: FieldPtr = unsafe { obj_ptr.as_ptr().add(offset).cast() };
                 let child_ptr = unsafe { *field_ptr };
 
-                if matches!(self.get_pool(child_ptr), Some(PoolType::Adult))
+                if let Some(PoolType::Adult) = self.get_pool(child_ptr)
                 {
                     self.mark_object(child_ptr, &mut worklist);
                 }
@@ -534,7 +584,7 @@ impl Heap
         else
         {
             self.teen[to_teen_idx].raw_alloc(layout).inspect(|x| {
-                let offset = <usize>::try_from(unsafe { x.byte_offset_from(self.teen[to_teen_idx].base()) }).expect("ERROR TODO");
+                let offset = unsafe { x.byte_offset_from_unsigned(self.teen[to_teen_idx].base()) };
                 self.teen_live[to_teen_idx].insert(offset, layout.size());
             }).unwrap_or_else(|| {
                 self.alloc_adult(layout)
@@ -641,11 +691,9 @@ impl Heap
     /// Returns the card-table index for an adult-gen pointer.
     fn card_index_of(&self, ptr: ObjRef) -> Option<usize>
     {
-        if !self.adult.contains(ptr)
-        {
-            return None;
-        }
-        let offset = (ptr.as_ptr() as usize).checked_sub(self.adult_base.as_ptr() as usize)?;
+        guard!(self.adult.contains(ptr));
+
+        let offset = unsafe { ptr.byte_offset_from_unsigned(self.adult_base) };
         Some(offset / CARD_SIZE)
     }
 
