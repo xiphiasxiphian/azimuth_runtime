@@ -6,11 +6,14 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::{guard, memory::{
-    allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator},
-    datumspace::tables::types::{RuntimeType, RuntimeTypeKind},
-    stack::{Stack, entry::StackEntry},
-}};
+use crate::{
+    guard,
+    memory::{
+        allocators::{AllocatorError, arena::ArenaAllocator, general::GeneralAllocator},
+        datumspace::tables::types::{RuntimeType, RuntimeTypeKind},
+        stack::{Stack, entry::StackEntry},
+    },
+};
 
 const HEAP_ALIGN: usize = 4096;
 const TEEN_COUNT: usize = 2;
@@ -250,8 +253,16 @@ impl Heap
 
         let (instance_size, alignment) = match runtime_type.kind
         {
-            RuntimeTypeKind::Struct { instance_size, alignment, .. } => (instance_size, alignment as usize),
-            RuntimeTypeKind::Enum { instance_size, alignment, .. } => (instance_size, alignment as usize),
+            RuntimeTypeKind::Struct {
+                instance_size,
+                alignment,
+                ..
+            } => (instance_size, alignment as usize),
+            RuntimeTypeKind::Enum {
+                instance_size,
+                alignment,
+                ..
+            } => (instance_size, alignment as usize),
             RuntimeTypeKind::Imported { .. } => todo!("Imported type allocation"),
         };
 
@@ -476,27 +487,25 @@ impl Heap
         // point into adult gen are also roots. Scan to-teen for outbound pointers.
         let teen_objects: Vec<ObjRef> = self.teen_live[self.active_teen]
             .iter()
-            .map(|(&offset, _)| {
-                 unsafe { self.teen[self.active_teen].base().byte_add(offset) }
-            })
+            .map(|(&offset, _)| unsafe { self.teen[self.active_teen].base().byte_add(offset) })
             .collect();
         for obj_ptr in teen_objects
+        {
+            let header = unsafe { obj_ptr.cast::<ObjectHeader>().as_ref() };
+            let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
+            let offsets: Vec<usize> = offsets.to_vec();
+
+            for offset in offsets
             {
-                let header = unsafe { obj_ptr.cast::<ObjectHeader>().as_ref() };
-                let (offsets, _) = unsafe { Self::gc_layout(header.vtable_or_type, obj_ptr) };
-                let offsets: Vec<usize> = offsets.to_vec();
+                let field_ptr: FieldPtr = unsafe { obj_ptr.as_ptr().add(offset).cast() };
+                let child_ptr = unsafe { *field_ptr };
 
-                for offset in offsets
+                if matches!(self.get_pool(child_ptr), Some(PoolType::Adult))
                 {
-                    let field_ptr: FieldPtr = unsafe { obj_ptr.as_ptr().add(offset).cast() };
-                    let child_ptr = unsafe { *field_ptr };
-
-                    if matches!(self.get_pool(child_ptr), Some(PoolType::Adult))
-                    {
-                        self.mark_object(child_ptr, &mut worklist);
-                    }
+                    self.mark_object(child_ptr, &mut worklist);
                 }
             }
+        }
 
         while let Some(obj_ptr) = worklist.pop()
         {
@@ -582,14 +591,16 @@ impl Heap
         }
         else
         {
-            self.teen[to_teen_idx].raw_alloc(layout).inspect(|x| {
-                let offset = unsafe { x.byte_offset_from_unsigned(self.teen[to_teen_idx].base()) };
-                self.teen_live[to_teen_idx].insert(offset, layout.size());
-            }).unwrap_or_else(|| {
-                self.alloc_adult(layout)
-                    .expect("OOM in old gen during overflow promotion")
-            })
-
+            self.teen[to_teen_idx]
+                .raw_alloc(layout)
+                .inspect(|x| {
+                    let offset = unsafe { x.byte_offset_from_unsigned(self.teen[to_teen_idx].base()) };
+                    self.teen_live[to_teen_idx].insert(offset, layout.size());
+                })
+                .unwrap_or_else(|| {
+                    self.alloc_adult(layout)
+                        .expect("OOM in old gen during overflow promotion")
+                })
         };
 
         unsafe {
@@ -896,7 +907,14 @@ mod tests
                 for ratio in &ratios
                 {
                     let (a, b) = ratio.split(total);
-                    assert_eq!(a + b, total, "Ratio({},{}).split({}) should sum to input", ratio.0, ratio.1, total);
+                    assert_eq!(
+                        a + b,
+                        total,
+                        "Ratio({},{}).split({}) should sum to input",
+                        ratio.0,
+                        ratio.1,
+                        total
+                    );
                 }
             }
         }
@@ -1168,7 +1186,11 @@ mod tests
             let mut h = fresh_header();
             h.increment_age(); // age = 1 → bit 1 set
             let age_bits_mask: usize = 0x1E; // bits [4:1]
-            assert_eq!(h.mark_word & !age_bits_mask, 0, "only age bits should be set after first increment");
+            assert_eq!(
+                h.mark_word & !age_bits_mask,
+                0,
+                "only age bits should be set after first increment"
+            );
         }
 
         #[test]
@@ -2211,7 +2233,8 @@ mod tests
             // Exhaust infant space
             let chunk = heap.infant.capacity() / 4;
             let layout = Layout::from_size_align(chunk, 8).unwrap();
-            while heap.infant.raw_alloc(layout).is_some() {}
+            while heap.infant.raw_alloc(layout).is_some()
+            {}
 
             // Next raw_alloc should trigger minor GC
             let small = Layout::from_size_align(64, 8).unwrap();
