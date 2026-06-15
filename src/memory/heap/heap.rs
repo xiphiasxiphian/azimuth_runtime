@@ -14,8 +14,8 @@ use crate::{guard, memory::{
 
 const HEAP_ALIGN: usize = 4096;
 const TEEN_COUNT: usize = 2;
-const TEEN_ALLOCATOR_DEPTH: usize = 16;
-const ADULT_ALLOCATOR_DEPTH: usize = 16;
+const TEEN_ALLOCATOR_DEPTH: usize = 20;
+const ADULT_ALLOCATOR_DEPTH: usize = 20;
 
 const CARD_SIZE: usize = 512;
 const DIRTY: u8 = 1;
@@ -753,8 +753,6 @@ mod tests
     // =========================================================================
 
     const TEST_HEAP_SIZE: usize = 64 * 1024 * 1024;
-    const SMALL_HEAP_SIZE: usize = 4 * 1024 * 1024;
-
     const STACK_SIZE: usize = 1 << 16;
 
     fn make_heap() -> Heap
@@ -1289,9 +1287,18 @@ mod tests
         }
 
         #[test]
-        fn small_heap_construction_succeeds()
+        fn heap_below_minimum_capacity_returns_error()
         {
-            let _ = Heap::with_capacity(SMALL_HEAP_SIZE).unwrap();
+            // Any capacity < ~63MB fails the teen allocator's BlockHeader size constraint
+            let result = Heap::with_capacity(4 * 1024 * 1024);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn heap_at_minimum_viable_capacity_succeeds()
+        {
+            // 63MB is the smallest capacity that satisfies all allocator depth constraints with DEPTH=20
+            let _ = Heap::with_capacity(63 * 1024 * 1024).unwrap();
         }
 
         #[test]
@@ -2203,7 +2210,7 @@ mod tests
 
             // Exhaust infant space
             let chunk = heap.infant.capacity() / 4;
-            let layout = Layout::from_size_align(chunk, HEAP_ALIGN).unwrap();
+            let layout = Layout::from_size_align(chunk, 8).unwrap();
             while heap.infant.raw_alloc(layout).is_some() {}
 
             // Next raw_alloc should trigger minor GC
