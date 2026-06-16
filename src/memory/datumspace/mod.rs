@@ -254,7 +254,7 @@ impl<'d> Datumspace<'d>
                     has_gc_roots,
                 })
             }
-            RuntimeTypeKind::Imported { module_id, type_index } =>
+            RuntimeTypeKind::Imported { module_id: _, type_index: _ } =>
             {
                 todo!() // go play fetch another time
             }

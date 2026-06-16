@@ -133,7 +133,7 @@ impl Constant
                 Constant::Float64(<f64>::from_bits(<u64>::from_le_bytes(*(bytes.first_chunk()?))))
             }
             ConstantSignature::String => Constant::String(InlinedString::new(*loc)),
-            ConstantSignature::ValueType { type_index } => todo!("Value type constants not implemented"),
+            ConstantSignature::ValueType { type_index: _ } => todo!("Value type constants not implemented"),
         };
 
         Some(constant)
