@@ -269,16 +269,22 @@ impl<'d> Datumspace<'d>
     ) -> DatumResult<&'d Constant>
     {
         let base = self.mapping.get(page_id).ok_or(DatumspaceError::PageNotLoaded)?;
-        let header: NonNull<DatumPageHeader> = base.cast();
-        let constants_loc = unsafe { header.read().constants };
+        let header: &DatumPageHeader = unsafe { base.cast().as_ref() };
+        let constants_loc = header.constants;
 
-        assert!(index < <usize>::try_from(constants_loc.1).unwrap() / size_of::<Constant>());
+        assert!(
+            index < <usize>::try_from(constants_loc.1).unwrap() / size_of::<ConstantTableEntry>(),
+            "Constant index out of bounds"
+        );
 
         Ok(unsafe {
             let ptr = constants_loc.0.as_ptr(*base).add(index);
-            ptr.write(constant);
+            ptr.write(ConstantTableEntry::Resolved(constant));
 
-            ptr.as_ref()
+            match ptr.as_ref() {
+                ConstantTableEntry::Resolved(c) => c,
+                _ => unreachable!(),
+            }
         })
     }
 
@@ -318,8 +324,8 @@ impl<'d> Datumspace<'d>
         num_gc_offsets: usize,
     ) -> DatumResult<(DatumPageHeader, Layout)>
     {
-        let mut current_offset = std::mem::size_of::<DatumPageHeader>();
-        let mut max_align = std::mem::align_of::<DatumPageHeader>();
+        let mut current_offset = size_of::<DatumPageHeader>();
+        let mut max_align = align_of::<DatumPageHeader>();
 
         // Helper macro to align the current offset up to T's alignment requirement
         macro_rules! align_section {
@@ -361,6 +367,8 @@ impl<'d> Datumspace<'d>
             bytecode_blob,
             data_blob,
         };
+
+        current_offset = (current_offset + max_align - 1) & !(max_align - 1);
 
         // Create the allocation layout with the maximum required alignment
         let required_layout = Layout::from_size_align(current_offset, max_align)
