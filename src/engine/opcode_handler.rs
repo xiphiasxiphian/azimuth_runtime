@@ -6,8 +6,7 @@ use crate::{
     engine::opcodes::Opcode,
     guard,
     memory::{
-        datumspace::tables::constant_table::{Constant, ConstantTableIndex},
-        stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry},
+        datumspace::tables::constant_table::{Constant, ConstantTableIndex}, heap::heap::Heap, stack::{Stack, StackFrame, convert::StackableConvert, entry::StackEntry}
     },
 };
 
@@ -33,6 +32,7 @@ struct HandlerInputInfo<'a, 'b, 'c>
     opcode: u8,
     params: &'a [u8],
     frame: &'b mut StackFrame<'c>,
+    heap: &'b mut Heap,
     constants: &'b mut (dyn FnMut(usize) -> Option<Constant> + 'b),
 }
 
@@ -158,6 +158,7 @@ type ExecutionResult = Result<InstructionResult, ExecutionError>;
 pub fn exec_instruction(
     bytecode: &'static [u8],
     frame: &mut StackFrame,
+    heap: &mut Heap,
     mut constants: impl FnMut(usize) -> Option<Constant>,
 ) -> ExecutionResult
 {
@@ -183,6 +184,7 @@ pub fn exec_instruction(
         opcode,
         params: operands,
         frame,
+        heap,
         constants: &mut constants,
     })
 }

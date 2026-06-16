@@ -5,7 +5,7 @@ pub mod opcodes;
 use crate::{
     engine::{context::ExecutionContext, opcode_handler::ExecutionError},
     loader::{Loader, LoaderError},
-    memory::stack::Stack,
+    memory::{heap::heap::Heap, stack::Stack},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -38,21 +38,21 @@ pub struct Runner<'a, 'b>
 {
     stack: &'a mut Stack,
     loader: &'a mut Loader<'b>,
-    // heap
+    heap: &'a mut Heap,
 }
 
 impl<'a, 'b> Runner<'a, 'b>
 where
     'b: 'a,
 {
-    pub fn new(stack: &'a mut Stack, loader: &'a mut Loader<'b>) -> Self
+    pub fn new(stack: &'a mut Stack, loader: &'a mut Loader<'b>, heap: &'a mut Heap) -> Self
     {
-        Self { stack, loader }
+        Self { stack, loader, heap }
     }
 
     pub fn run(&mut self) -> Result<(), RunnerError>
     {
-        ExecutionContext::run(self.loader, self.stack)
+        ExecutionContext::run(self.loader, self.stack, self.heap)
     }
 }
 

@@ -4,11 +4,12 @@ use crate::{
         opcode_handler::{InstructionResult, exec_instruction},
     },
     loader::{Loader, LoaderContext},
-    memory::stack::{Stack, StackFrame, entry::StackEntry},
+    memory::{heap::heap::Heap, stack::{Stack, StackFrame, entry::StackEntry}},
 };
 
 pub struct ExecutionContext<'a, 'b, 'c>
 {
+    heap:  &'c mut Heap,
     frame: StackFrame<'c>,
     loader: LoaderContext<'a, 'b>,
 }
@@ -17,7 +18,7 @@ impl<'a, 'b, 'c> ExecutionContext<'a, 'b, 'c>
 where
     'a: 'c,
 {
-    pub fn run(loader: &'a mut Loader<'b>, stack: &'c mut Stack) -> Result<(), RunnerError>
+    pub fn run(loader: &'a mut Loader<'b>, stack: &'c mut Stack, heap: &'c mut Heap) -> Result<(), RunnerError>
     {
         let loader_context = loader.initial_context()?;
         let (maxstack, maxlocals, code) = {
@@ -36,6 +37,7 @@ where
             .ok_or(RunnerError::StackOverflow)?;
 
         Self {
+            heap,
             frame,
             loader: loader_context,
         }
@@ -51,7 +53,7 @@ where
         // error
         loop
         {
-            let exec_result = exec_instruction(&code[pc..], &mut self.frame, |x| self.loader.get_constant(x).ok())?;
+            let exec_result = exec_instruction(&code[pc..], &mut self.frame, &mut self.heap, |x| self.loader.get_constant(x).ok())?;
 
             match exec_result
             {
@@ -98,6 +100,7 @@ where
                                 frame_ref.with_next_frame(maxlocals, maxstack, param_count.into(), |new_frame| {
                                     ExecutionContext {
                                         frame: new_frame,
+                                        heap: &mut self.heap,
                                         loader: new_loader_context,
                                     }
                                     .execute_function(code)

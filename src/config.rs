@@ -99,10 +99,10 @@ impl Config
         let mut stack = Stack::new(self.flags.stack_size);
 
         // Init Heap
-        let _heap = Heap::with_capacity(self.flags.heap_size).map_err(ConfigError::HeapInitError);
+        let mut heap = Heap::with_capacity(self.flags.heap_size).map_err(ConfigError::HeapInitError)?;
 
         // Pass information to runner
-        let mut runner = Runner::new(&mut stack, &mut loader);
+        let mut runner = Runner::new(&mut stack, &mut loader, &mut heap);
 
         runner.run().map_err(ConfigError::RunnerError)
     }
