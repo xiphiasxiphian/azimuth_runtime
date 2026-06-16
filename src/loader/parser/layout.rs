@@ -485,6 +485,83 @@ mod tests
         [byte; 16]
     }
 
+    // Serialise a TypeSignature into the bytes that binrw would produce.
+    fn ser_type_sig(sig: TypeSignature) -> Vec<u8>
+    {
+        let mut v = Vec::new();
+        match sig
+        {
+            TypeSignature::Scalar(tag) =>
+            {
+                v.push(0x00);
+                v.push(tag as u8);
+            }
+            TypeSignature::String => v.push(0x01),
+            TypeSignature::ValueType { type_index } =>
+            {
+                v.push(0x02);
+                v.extend_from_slice(&type_index.to_le_bytes());
+            }
+            TypeSignature::Reference { type_index } =>
+            {
+                v.push(0x03);
+                v.extend_from_slice(&type_index.to_le_bytes());
+            }
+        }
+        v
+    }
+
+    // Serialise a single FieldDef.
+    fn ser_field(name: u32, sig: TypeSignature) -> Vec<u8>
+    {
+        let mut v = name.to_le_bytes().to_vec();
+        v.extend(ser_type_sig(sig));
+        v
+    }
+
+    // Serialise a UserDefinedType::Struct (magic byte included).
+    fn ser_struct(symbol_id: [u8; 16], fields: &[(u32, TypeSignature)]) -> Vec<u8>
+    {
+        let mut v = vec![0x00u8]; // Struct magic
+        v.extend_from_slice(&symbol_id);
+        v.extend_from_slice(&(fields.len() as u16).to_le_bytes());
+        for &(name, sig) in fields
+        {
+            v.extend(ser_field(name, sig));
+        }
+        v
+    }
+
+    // Serialise a UserDefinedType::Enum (magic byte included).
+    // variants: (variant_name, tag, &[(field_name, TypeSignature)])
+    fn ser_enum(symbol_id: [u8; 16], variants: &[(u32, u32, &[(u32, TypeSignature)])]) -> Vec<u8>
+    {
+        let mut v = vec![0x01u8]; // Enum magic
+        v.extend_from_slice(&symbol_id);
+        v.extend_from_slice(&(variants.len() as u16).to_le_bytes());
+        for &(name, tag, fields) in variants
+        {
+            v.extend_from_slice(&name.to_le_bytes());
+            v.extend_from_slice(&tag.to_le_bytes());
+            v.extend_from_slice(&(fields.len() as u16).to_le_bytes());
+            for &(fname, fsig) in fields
+            {
+                v.extend(ser_field(fname, fsig));
+            }
+        }
+        v
+    }
+
+    // Serialise a UserDefinedType::Imported (magic byte included).
+    fn ser_imported(local_id: [u8; 16], link_index: u32, target_id: [u8; 16]) -> Vec<u8>
+    {
+        let mut v = vec![0x02u8]; // Imported magic
+        v.extend_from_slice(&local_id);
+        v.extend_from_slice(&link_index.to_le_bytes());
+        v.extend_from_slice(&target_id);
+        v
+    }
+
     /// Builds a minimal but complete FileLayout byte buffer.
     struct FileBuilder
     {
@@ -521,26 +598,25 @@ mod tests
             self
         }
 
-        /// Each symbol: (id: [u8;16], kind_tag: u8, extra: Option<u32> for Function body)
-        fn symbol_table(mut self, symbols: &[([u8; 16], u8, Option<u32>)]) -> Self
+        // Each symbol: (id, kind_tag, extra_u32).
+        //
+        // Both `Function` (tag=0, body offset) and `Type` (tag=1, type_index) carry
+        // exactly one u32 payload field in the binary layout, so `extra` is always
+        // written. Previously this was `Option<u32>`, which caused `Type` entries to
+        // omit the payload and misalign every subsequent section read.
+        fn symbol_table(mut self, symbols: &[([u8; 16], u8, u32)]) -> Self
         {
             self.data.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
             for (id, kind, extra) in symbols
             {
                 self.data.extend_from_slice(id);
                 self.data.push(*kind);
-                if let Some(body) = extra
-                {
-                    self.data.extend_from_slice(&body.to_le_bytes());
-                }
+                self.data.extend_from_slice(&extra.to_le_bytes());
             }
             self
         }
 
         /// funcs: (symbol_id, index, length, maxlocals, maxstack, param_count, flags)
-        ///
-        /// NOTE: `param_count` sits between `maxstack` and `flags` in the binary
-        /// layout, matching the definition of `Function` exactly.
         fn code_directory(mut self, funcs: &[([u8; 16], u32, u32, u32, u32, u8, u8)], bytecode: &[u8]) -> Self
         {
             self.data.extend_from_slice(&(funcs.len() as u32).to_le_bytes());
@@ -559,10 +635,15 @@ mod tests
             self
         }
 
-        /// entries: (length, index, signature)
-        ///
-        /// NOTE: `signature` is the third field of `DataHeader`. Because it is an enum,
-        /// we manually serialize it into bytes exactly as `binrw` expects to parse it.
+        // type_count: number of entries encoded in `raw`.
+        // raw: the already-serialised UserDefinedType bytes, concatenated.
+        fn type_directory(mut self, type_count: u32, raw: &[u8]) -> Self
+        {
+            self.data.extend_from_slice(&type_count.to_le_bytes());
+            self.data.extend_from_slice(raw);
+            self
+        }
+
         fn data_directory(mut self, entries: &[(u32, u32, ConstantSignature)], data: &[u8]) -> Self
         {
             self.data.extend_from_slice(&(entries.len() as u32).to_le_bytes());
@@ -572,21 +653,20 @@ mod tests
                 self.data.extend_from_slice(&length.to_le_bytes());
                 self.data.extend_from_slice(&index.to_le_bytes());
 
-                // Serialize the ConstantSignature enum
                 match signature
                 {
                     ConstantSignature::Scalar(scalar_tag) =>
                     {
-                        self.data.push(0x00); // ConstantSignature::Scalar magic byte
-                        self.data.push(*scalar_tag as u8); // ScalarTag magic byte
+                        self.data.push(0x00);
+                        self.data.push(*scalar_tag as u8);
                     }
                     ConstantSignature::String =>
                     {
-                        self.data.push(0x01); // ConstantSignature::String magic byte
+                        self.data.push(0x01);
                     }
                     ConstantSignature::ValueType { type_index } =>
                     {
-                        self.data.push(0x02); // ConstantSignature::ValueType magic byte
+                        self.data.push(0x02);
                         self.data.extend_from_slice(&type_index.to_le_bytes());
                     }
                 }
@@ -604,7 +684,7 @@ mod tests
     }
 
     /// Builds the smallest possible valid `FileLayout` buffer with the given
-    /// header flags byte and no links, symbols, functions, or data entries.
+    /// header flags byte and no links, symbols, functions, types, or data entries.
     fn minimal_layout(flags: u8) -> Vec<u8>
     {
         FileBuilder::new()
@@ -612,6 +692,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build()
     }
@@ -637,7 +718,6 @@ mod tests
     #[test]
     fn file_flags_unknown_bits_retained()
     {
-        // Bits that are not named flags must not be silently dropped.
         let mut c = Cursor::new(vec![0b1111_1110]);
         let f = FileFlags::read_le(&mut c).unwrap();
         assert_eq!(f.bits(), 0b1111_1110);
@@ -680,7 +760,7 @@ mod tests
         assert!(!f.contains(FunctionFlags::ENTRYPOINT));
     }
 
-    // ScalarTag
+    // ── ScalarTag ─────────────────────────────────────────────────────────────
 
     #[test]
     fn scalar_tag_all_valid_discriminants_parse()
@@ -703,7 +783,6 @@ mod tests
     #[test]
     fn scalar_tag_invalid_discriminant_returns_error()
     {
-        // 0x04 is not a defined ScalarTag variant.
         let mut c = Cursor::new(vec![0x04]);
         assert!(ScalarTag::read_le(&mut c).is_err());
     }
@@ -713,6 +792,84 @@ mod tests
     {
         let mut c = Cursor::new(vec![0xFF]);
         assert!(ScalarTag::read_le(&mut c).is_err());
+    }
+
+    // ── TypeSignature ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn type_signature_scalar_all_tags_parse()
+    {
+        let cases: &[(u8, TypeSignature)] = &[
+            (0x0, TypeSignature::Scalar(ScalarTag::Integer32)),
+            (0x1, TypeSignature::Scalar(ScalarTag::Integer64)),
+            (0x2, TypeSignature::Scalar(ScalarTag::Float32)),
+            (0x3, TypeSignature::Scalar(ScalarTag::Float64)),
+        ];
+
+        for (scalar_byte, expected) in cases
+        {
+            let buf = vec![0x00u8, *scalar_byte];
+            let sig = TypeSignature::read_le(&mut Cursor::new(buf)).unwrap();
+            assert_eq!(sig, *expected, "ScalarTag byte 0x{scalar_byte:02X} did not round-trip");
+        }
+    }
+
+    #[test]
+    fn type_signature_string_parses()
+    {
+        let sig = TypeSignature::read_le(&mut Cursor::new(vec![0x01u8])).unwrap();
+        assert_eq!(sig, TypeSignature::String);
+    }
+
+    #[test]
+    fn type_signature_value_type_parses()
+    {
+        let mut buf = vec![0x02u8];
+        buf.extend_from_slice(&42u32.to_le_bytes());
+        let sig = TypeSignature::read_le(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(sig, TypeSignature::ValueType { type_index: 42 });
+    }
+
+    #[test]
+    fn type_signature_reference_parses()
+    {
+        let mut buf = vec![0x03u8];
+        buf.extend_from_slice(&7u32.to_le_bytes());
+        let sig = TypeSignature::read_le(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(sig, TypeSignature::Reference { type_index: 7 });
+    }
+
+    #[test]
+    fn type_signature_value_type_max_index()
+    {
+        let mut buf = vec![0x02u8];
+        buf.extend_from_slice(&u32::MAX.to_le_bytes());
+        let sig = TypeSignature::read_le(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(sig, TypeSignature::ValueType { type_index: u32::MAX });
+    }
+
+    #[test]
+    fn type_signature_reference_zero_index()
+    {
+        let mut buf = vec![0x03u8];
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        let sig = TypeSignature::read_le(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(sig, TypeSignature::Reference { type_index: 0 });
+    }
+
+    #[test]
+    fn type_signature_invalid_discriminant_returns_error()
+    {
+        // 0x04 is not a defined TypeSignature variant.
+        assert!(TypeSignature::read_le(&mut Cursor::new(vec![0x04u8])).is_err());
+    }
+
+    #[test]
+    fn type_signature_scalar_with_invalid_scalar_tag_returns_error()
+    {
+        // Outer discriminant 0x00 is valid (Scalar), but 0xFF is not a ScalarTag.
+        let buf = vec![0x00u8, 0xFF];
+        assert!(TypeSignature::read_le(&mut Cursor::new(buf)).is_err());
     }
 
     // ── FileHeader ────────────────────────────────────────────────────────────
@@ -734,6 +891,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -750,6 +908,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -778,15 +937,14 @@ mod tests
     fn wrong_magic_returns_error()
     {
         let mut bad = Vec::new();
-        bad.extend_from_slice(b"BADMAGIC"); // wrong 8 bytes
-        bad.extend_from_slice(&minimal_layout(0)[8..]); // rest is valid
+        bad.extend_from_slice(b"BADMAGIC");
+        bad.extend_from_slice(&minimal_layout(0)[8..]);
         assert!(FileLayout::read_le(&mut Cursor::new(bad)).is_err());
     }
 
     #[test]
     fn truncated_magic_returns_error()
     {
-        // "azimuth" is 7 bytes; the null terminator is required.
         let bytes = b"azimuth".to_vec();
         assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
     }
@@ -810,6 +968,7 @@ mod tests
             .link_table(&[link])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -830,6 +989,7 @@ mod tests
             .link_table(&links)
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -848,6 +1008,7 @@ mod tests
             .link_table(&links)
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -870,13 +1031,13 @@ mod tests
     #[test]
     fn symbol_table_function_kind()
     {
-        // kind tag 0 = Function, followed by body: Offset (u32)
-        let sym = (dummy_symbol_id(1), 0u8, Some(0x1234_5678u32));
+        let sym = (dummy_symbol_id(1), 0u8, 0x1234_5678u32);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[sym])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -891,13 +1052,14 @@ mod tests
     #[test]
     fn symbol_table_type_kind()
     {
-        // kind tag 1 = Type (no extra fields)
-        let sym = (dummy_symbol_id(2), 1u8, None);
+        // tag=1 → SymbolKind::Type; extra u32 is the type_index.
+        let sym = (dummy_symbol_id(2), 1u8, 0u32);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[sym])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -909,18 +1071,38 @@ mod tests
     }
 
     #[test]
+    fn symbol_table_type_kind_nonzero_index()
+    {
+        let sym = (dummy_symbol_id(2), 1u8, 99u32);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[sym])
+            .code_directory(&[], &[])
+            .type_directory(0, &[])
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        assert!(matches!(
+            layout.symbol_table.symbols[0].kind,
+            SymbolKind::Type { type_index: 99 }
+        ));
+    }
+
+    #[test]
     fn symbol_table_mixed_kinds()
     {
         let syms = [
-            (dummy_symbol_id(1), 0u8, Some(10u32)),
-            (dummy_symbol_id(2), 1u8, None),
-            (dummy_symbol_id(3), 0u8, Some(20u32)),
+            (dummy_symbol_id(1), 0u8, 10u32),
+            (dummy_symbol_id(2), 1u8, 0u32),
+            (dummy_symbol_id(3), 0u8, 20u32),
         ];
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&syms)
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -942,13 +1124,13 @@ mod tests
     #[test]
     fn symbol_table_invalid_kind_tag_returns_error()
     {
-        // Tag 0xFF is not a valid SymbolKind discriminant.
-        let sym = (dummy_symbol_id(1), 0xFFu8, None);
+        let sym = (dummy_symbol_id(1), 0xFFu8, 0u32);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[sym])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
@@ -968,13 +1150,13 @@ mod tests
     #[test]
     fn code_directory_single_function_no_entrypoint()
     {
-        // (symbol_id, index, length, maxlocals, maxstack, param_count, flags)
         let func = (dummy_symbol_id(1), 0u32, 10u32, 4u32, 8u32, 3u8, 0u8);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[func], &[0xDE, 0xAD, 0xBE, 0xEF])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -997,6 +1179,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[func], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1013,6 +1196,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[func], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1028,6 +1212,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[func], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1037,8 +1222,6 @@ mod tests
     #[test]
     fn code_directory_param_count_preserved_across_multiple_functions()
     {
-        // Each function carries a distinct param_count; make sure values aren't
-        // crossed between adjacent entries.
         let funcs = [
             (dummy_symbol_id(1), 0u32, 2u32, 0u32, 0u32, 1u8, 0u8),
             (dummy_symbol_id(2), 2u32, 3u32, 0u32, 0u32, 4u8, 0u8),
@@ -1049,6 +1232,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&funcs, &[0u8; 6])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1066,6 +1250,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &bytecode)
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1086,6 +1271,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&funcs, &bytecode)
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1106,13 +1292,13 @@ mod tests
     #[test]
     fn code_directory_function_index_and_length()
     {
-        // Verify index + length fields parse correctly with large values.
         let func = (dummy_symbol_id(1), 0x0000_FFFFu32, 0xFFFF_0000u32, 0u32, 0u32, 0u8, 0u8);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[func], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1130,12 +1316,369 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[func], &[])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         let f = &layout.code_directory.functions[0];
         assert_eq!(f.maxlocals, u32::MAX);
         assert_eq!(f.maxstack, u32::MAX);
+    }
+
+    // ── TypeDirectory ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn type_directory_empty()
+    {
+        let bytes = minimal_layout(0);
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        assert_eq!(layout.type_directory.type_count(), 0);
+    }
+
+    #[test]
+    fn type_directory_single_empty_struct()
+    {
+        let raw = ser_struct(dummy_symbol_id(1), &[]);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        assert_eq!(layout.type_directory.type_count(), 1);
+        assert!(matches!(layout.type_directory.types[0], UserDefinedType::Struct(_)));
+    }
+
+    #[test]
+    fn type_directory_struct_with_scalar_field()
+    {
+        let fields = [(0u32, TypeSignature::Scalar(ScalarTag::Integer32))];
+        let raw = ser_struct(dummy_symbol_id(1), &fields);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Struct(s) =>
+            {
+                assert_eq!(s.fields.len(), 1);
+                assert_eq!(s.fields[0].name, 0);
+                assert_eq!(s.fields[0].signature, TypeSignature::Scalar(ScalarTag::Integer32));
+            }
+            other => panic!("expected Struct, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_struct_with_all_field_kinds()
+    {
+        // One field of each TypeSignature variant; verifies the GC-policy quartet
+        // (Scalar, String, ValueType, Reference) survives a round-trip.
+        let fields = [
+            (1u32, TypeSignature::Scalar(ScalarTag::Float64)),
+            (2u32, TypeSignature::String),
+            (3u32, TypeSignature::ValueType { type_index: 0 }),
+            (4u32, TypeSignature::Reference { type_index: 1 }),
+        ];
+        let raw = ser_struct(dummy_symbol_id(5), &fields);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Struct(s) =>
+            {
+                assert_eq!(s.fields.len(), 4);
+                assert_eq!(s.fields[0].signature, TypeSignature::Scalar(ScalarTag::Float64));
+                assert_eq!(s.fields[1].signature, TypeSignature::String);
+                assert_eq!(s.fields[2].signature, TypeSignature::ValueType { type_index: 0 });
+                assert_eq!(s.fields[3].signature, TypeSignature::Reference { type_index: 1 });
+            }
+            other => panic!("expected Struct, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_struct_field_names_preserved()
+    {
+        let fields = [(0xDEAD_BEEFu32, TypeSignature::String), (0x1234_5678u32, TypeSignature::String)];
+        let raw = ser_struct(dummy_symbol_id(1), &fields);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Struct(s) =>
+            {
+                assert_eq!(s.fields[0].name, 0xDEAD_BEEF);
+                assert_eq!(s.fields[1].name, 0x1234_5678);
+            }
+            other => panic!("expected Struct, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_enum_no_variants()
+    {
+        let raw = ser_enum(dummy_symbol_id(2), &[]);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Enum(e) => assert_eq!(e.variants.len(), 0),
+            other => panic!("expected Enum, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_enum_variant_tags_are_explicit()
+    {
+        // Tags are stored explicitly; non-contiguous values must round-trip
+        // without being re-mapped to ordinal positions.
+        let fields: &[(u32, TypeSignature)] = &[];
+        let variants: &[(u32, u32, &[(u32, TypeSignature)])] = &[
+            (10u32, 0u32, fields),
+            (20u32, 5u32, fields),
+            (30u32, 100u32, fields),
+        ];
+        let raw = ser_enum(dummy_symbol_id(3), variants);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Enum(e) =>
+            {
+                assert_eq!(e.variants.len(), 3);
+                assert_eq!(e.variants[0].name, 10);
+                assert_eq!(e.variants[0].tag, 0);
+                assert_eq!(e.variants[1].name, 20);
+                assert_eq!(e.variants[1].tag, 5);
+                assert_eq!(e.variants[2].name, 30);
+                assert_eq!(e.variants[2].tag, 100);
+            }
+            other => panic!("expected Enum, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_enum_variant_with_fields()
+    {
+        let variant_fields: &[(u32, TypeSignature)] = &[
+            (1u32, TypeSignature::Scalar(ScalarTag::Integer64)),
+            (2u32, TypeSignature::String),
+        ];
+        let variants: &[(u32, u32, &[(u32, TypeSignature)])] = &[(0u32, 42u32, variant_fields)];
+        let raw = ser_enum(dummy_symbol_id(4), variants);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Enum(e) =>
+            {
+                let v = &e.variants[0];
+                assert_eq!(v.tag, 42);
+                assert_eq!(v.fields.len(), 2);
+                assert_eq!(v.fields[0].signature, TypeSignature::Scalar(ScalarTag::Integer64));
+                assert_eq!(v.fields[1].signature, TypeSignature::String);
+            }
+            other => panic!("expected Enum, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_imported_type()
+    {
+        let raw = ser_imported(dummy_symbol_id(0xAA), 3, dummy_symbol_id(0xBB));
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Imported { link_index, .. } => assert_eq!(*link_index, 3),
+            other => panic!("expected Imported, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_imported_ids_preserved()
+    {
+        let local = dummy_symbol_id(0xAA);
+        let target = dummy_symbol_id(0xBB);
+        let raw = ser_imported(local, 0, target);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Imported { local_id, target_id, .. } =>
+            {
+                assert_eq!(format!("{:?}", local_id), format!("{:?}", SymbolId(local)));
+                assert_eq!(format!("{:?}", target_id), format!("{:?}", SymbolId(target)));
+            }
+            other => panic!("expected Imported, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_mixed_kinds()
+    {
+        let struct_raw = ser_struct(dummy_symbol_id(1), &[]);
+        let enum_raw = ser_enum(dummy_symbol_id(2), &[]);
+        let imported_raw = ser_imported(dummy_symbol_id(3), 0, dummy_symbol_id(4));
+        let mut raw = struct_raw;
+        raw.extend(enum_raw);
+        raw.extend(imported_raw);
+
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(3, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        assert_eq!(layout.type_directory.type_count(), 3);
+        assert!(matches!(layout.type_directory.types[0], UserDefinedType::Struct(_)));
+        assert!(matches!(layout.type_directory.types[1], UserDefinedType::Enum(_)));
+        assert!(matches!(layout.type_directory.types[2], UserDefinedType::Imported { .. }));
+    }
+
+    #[test]
+    fn type_directory_type_count_matches_entries()
+    {
+        let raw: Vec<u8> = (0..5)
+            .flat_map(|i| ser_struct(dummy_symbol_id(i), &[]))
+            .collect();
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(5, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        assert_eq!(layout.type_directory.type_count(), 5);
+        assert_eq!(layout.type_directory.types.len(), 5);
+    }
+
+    #[test]
+    fn type_directory_invalid_udt_magic_returns_error()
+    {
+        // Magic byte 0x03 is not a defined UserDefinedType variant.
+        let raw = vec![0x03u8];
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
+    }
+
+    #[test]
+    fn type_directory_struct_symbol_id_preserved()
+    {
+        let id = dummy_symbol_id(0xCC);
+        let raw = ser_struct(id, &[]);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Struct(s) =>
+            {
+                assert_eq!(format!("{:?}", s.symbol_id), format!("{:?}", SymbolId(id)));
+            }
+            other => panic!("expected Struct, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn type_directory_enum_symbol_id_preserved()
+    {
+        let id = dummy_symbol_id(0xDD);
+        let raw = ser_enum(id, &[]);
+        let bytes = FileBuilder::new()
+            .header(1, 1, dummy_symbol_id(0), 0)
+            .link_table(&[])
+            .symbol_table(&[])
+            .code_directory(&[], &[])
+            .type_directory(1, &raw)
+            .data_directory(&[], &[])
+            .build();
+        let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
+        match &layout.type_directory.types[0]
+        {
+            UserDefinedType::Enum(e) =>
+            {
+                assert_eq!(format!("{:?}", e.symbol_id), format!("{:?}", SymbolId(id)));
+            }
+            other => panic!("expected Enum, got {:?}", other),
+        }
     }
 
     // ── DataDirectory ─────────────────────────────────────────────────────────
@@ -1153,7 +1696,6 @@ mod tests
     #[test]
     fn data_directory_single_entry()
     {
-        // (length, index, signature)
         let entry = (16u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32));
         let payload = vec![0xBE; 16];
 
@@ -1162,6 +1704,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[entry], &payload)
             .build();
 
@@ -1193,6 +1736,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&entries, &payload)
             .build();
 
@@ -1236,6 +1780,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&entries, &payload)
             .build();
 
@@ -1254,37 +1799,31 @@ mod tests
     #[test]
     fn data_directory_invalid_type_tag_returns_error()
     {
-        // Generate a perfectly valid layout first.
-        // We use `ConstantSignature::String` because we know it compiles to exactly
-        // one byte (`0x01`), making it easy to swap out.
         let entry = (4u32, 0u32, ConstantSignature::String);
         let mut bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&[entry], &[0u8; 4])
             .build();
 
-        // The data directory payload is appended at the very end of the file.
-        // Layout at the end: [..signature byte, 4 bytes (data_length), 4 bytes (data)]
-        // This means our magic byte `0x01` is exactly 9 bytes from the end.
+        // The String variant serialises as exactly 1 byte (0x01), so the data
+        // directory at the tail of the file looks like:
+        //   [entry_count: 4][length: 4][index: 4][sig: 1][data_length: 4][data: 4]
+        // The signature byte is 9 bytes from the end regardless of the type_directory
+        // section preceding it, because we count backwards from EOF.
         let magic_byte_index = bytes.len() - 9;
+        assert_eq!(bytes[magic_byte_index], 0x01, "sanity check: expected String magic byte");
 
-        // Sanity check to guarantee we are targeting the right byte
-        assert_eq!(bytes[magic_byte_index], 0x01);
-
-        // 0x05 is not a defined ConstantSignature variant. Corrupt the byte!
-        bytes[magic_byte_index] = 0x05;
-
-        // The parse must fail rather than silently produce a garbage value.
+        bytes[magic_byte_index] = 0x05; // not a defined ConstantSignature variant
         assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
     }
 
     #[test]
     fn data_directory_entries_byte_size()
     {
-        // entries_byte_size = count * size_of::<DataHeader>()
         let entries = [
             (1u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
             (1u32, 1u32, ConstantSignature::Scalar(ScalarTag::Integer32)),
@@ -1294,6 +1833,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(&entries, &[0u8; 2])
             .build();
 
@@ -1311,6 +1851,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &[])
+            .type_directory(0, &[])
             .data_directory(
                 &[(8u32, 0u32, ConstantSignature::Scalar(ScalarTag::Integer32))],
                 &payload,
@@ -1329,12 +1870,21 @@ mod tests
     {
         let links = [(0u16, dummy_symbol_id(0xAA), 50u32)];
         let syms = [
-            (dummy_symbol_id(0x11), 0u8, Some(0u32)),
-            (dummy_symbol_id(0x22), 1u8, None),
+            (dummy_symbol_id(0x11), 0u8, 0u32),
+            (dummy_symbol_id(0x22), 1u8, 0u32),
         ];
 
         let funcs = [(dummy_symbol_id(0x11), 0u32, 4u32, 3u32, 6u32, 2u8, 0b0000_0001u8)];
         let bytecode = vec![0x01, 0x02, 0x03, 0x04];
+
+        let struct_raw = ser_struct(dummy_symbol_id(0x33), &[(0u32, TypeSignature::Scalar(ScalarTag::Integer32))]);
+        let enum_fields: &[(u32, TypeSignature)] = &[];
+        let enum_raw = ser_enum(
+            dummy_symbol_id(0x44),
+            &[(1u32, 0u32, enum_fields), (2u32, 1u32, enum_fields)],
+        );
+        let mut types_raw = struct_raw;
+        types_raw.extend(enum_raw);
 
         let data_entries = [(4u32, 0u32, ConstantSignature::Scalar(ScalarTag::Float64))];
         let raw_data = vec![0xDE, 0xAD, 0xBE, 0xEF];
@@ -1344,6 +1894,7 @@ mod tests
             .link_table(&links)
             .symbol_table(&syms)
             .code_directory(&funcs, &bytecode)
+            .type_directory(2, &types_raw)
             .data_directory(&data_entries, &raw_data)
             .build();
 
@@ -1374,6 +1925,10 @@ mod tests
         assert_eq!(layout.code_directory.functions[0].param_count, 2);
         assert_eq!(layout.code_directory.bytecode, bytecode);
 
+        assert_eq!(layout.type_directory.type_count(), 2);
+        assert!(matches!(layout.type_directory.types[0], UserDefinedType::Struct(_)));
+        assert!(matches!(layout.type_directory.types[1], UserDefinedType::Enum(_)));
+
         assert_eq!(layout.data_directory.entries.len(), 1);
         assert!(matches!(
             layout.data_directory.entries[0].signature,
@@ -1391,6 +1946,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&[], &bytecode)
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1401,7 +1957,6 @@ mod tests
     #[test]
     fn full_layout_many_functions()
     {
-        // (symbol_id, index, length, maxlocals, maxstack, param_count, flags)
         let funcs: Vec<([u8; 16], u32, u32, u32, u32, u8, u8)> = (0..50)
             .map(|i| {
                 (
@@ -1410,8 +1965,8 @@ mod tests
                     10,
                     i,
                     i * 2,
-                    i as u8,                    // param_count
-                    if i == 0 { 1 } else { 0 }, // flags
+                    i as u8,
+                    if i == 0 { 1 } else { 0 },
                 )
             })
             .collect();
@@ -1420,6 +1975,7 @@ mod tests
             .link_table(&[])
             .symbol_table(&[])
             .code_directory(&funcs, &[0u8; 500])
+            .type_directory(0, &[])
             .data_directory(&[], &[])
             .build();
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
@@ -1439,7 +1995,6 @@ mod tests
     #[test]
     fn truncated_input_returns_error()
     {
-        // Cut the valid buffer in half.
         let bytes = minimal_layout(0);
         let half = bytes.len() / 2;
         assert!(FileLayout::read_le(&mut Cursor::new(&bytes[..half])).is_err());
