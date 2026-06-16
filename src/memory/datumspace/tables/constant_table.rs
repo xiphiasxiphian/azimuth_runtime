@@ -101,7 +101,7 @@ impl From<Constant> for StackEntry
             Constant::Unsigned64(x) => x.into(),
             Constant::Float32(x) => x.into(),
             Constant::Float64(x) => x.into(),
-            Constant::String(_x) => todo!(), // How does the possibly not pinned string get translated here
+            Constant::String(_x) => todo!(),
         }
     }
 }
@@ -138,5 +138,141 @@ impl Constant
         };
 
         Some(constant)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ptr::NonNull;
+    use crate::{loader::parser::layout::{ConstantSignature, ScalarTag}, memory::datumspace::datum::Offset};
+
+    // --- Helper Functions ---
+
+    /// Creates a mock DataEntry.
+    /// Note: You may need to adjust the initialization of `loc` depending on
+    /// the exact tuple/struct definition of `BlockLocation` in your crate.
+    fn mock_data_entry(offset: u32, length: u32, tag: ConstantSignature) -> DataEntry {
+        DataEntry {
+            loc: (Offset(offset), length),
+            tag,
+        }
+    }
+
+    // --- 1. Interior Mutability Tests ---
+
+    #[test]
+    fn test_constant_table_entry_mutability() {
+        // 1. Initialize with unresolved data
+        let dummy_entry = mock_data_entry(0, 4, ConstantSignature::Scalar(ScalarTag::Integer32));
+        let table_entry = ConstantTableEntry::new(ConstantTableEntryData::Unresolved(dummy_entry));
+
+        // 2. Take an IMMUTABLE reference
+        let entry_ref = &table_entry;
+
+        // 3. Verify initial state
+        assert!(matches!(entry_ref.as_data(), ConstantTableEntryData::Unresolved(_)));
+
+        // 4. Mutate through the immutable reference safely
+        unsafe {
+            entry_ref.set_data(ConstantTableEntryData::Resolved(Constant::Unsigned32(42)));
+        }
+
+        // 5. Verify the new state took effect
+        match entry_ref.as_data() {
+            ConstantTableEntryData::Resolved(Constant::Unsigned32(val)) => assert_eq!(*val, 42),
+            _ => panic!("Expected Resolved(Constant::Unsigned32)"),
+        }
+    }
+
+    // --- 2. Raw Memory Parsing Tests (from_entry) ---
+
+    #[test]
+    fn test_parse_unsigned32() {
+        // 0x12345678 in Little Endian
+        let mut buffer: Vec<u8> = vec![0x78, 0x56, 0x34, 0x12];
+        let base = NonNull::new(buffer.as_mut_ptr()).unwrap();
+
+        let entry = mock_data_entry(0, 4, ConstantSignature::Scalar(ScalarTag::Integer32));
+
+        let constant = unsafe { Constant::from_entry(base, &entry).unwrap() };
+
+        assert!(matches!(constant, Constant::Unsigned32(0x12345678)));
+    }
+
+    #[test]
+    fn test_parse_unsigned64() {
+        // 0x1122334455667788 in Little Endian
+        let mut buffer: Vec<u8> = vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+        let base = NonNull::new(buffer.as_mut_ptr()).unwrap();
+
+        let entry = mock_data_entry(0, 8, ConstantSignature::Scalar(ScalarTag::Integer64));
+
+        let constant = unsafe { Constant::from_entry(base, &entry).unwrap() };
+
+        assert!(matches!(constant, Constant::Unsigned64(0x1122334455667788)));
+    }
+
+    #[test]
+    fn test_parse_float32() {
+        // 3.14159f32 encoded in Little Endian bytes
+        let mut buffer: Vec<u8> = 3.14159f32.to_le_bytes().to_vec();
+        let base = NonNull::new(buffer.as_mut_ptr()).unwrap();
+
+        let entry = mock_data_entry(0, 4, ConstantSignature::Scalar(ScalarTag::Float32));
+
+        let constant = unsafe { Constant::from_entry(base, &entry).unwrap() };
+
+        if let Constant::Float32(val) = constant {
+            assert_eq!(val, 3.14159f32);
+        } else {
+            panic!("Expected Float32");
+        }
+    }
+
+    #[test]
+    fn test_parse_float64() {
+        // 2.718281828459045f64 encoded in Little Endian bytes
+        let mut buffer: Vec<u8> = 2.718281828459045f64.to_le_bytes().to_vec();
+        let base = NonNull::new(buffer.as_mut_ptr()).unwrap();
+
+        let entry = mock_data_entry(0, 8, ConstantSignature::Scalar(ScalarTag::Float64));
+
+        let constant = unsafe { Constant::from_entry(base, &entry).unwrap() };
+
+        if let Constant::Float64(val) = constant {
+            assert_eq!(val, 2.718281828459045f64);
+        } else {
+            panic!("Expected Float64");
+        }
+    }
+
+    #[test]
+    fn test_parse_string() {
+        let mut buffer: Vec<u8> = vec![0; 8]; // Buffer doesn't matter for string initialization here
+        let base = NonNull::new(buffer.as_mut_ptr()).unwrap();
+
+        let entry = mock_data_entry(0, 8, ConstantSignature::String);
+
+        let constant = unsafe { Constant::from_entry(base, &entry).unwrap() };
+
+        assert!(matches!(constant, Constant::String(_)));
+    }
+
+    // --- 3. Stack Conversion Tests ---
+
+    #[test]
+    fn test_stack_entry_conversions() {
+        let u32_const = Constant::Unsigned32(u32::MAX);
+        let _stack_u32: StackEntry = u32_const.into();
+
+        let u64_const = Constant::Unsigned64(u64::MAX);
+        let _stack_u64: StackEntry = u64_const.into();
+
+        let f32_const = Constant::Float32(1.0);
+        let _stack_f32: StackEntry = f32_const.into();
+
+        let f64_const = Constant::Float64(1.0);
+        let _stack_f64: StackEntry = f64_const.into();
     }
 }
