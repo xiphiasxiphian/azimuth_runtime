@@ -1,4 +1,8 @@
-use std::{alloc::{Layout, alloc, dealloc}, ops::Add as _, ptr::NonNull};
+use std::{
+    alloc::{Layout, alloc, dealloc},
+    ops::Add as _,
+    ptr::NonNull,
+};
 
 use derive_more::{Add, Sub};
 
@@ -337,13 +341,16 @@ impl PageLayout
     }
 }
 
-pub struct AlignedPageBuffer {
+pub struct AlignedPageBuffer
+{
     ptr: NonNull<u8>,
     layout: Layout,
 }
 
-impl AlignedPageBuffer {
-    pub fn new(size: usize, alignment: usize) -> Self {
+impl AlignedPageBuffer
+{
+    pub fn new(size: usize, alignment: usize) -> Self
+    {
         let layout = Layout::from_size_align(size, alignment).expect("Invalid layout configuration");
         unsafe {
             let raw_ptr = alloc(layout);
@@ -352,7 +359,8 @@ impl AlignedPageBuffer {
         }
     }
 
-    pub fn as_non_null(&self) -> NonNull<u8> {
+    pub fn as_non_null(&self) -> NonNull<u8>
+    {
         self.ptr
     }
 
@@ -362,8 +370,10 @@ impl AlignedPageBuffer {
     }
 }
 
-impl Drop for AlignedPageBuffer {
-    fn drop(&mut self) {
+impl Drop for AlignedPageBuffer
+{
+    fn drop(&mut self)
+    {
         unsafe {
             dealloc(self.ptr.as_ptr(), self.layout);
         }
@@ -530,9 +540,7 @@ mod tests
 
         fn from_buffer(buf: AlignedPageBuffer) -> Self
         {
-            Self {
-                data: buf
-            }
+            Self { data: buf }
         }
 
         fn as_nonnull(&self) -> NonNull<u8>
@@ -590,7 +598,8 @@ mod tests
     }
 
     /// Allocate a buffer, write the header, and return the buffer + builder.
-    fn make_builder(sizes: &SectionSizes, id: SymbolId) -> (TestBuffer, PageBuilder) {
+    fn make_builder(sizes: &SectionSizes, id: SymbolId) -> (TestBuffer, PageBuilder)
+    {
         let layout = PageLayout::compute(
             id,
             sizes.num_links,

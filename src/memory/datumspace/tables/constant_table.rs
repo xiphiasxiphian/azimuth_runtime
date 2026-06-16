@@ -29,10 +29,11 @@ pub enum ConstantTableEntryData
 
 pub struct ConstantTableEntry
 {
-    inner: UnsafeCell<ConstantTableEntryData>
+    inner: UnsafeCell<ConstantTableEntryData>,
 }
 
-impl ConstantTableEntry {
+impl ConstantTableEntry
+{
     pub fn new(data: ConstantTableEntryData) -> Self
     {
         Self {

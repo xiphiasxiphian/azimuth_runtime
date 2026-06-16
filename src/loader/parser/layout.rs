@@ -1416,7 +1416,10 @@ mod tests
     #[test]
     fn type_directory_struct_field_names_preserved()
     {
-        let fields = [(0xDEAD_BEEFu32, TypeSignature::String), (0x1234_5678u32, TypeSignature::String)];
+        let fields = [
+            (0xDEAD_BEEFu32, TypeSignature::String),
+            (0x1234_5678u32, TypeSignature::String),
+        ];
         let raw = ser_struct(dummy_symbol_id(1), &fields);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -1464,11 +1467,8 @@ mod tests
         // Tags are stored explicitly; non-contiguous values must round-trip
         // without being re-mapped to ordinal positions.
         let fields: &[(u32, TypeSignature)] = &[];
-        let variants: &[(u32, u32, &[(u32, TypeSignature)])] = &[
-            (10u32, 0u32, fields),
-            (20u32, 5u32, fields),
-            (30u32, 100u32, fields),
-        ];
+        let variants: &[(u32, u32, &[(u32, TypeSignature)])] =
+            &[(10u32, 0u32, fields), (20u32, 5u32, fields), (30u32, 100u32, fields)];
         let raw = ser_enum(dummy_symbol_id(3), variants);
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
@@ -1564,7 +1564,9 @@ mod tests
         let layout = FileLayout::read_le(&mut Cursor::new(bytes)).unwrap();
         match &layout.type_directory.types[0]
         {
-            UserDefinedType::Imported { local_id, target_id, .. } =>
+            UserDefinedType::Imported {
+                local_id, target_id, ..
+            } =>
             {
                 assert_eq!(format!("{:?}", local_id), format!("{:?}", SymbolId(local)));
                 assert_eq!(format!("{:?}", target_id), format!("{:?}", SymbolId(target)));
@@ -1595,15 +1597,16 @@ mod tests
         assert_eq!(layout.type_directory.type_count(), 3);
         assert!(matches!(layout.type_directory.types[0], UserDefinedType::Struct(_)));
         assert!(matches!(layout.type_directory.types[1], UserDefinedType::Enum(_)));
-        assert!(matches!(layout.type_directory.types[2], UserDefinedType::Imported { .. }));
+        assert!(matches!(
+            layout.type_directory.types[2],
+            UserDefinedType::Imported { .. }
+        ));
     }
 
     #[test]
     fn type_directory_type_count_matches_entries()
     {
-        let raw: Vec<u8> = (0..5)
-            .flat_map(|i| ser_struct(dummy_symbol_id(i), &[]))
-            .collect();
+        let raw: Vec<u8> = (0..5).flat_map(|i| ser_struct(dummy_symbol_id(i), &[])).collect();
         let bytes = FileBuilder::new()
             .header(1, 1, dummy_symbol_id(0), 0)
             .link_table(&[])
@@ -1815,7 +1818,10 @@ mod tests
         // The signature byte is 9 bytes from the end regardless of the type_directory
         // section preceding it, because we count backwards from EOF.
         let magic_byte_index = bytes.len() - 9;
-        assert_eq!(bytes[magic_byte_index], 0x01, "sanity check: expected String magic byte");
+        assert_eq!(
+            bytes[magic_byte_index], 0x01,
+            "sanity check: expected String magic byte"
+        );
 
         bytes[magic_byte_index] = 0x05; // not a defined ConstantSignature variant
         assert!(FileLayout::read_le(&mut Cursor::new(bytes)).is_err());
@@ -1869,15 +1875,15 @@ mod tests
     fn full_layout_all_sections_populated()
     {
         let links = [(0u16, dummy_symbol_id(0xAA), 50u32)];
-        let syms = [
-            (dummy_symbol_id(0x11), 0u8, 0u32),
-            (dummy_symbol_id(0x22), 1u8, 0u32),
-        ];
+        let syms = [(dummy_symbol_id(0x11), 0u8, 0u32), (dummy_symbol_id(0x22), 1u8, 0u32)];
 
         let funcs = [(dummy_symbol_id(0x11), 0u32, 4u32, 3u32, 6u32, 2u8, 0b0000_0001u8)];
         let bytecode = vec![0x01, 0x02, 0x03, 0x04];
 
-        let struct_raw = ser_struct(dummy_symbol_id(0x33), &[(0u32, TypeSignature::Scalar(ScalarTag::Integer32))]);
+        let struct_raw = ser_struct(
+            dummy_symbol_id(0x33),
+            &[(0u32, TypeSignature::Scalar(ScalarTag::Integer32))],
+        );
         let enum_fields: &[(u32, TypeSignature)] = &[];
         let enum_raw = ser_enum(
             dummy_symbol_id(0x44),

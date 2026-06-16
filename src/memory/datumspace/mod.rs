@@ -254,7 +254,10 @@ impl<'d> Datumspace<'d>
                     has_gc_roots,
                 })
             }
-            RuntimeTypeKind::Imported { module_id: _, type_index: _ } =>
+            RuntimeTypeKind::Imported {
+                module_id: _,
+                type_index: _,
+            } =>
             {
                 todo!() // go play fetch another time
             }
@@ -282,7 +285,8 @@ impl<'d> Datumspace<'d>
             let ptr = constants_loc.0.as_ptr(*base).add(index);
             ptr.write(ConstantTableEntry::new(ConstantTableEntryData::Resolved(constant)));
 
-            match ptr.as_ref().as_data() {
+            match ptr.as_ref().as_data()
+            {
                 ConstantTableEntryData::Resolved(c) => c,
                 _ => unreachable!(),
             }
@@ -346,15 +350,15 @@ impl<'d> Datumspace<'d>
         }
 
         // Compute padded locations for every section
-        let link_table     = align_section!(Link, layout.link_table.entries.len());
-        let symbol_table   = align_section!(Symbol, layout.symbol_table.symbols.len());
-        let functions      = align_section!(Runnable, layout.code_directory.functions.len());
-        let constants      = align_section!(ConstantTableEntry, layout.data_directory.entries.len());
-        let types          = align_section!(RuntimeType, num_types);
-        let enum_variants  = align_section!(RuntimeEnumVariant, num_variants);
-        let gc_offsets     = align_section!(usize, num_gc_offsets);
-        let bytecode_blob  = align_section!(u8, layout.code_directory.bytecode.len());
-        let data_blob      = align_section!(u8, layout.data_directory.data.len());
+        let link_table = align_section!(Link, layout.link_table.entries.len());
+        let symbol_table = align_section!(Symbol, layout.symbol_table.symbols.len());
+        let functions = align_section!(Runnable, layout.code_directory.functions.len());
+        let constants = align_section!(ConstantTableEntry, layout.data_directory.entries.len());
+        let types = align_section!(RuntimeType, num_types);
+        let enum_variants = align_section!(RuntimeEnumVariant, num_variants);
+        let gc_offsets = align_section!(usize, num_gc_offsets);
+        let bytecode_blob = align_section!(u8, layout.code_directory.bytecode.len());
+        let data_blob = align_section!(u8, layout.data_directory.data.len());
 
         let header = DatumPageHeader {
             id: layout.header.module_id,
@@ -372,8 +376,8 @@ impl<'d> Datumspace<'d>
         current_offset = (current_offset + max_align - 1) & !(max_align - 1);
 
         // Create the allocation layout with the maximum required alignment
-        let required_layout = Layout::from_size_align(current_offset, max_align)
-            .map_err(|_| DatumspaceError::InvalidStructure)?;
+        let required_layout =
+            Layout::from_size_align(current_offset, max_align).map_err(|_| DatumspaceError::InvalidStructure)?;
 
         Ok((header, required_layout))
     }
