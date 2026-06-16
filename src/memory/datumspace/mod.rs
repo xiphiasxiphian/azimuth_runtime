@@ -13,7 +13,6 @@ use std::{
 use itertools::{Itertools as _, process_results};
 
 use crate::{
-    common::ScopeMethods,
     loader::{
         SymbolId,
         parser::layout::{
@@ -312,92 +311,62 @@ impl<'d> Datumspace<'d>
             .ok_or(DatumspaceError::ResourceDoesntExist)
     }
 
-    fn calculate_page_size<'file>(
+    fn calculate_page_size(
         layout: &FileLayout,
-        types_len: usize,
-        variants_len: usize,
-        gc_offsets_len: usize,
-    ) -> Result<(DatumPageHeader, Layout), DatumspaceError>
+        num_types: usize,
+        num_variants: usize,
+        num_gc_offsets: usize,
+    ) -> DatumResult<(DatumPageHeader, Layout)>
     {
-        // link table
-        // Each link gets slightly flattened, removing now unrequired metadata
-        let link_table_size = layout.link_table.entries.len() * size_of::<Link>();
+        let mut current_offset = std::mem::size_of::<DatumPageHeader>();
+        let mut max_align = std::mem::align_of::<DatumPageHeader>();
 
-        // symbol table
-        let symbol_table_size = layout.symbol_table.symbols.len() * size_of::<Symbol>();
+        // Helper macro to align the current offset up to T's alignment requirement
+        macro_rules! align_section {
+            ($align_ty:ty, $count:expr) => {{
+                let align = std::mem::align_of::<$align_ty>();
+                max_align = max_align.max(align);
 
-        // function table
-        let function_table_size = layout.code_directory.function_count() * size_of::<Runnable>();
+                // Round up to the nearest multiple of alignment
+                current_offset = (current_offset + align - 1) & !(align - 1);
 
-        // constant table
-        let constant_table_size = layout.data_directory.entries.len() * size_of::<Constant>();
+                let start = current_offset;
+                let bytes = $count * std::mem::size_of::<$align_ty>();
+                current_offset += bytes;
 
-        // Type metadata tables (NEW)
-        let types_size = types_len * size_of::<RuntimeType>();
-        let enum_variants_size = variants_len * size_of::<RuntimeEnumVariant>();
-        let gc_offsets_size = gc_offsets_len * size_of::<usize>();
+                (Offset(start as u32), bytes as u32)
+            }};
+        }
 
-        // Code size
-        let code_size = layout.code_directory.bytecode_size();
-
-        // Data size
-        let data_size = layout.data_directory.data_byte_size();
-
-        let (
-            link_table_loc,
-            symbol_table_loc,
-            function_table_loc,
-            constant_table_loc,
-            types_loc,
-            enum_variants_loc,
-            gc_offsets_loc,
-            code_loc,
-            data_loc,
-        ) = [
-            link_table_size,
-            symbol_table_size,
-            function_table_size,
-            constant_table_size,
-            types_size,
-            enum_variants_size,
-            gc_offsets_size,
-            code_size,
-            data_size,
-        ]
-        .iter()
-        .scan(size_of::<DatumPageHeader>(), |cursor, size| {
-            let start = *cursor;
-            *cursor += size;
-
-            Some((Offset(start.try_into().ok()?), (*size).try_into().ok()?))
-        })
-        .collect_tuple()
-        .ok_or(DatumspaceError::InvalidStructure)?;
+        // Compute padded locations for every section
+        let link_table     = align_section!(Link, layout.link_table.entries.len());
+        let symbol_table   = align_section!(Symbol, layout.symbol_table.symbols.len());
+        let functions      = align_section!(Runnable, layout.code_directory.functions.len());
+        let constants      = align_section!(ConstantTableEntry, layout.data_directory.entries.len());
+        let types          = align_section!(RuntimeType, num_types);
+        let enum_variants  = align_section!(RuntimeEnumVariant, num_variants);
+        let gc_offsets     = align_section!(usize, num_gc_offsets);
+        let bytecode_blob  = align_section!(u8, layout.code_directory.bytecode.len());
+        let data_blob      = align_section!(u8, layout.data_directory.data.len());
 
         let header = DatumPageHeader {
             id: layout.header.module_id,
-            link_table: link_table_loc,
-            symbol_table: symbol_table_loc,
-            functions: function_table_loc,
-            constants: constant_table_loc,
-            types: types_loc,
-            enum_variants: enum_variants_loc,
-            gc_offsets: gc_offsets_loc,
-            bytecode_blob: code_loc,
-            data_blob: data_loc,
+            link_table,
+            symbol_table,
+            constants,
+            functions,
+            types,
+            enum_variants,
+            gc_offsets,
+            bytecode_blob,
+            data_blob,
         };
 
-        let size = data_loc
-            .0
-            .0
-            .checked_add(data_loc.1)
-            .ok_or(DatumspaceError::InvalidStructure)
-            .and_then(|x| <usize>::try_from(x).map_err(|_| DatumspaceError::InvalidStructure))?;
+        // Create the allocation layout with the maximum required alignment
+        let required_layout = Layout::from_size_align(current_offset, max_align)
+            .map_err(|_| DatumspaceError::InvalidStructure)?;
 
-        let layout = Layout::from_size_align(size, align_of::<DatumPageHeader>())
-            .map_err(|_| DatumspaceError::AllocationFailure)?;
-
-        Ok((header, layout))
+        Ok((header, required_layout))
     }
 
     /// Computes the runtime sizes and flattens the GC offsets for all types.

@@ -11,7 +11,7 @@ use crate::{
             Datumspace, DatumspaceError,
             datum::DatumPage,
             runnable::{Function, FunctionFlags, Runnable},
-            tables::{constant_table::Constant, link_table::Link},
+            tables::{constant_table::Constant, link_table::Link, symbol_table::Symbol},
         },
     },
 };
@@ -30,6 +30,11 @@ pub(super) mod parser;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct SymbolId(pub [u8; 16]);
+
+impl SymbolId
+{
+    pub const ZEROED: Self = Self([0; 16]);
+}
 
 const DEFAULT_CAPACITY: usize = 1 << 24; // 16 MiB
 
