@@ -180,15 +180,18 @@ impl LayoutEngine
 }
 
 #[cfg(test)]
-mod tests {
+mod tests
+{
+    use std::mem::size_of;
+
     use super::*;
     use crate::loader::parser::layout::{FieldDef, ScalarTag, TypeSignature};
     use crate::memory::datumspace::DatumspaceError;
-    use std::mem::size_of;
 
     // --- Helper functions for cleaner test setups ---
 
-    fn mock_field(signature: TypeSignature) -> FieldDef {
+    fn mock_field(signature: TypeSignature) -> FieldDef
+    {
         FieldDef {
             // Assuming name exists but is ignored by the engine logic
             name: 0,
@@ -196,14 +199,16 @@ mod tests {
         }
     }
 
-    fn ptr_size() -> u32 {
+    fn ptr_size() -> u32
+    {
         size_of::<usize>() as u32
     }
 
     // --- 1. Core Mathematics ---
 
     #[test]
-    fn test_align_to() {
+    fn test_align_to()
+    {
         assert_eq!(LayoutEngine::align_to(0, 4), 0);
         assert_eq!(LayoutEngine::align_to(1, 4), 4);
         assert_eq!(LayoutEngine::align_to(3, 4), 4);
@@ -215,7 +220,8 @@ mod tests {
     }
 
     #[test]
-    fn test_engine_initialization() {
+    fn test_engine_initialization()
+    {
         let engine = LayoutEngine::new(10);
         assert_eq!(engine.resolved.len(), 10);
         assert_eq!(engine.pointer_size, ptr_size());
@@ -224,7 +230,8 @@ mod tests {
     // --- 2. Field Resolution (Scalars & Alignment) ---
 
     #[test]
-    fn test_resolve_fields_scalars() {
+    fn test_resolve_fields_scalars()
+    {
         let engine = LayoutEngine::new(0);
         let fields = vec![
             mock_field(TypeSignature::Scalar(ScalarTag::Integer32)), // Offset 0, size 4
@@ -246,7 +253,8 @@ mod tests {
     // --- 3. Field Resolution (GC Roots & Base Offsets) ---
 
     #[test]
-    fn test_resolve_fields_gc_roots() {
+    fn test_resolve_fields_gc_roots()
+    {
         let engine = LayoutEngine::new(0);
         let fields = vec![
             mock_field(TypeSignature::Scalar(ScalarTag::Integer32)),
@@ -276,14 +284,17 @@ mod tests {
     // --- 4. Value Types & Error Handling ---
 
     #[test]
-    fn test_resolve_value_type_success() {
+    fn test_resolve_value_type_success()
+    {
         let mut engine = LayoutEngine::new(2);
         // Prime the cache with a known value type layout (no GC roots)
-        engine.resolved[1] = TypeLayout { size: 12, align: 4, has_gc_roots: false };
+        engine.resolved[1] = TypeLayout {
+            size: 12,
+            align: 4,
+            has_gc_roots: false,
+        };
 
-        let fields = vec![
-            mock_field(TypeSignature::ValueType { type_index: 1 }),
-        ];
+        let fields = vec![mock_field(TypeSignature::ValueType { type_index: 1 })];
 
         let mut gc_offsets = Vec::new();
         let layout = engine.resolve_fields(&fields, &mut gc_offsets, 0).unwrap();
@@ -294,14 +305,17 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_value_type_with_gc_roots_fails() {
+    fn test_resolve_value_type_with_gc_roots_fails()
+    {
         let mut engine = LayoutEngine::new(2);
         // A value type that contains GC roots (e.g. holds a String)
-        engine.resolved[1] = TypeLayout { size: 8, align: 8, has_gc_roots: true };
+        engine.resolved[1] = TypeLayout {
+            size: 8,
+            align: 8,
+            has_gc_roots: true,
+        };
 
-        let fields = vec![
-            mock_field(TypeSignature::ValueType { type_index: 1 }),
-        ];
+        let fields = vec![mock_field(TypeSignature::ValueType { type_index: 1 })];
 
         let mut gc_offsets = Vec::new();
         let result = engine.resolve_fields(&fields, &mut gc_offsets, 0);
@@ -311,7 +325,8 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_value_type_invalid_index() {
+    fn test_resolve_value_type_invalid_index()
+    {
         let engine = LayoutEngine::new(1); // Only index 0 exists
 
         let fields = vec![
@@ -327,17 +342,18 @@ mod tests {
     // --- 5. Struct Resolution ---
 
     #[test]
-    fn test_resolve_struct() {
+    fn test_resolve_struct()
+    {
         let mut engine = LayoutEngine::new(1);
-        let fields = vec![
-            mock_field(TypeSignature::Scalar(ScalarTag::Integer64)),
-        ];
+        let fields = vec![mock_field(TypeSignature::Scalar(ScalarTag::Integer64))];
 
         let mut gc_offsets = Vec::new();
         let header_size = 16;
         let type_index = 0;
 
-        let heap_layout = engine.resolve_struct(type_index, &fields, &mut gc_offsets, header_size).unwrap();
+        let heap_layout = engine
+            .resolve_struct(type_index, &fields, &mut gc_offsets, header_size)
+            .unwrap();
 
         // The cached inline layout should have 0 base offset
         let inline_layout = engine.resolved[type_index];
@@ -353,19 +369,24 @@ mod tests {
     // --- 6. Enum/Variant Resolution ---
 
     #[test]
-    fn test_enum_variants_and_finalization() {
+    fn test_enum_variants_and_finalization()
+    {
         let mut engine = LayoutEngine::new(1);
         let header_size = 16;
 
         // Variant 1: Just an I32
         let fields_v1 = vec![mock_field(TypeSignature::Scalar(ScalarTag::Integer32))];
         let mut gc_offsets_v1 = Vec::new();
-        let layout_v1 = engine.resolve_variant(&fields_v1, &mut gc_offsets_v1, header_size).unwrap();
+        let layout_v1 = engine
+            .resolve_variant(&fields_v1, &mut gc_offsets_v1, header_size)
+            .unwrap();
 
         // Variant 2: An I64
         let fields_v2 = vec![mock_field(TypeSignature::Scalar(ScalarTag::Integer64))];
         let mut gc_offsets_v2 = Vec::new();
-        let layout_v2 = engine.resolve_variant(&fields_v2, &mut gc_offsets_v2, header_size).unwrap();
+        let layout_v2 = engine
+            .resolve_variant(&fields_v2, &mut gc_offsets_v2, header_size)
+            .unwrap();
 
         // Check Variant 1 Internal Logic (4 byte discriminant)
         // Inline: 4 (disc) + 4 (I32) = 8
