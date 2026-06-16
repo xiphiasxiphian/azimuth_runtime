@@ -474,7 +474,7 @@ impl PageBuilder
     unsafe fn write_iter<I, T>(self, loc: &BlockLocation, iter: I) -> Option<Self>
     where
         I: Iterator<Item = T>,
-        T: Copy + Sized,
+        T: Sized,
     {
         if loc.1 == 0
         {

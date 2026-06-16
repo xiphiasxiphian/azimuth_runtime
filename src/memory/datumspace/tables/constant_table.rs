@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{cell::UnsafeCell, ptr::NonNull};
 
 // This is a more formalised wrapper around the idea of the constant table.
 //
@@ -21,10 +21,39 @@ pub struct DataEntry
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ConstantTableEntry
+pub enum ConstantTableEntryData
 {
     Unresolved(DataEntry),
     Resolved(Constant),
+}
+
+pub struct ConstantTableEntry
+{
+    inner: UnsafeCell<ConstantTableEntryData>
+}
+
+impl ConstantTableEntry {
+    pub fn new(data: ConstantTableEntryData) -> Self
+    {
+        Self {
+            inner: UnsafeCell::new(data),
+        }
+    }
+
+    // Safe read access: Converts the cell to a shared reference.
+    // SAFETY: You must ensure no other code is actively writing to this
+    // specific entry at the exact moment this is called.
+    pub fn as_data(&self) -> &ConstantTableEntryData
+    {
+        unsafe { &*self.inner.get() }
+    }
+
+    // Safe/Unsafe write access depending on your thread-safety guarantees
+    pub unsafe fn set_data(&self, new_data: ConstantTableEntryData)
+    {
+        let ptr = self.inner.get();
+        unsafe { ptr.write(new_data) };
+    }
 }
 
 /// A Constant stored within the constant table.

@@ -28,7 +28,7 @@ use crate::{
             layout_engine::{LayoutEngine, TypeLayout},
             runnable::{Function, FunctionFlags, Runnable},
             tables::{
-                constant_table::{Constant, ConstantTableEntry, DataEntry},
+                constant_table::{Constant, ConstantTableEntry, ConstantTableEntryData, DataEntry},
                 link_table::{self, Link},
                 symbol_table::{Symbol, SymbolKind},
                 types::{RuntimeEnumVariant, RuntimeType, RuntimeTypeKind},
@@ -103,10 +103,10 @@ impl<'d> Datumspace<'d>
                     .write_enum_variants(runtime_variants.into_iter())?
                     .write_gc_offsets(runtime_gc_offsets.into_iter())?
                     .write_constants(layout.data_directory.entries.iter().map(|x| {
-                        ConstantTableEntry::Unresolved(DataEntry {
+                        ConstantTableEntry::new(ConstantTableEntryData::Unresolved(DataEntry {
                             loc: (header.data_blob.0 + Offset(x.index), x.length),
                             tag: x.signature,
-                        })
+                        }))
                     }))?
                     .write_functions(layout.code_directory.functions.iter().map(|x| {
                         Runnable::Function(Function {
@@ -192,10 +192,10 @@ impl<'d> Datumspace<'d>
         let page = self.get_page(page_id)?;
 
         let entry = page.constants.get(index).ok_or(DatumspaceError::ResourceDoesntExist)?;
-        match entry
+        match entry.as_data()
         {
-            ConstantTableEntry::Resolved(constant) => Ok(constant),
-            ConstantTableEntry::Unresolved(entry) =>
+            ConstantTableEntryData::Resolved(constant) => Ok(constant),
+            ConstantTableEntryData::Unresolved(entry) =>
             unsafe {
                 self.write_constant(
                     page_id,
@@ -277,12 +277,13 @@ impl<'d> Datumspace<'d>
             "Constant index out of bounds"
         );
 
+        // yeah should probably UnsafeCell a bunch of this but oh well, ill fix that later
         Ok(unsafe {
             let ptr = constants_loc.0.as_ptr(*base).add(index);
-            ptr.write(ConstantTableEntry::Resolved(constant));
+            ptr.write(ConstantTableEntry::new(ConstantTableEntryData::Resolved(constant)));
 
-            match ptr.as_ref() {
-                ConstantTableEntry::Resolved(c) => c,
+            match ptr.as_ref().as_data() {
+                ConstantTableEntryData::Resolved(c) => c,
                 _ => unreachable!(),
             }
         })
@@ -636,9 +637,9 @@ mod tests
         // 1. Check initial state via the page (should be Unresolved)
         {
             let page = ds.get_page(&id).unwrap();
-            match page.constants[0]
+            match page.constants[0].as_data()
             {
-                ConstantTableEntry::Unresolved(_) =>
+                ConstantTableEntryData::Unresolved(_) =>
                 {}
                 _ => panic!("Constant should start as Unresolved"),
             }
@@ -657,11 +658,11 @@ mod tests
 
         // 3. Verify it is now mutated to Resolved in memory
         let page = ds.get_page(&id).unwrap();
-        match page.constants[0]
+        match page.constants[0].as_data()
         {
-            ConstantTableEntry::Resolved(c) =>
+            ConstantTableEntryData::Resolved(c) =>
             {
-                if let Constant::Unsigned32(v) = c
+                if let &Constant::Unsigned32(v) = c
                 {
                     assert_eq!(v, 42);
                 }
