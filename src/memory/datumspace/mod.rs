@@ -664,12 +664,9 @@ mod tests
         let page = ds.get_page(&id).unwrap();
         match page.constants[0].as_data()
         {
-            ConstantTableEntryData::Resolved(c) =>
+            &ConstantTableEntryData::Resolved(Constant::Unsigned32(v)) =>
             {
-                if let &Constant::Unsigned32(v) = c
-                {
-                    assert_eq!(v, 42);
-                }
+                assert_eq!(v, 42);
             }
             _ => panic!("Constant should be Resolved in-place"),
         }
@@ -704,7 +701,7 @@ mod tests
     fn test_allocation_failure_on_small_capacity()
     {
         // Try to allocate a space that is clearly too small for the headers and tables
-        let mut ds = Datumspace::with_capacity(64).unwrap();
+        let mut ds = Datumspace::with_capacity(1024).unwrap();
         let layout = mock_layout(SymbolId([0; 16]), vec![0; 512], vec![0; 512]);
 
         let result = ds.load_datum(&layout);

@@ -1,6 +1,5 @@
 use std::{
     alloc::{Layout, alloc, dealloc},
-    ops::Add as _,
     ptr::NonNull,
 };
 
