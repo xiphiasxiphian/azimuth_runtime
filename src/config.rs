@@ -92,8 +92,8 @@ impl Config
 
         // -- Init Required systems --
 
-        // Init Loader (WIP)
-        let mut loader = Loader::new("").map_err(|_| ConfigError::LoaderInitError)?;
+        // Init Loader
+        let mut loader = Loader::new(&self.filename).map_err(|_| ConfigError::LoaderInitError)?;
 
         // Init Stack
         let mut stack = Stack::new(self.flags.stack_size);
